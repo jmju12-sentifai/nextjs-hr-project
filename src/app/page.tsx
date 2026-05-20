@@ -776,13 +776,14 @@ export default async function Home() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 gap-12 md:grid-cols-2">
             <div>
-              <div className="mb-6 flex items-center space-x-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded bg-gray-900">
-                  <span className="text-lg font-black italic text-white">K</span>
-                </div>
-                <span className="text-2xl font-black italic tracking-tight text-gray-900">
-                  K Prime HR
-                </span>
+              <div className="mb-6">
+                <Image
+                  src="/logo-footer.png"
+                  alt="K Prime HR"
+                  width={240}
+                  height={64}
+                  className="h-20 w-auto"
+                />
               </div>
               <p className="max-w-md text-sm leading-relaxed text-gray-600">
                 우리는 인사 컨설팅의 복잡한 블랙박스를 걷어내고, 누구나 실행 가능한

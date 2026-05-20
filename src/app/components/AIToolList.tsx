@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Tool = {
   no: number;
@@ -99,9 +100,55 @@ function parseAiTimeToMinutes(time: string): number {
   return Number.POSITIVE_INFINITY;
 }
 
+type DifyTool = "report-summary";
+type Activation = { kind: "dify"; tool: DifyTool } | { kind: "ats" } | { kind: "eval" };
+
+const DIFY_CONFIG: Record<DifyTool, { title: string; src: string; helper: string }> = {
+  "report-summary": {
+    title: "보고서/자료 요약기",
+    src: "https://udify.app/workflow/wiiyddzOMb3Wq8QA",
+    helper: "요약할 보고서/자료 파일을 업로드한 후 실행을 눌러 주세요.",
+  },
+};
+
+const TOOL_ACTIVATION: Record<number, Activation> = {
+  1: { kind: "dify", tool: "report-summary" },
+  4: { kind: "ats" },
+  17: { kind: "eval" },
+};
+
+const NEW_BADGE_TOOLS = new Set([4, 17]);
+
 export default function AIToolList() {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [sortKey, setSortKey] = useState<"default" | "name" | "aiTime">("default");
+  const [activeDify, setActiveDify] = useState<DifyTool | null>(null);
+
+  useEffect(() => {
+    console.log("[AIToolList] activeDify =", activeDify);
+  }, [activeDify]);
+
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      console.log("[AIToolList] pageshow persisted=", e.persisted);
+      if (e.persisted) {
+        window.location.reload();
+      }
+    };
+    const handlePopState = (e: PopStateEvent) => {
+      console.log("[AIToolList] popstate, pathname=", window.location.pathname, e);
+      if (window.location.pathname === "/") {
+        window.location.reload();
+      }
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -164,7 +211,7 @@ export default function AIToolList() {
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-800">
+              <tr className="border-b border-blue-100 bg-blue-50 text-[11px] font-bold uppercase tracking-wider text-gray-900">
                 <th className="whitespace-nowrap px-3 py-3 text-center">No.</th>
                 <th className="whitespace-nowrap px-2 py-3 text-center">비고</th>
                 <th className="whitespace-nowrap px-3 py-3 text-left">인사영역</th>
@@ -181,7 +228,7 @@ export default function AIToolList() {
                 return (
                   <tr
                     key={`${tool.code}-${idx}`}
-                    className="border-b border-gray-100 last:border-b-0 transition hover:bg-blue-50/30"
+                    className="group border-b border-gray-100 last:border-b-0 transition hover:bg-blue-50/30"
                   >
                     <td className="px-3 py-3 text-center text-xs font-semibold text-gray-400">
                       {tool.no}
@@ -200,8 +247,36 @@ export default function AIToolList() {
                         {tool.category}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm font-bold text-gray-900">
-                      {tool.name}
+                    <td className="whitespace-nowrap px-4 py-3 text-sm font-bold">
+                      {TOOL_ACTIVATION[tool.no] ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const act = TOOL_ACTIVATION[tool.no];
+                            console.log("[AIToolList] CLICK fired no=", tool.no, "act=", act);
+                            if (act.kind === "dify") {
+                              setActiveDify(act.tool);
+                            } else if (act.kind === "ats") {
+                              router.push("/tools/ats");
+                            } else if (act.kind === "eval") {
+                              router.push("/tools/eval");
+                            }
+                          }}
+                          className="inline-flex cursor-pointer items-center gap-2 text-blue-600 hover:underline"
+                        >
+                          {tool.name}
+                          {NEW_BADGE_TOOLS.has(tool.no) && (
+                            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                              NEW
+                            </span>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-gray-900 transition-colors group-hover:text-blue-600">
+                          {tool.name}
+                        </span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 text-center text-xs font-medium text-gray-400">
                       {tool.oldTime}
@@ -225,9 +300,50 @@ export default function AIToolList() {
         </div>
       </div>
 
-      <p className="mt-6 text-center text-xs text-gray-500">
-        총 {TOOLS.length}개의 AI 도구가 제공 중이며, 100개 이상의 AIA가 지속적으로 개발되고 있습니다.
+      <p className="mt-6 text-center text-xs leading-relaxed text-gray-500">
+        위 리스트는 현재 제공 중이거나 곧 업데이트 예정인 핵심 인사 도구들입니다.
+        <br />
+        K Prime HR은 이외에도 조직 관리, 성과 평가, 보상 체계 등 100개 이상의 AIA를 개발하고 있습니다.
       </p>
+
+      {activeDify && (
+        <div className="fixed bottom-6 right-6 z-[200] flex w-[95vw] max-w-[1100px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+          <div className="flex items-center justify-between bg-blue-600 p-4 text-white">
+            <div className="flex items-center space-x-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+              <span className="text-base font-bold">{DIFY_CONFIG[activeDify].title}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveDify(null)}
+              className="rounded-lg p-1 transition-colors hover:bg-white/10"
+              aria-label="닫기"
+            >
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+          <div className="h-[700px] w-full overflow-hidden bg-white">
+            <iframe
+              src={DIFY_CONFIG[activeDify].src}
+              className="h-full w-full border-0"
+              title={DIFY_CONFIG[activeDify].title}
+              allow="microphone"
+            />
+          </div>
+          <div className="border-t border-blue-100 bg-blue-50 p-4">
+            <p className="text-center text-sm font-bold leading-relaxed text-blue-900">
+              {DIFY_CONFIG[activeDify].helper}
+            </p>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
