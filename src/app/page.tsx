@@ -774,75 +774,62 @@ export default async function Home() {
 
       <footer className="mt-8 border-t border-gray-200 bg-gray-50 py-16 text-gray-600">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 gap-12 md:grid-cols-2">
-            <div>
-              <div className="mb-6">
-                <Image
-                  src="/logo-footer.png"
-                  alt="K Prime HR"
-                  width={240}
-                  height={64}
-                  className="h-20 w-auto"
-                />
-              </div>
-              <p className="max-w-md text-sm leading-relaxed text-gray-600">
-                우리는 인사 컨설팅의 복잡한 블랙박스를 걷어내고, 누구나 실행 가능한
-                도구(AIA)로 바꿉니다. 기업의 성장은 데이터와 로직 위에 세워져야 한다는
-                믿음으로 서비스를 만듭니다.
-              </p>
+          <div>
+            <div className="mb-6">
+              <Image
+                src="/logo-footer.png"
+                alt="K Prime HR"
+                width={240}
+                height={64}
+                className="h-20 w-auto"
+              />
             </div>
+            <p className="mb-8 text-sm italic leading-relaxed text-gray-600">
+              우리는 인사 컨설팅의 복잡한 블랙박스를 걷어내고, 누구나 실행 가능한 도구(AIA)로 바꿉니다. 기업의 성장은 데이터와 로직 위에 세워져야 한다는 믿음으로 서비스를 만듭니다.
+            </p>
 
-            <div className="md:justify-self-end md:text-right">
-              <h4 className="mb-6 text-sm font-bold uppercase tracking-widest text-gray-800">
-                Business Info
-              </h4>
-              <dl className="space-y-2 text-xs leading-relaxed">
-                <div className="flex md:justify-end">
-                  <dt className="w-32 shrink-0 font-semibold text-gray-700 md:text-right">
-                    상호명
-                  </dt>
-                  <dd className="ml-4 text-gray-400">(입력 필요)</dd>
-                </div>
-                <div className="flex md:justify-end">
-                  <dt className="w-32 shrink-0 font-semibold text-gray-700 md:text-right">
-                    대표자명
-                  </dt>
-                  <dd className="ml-4 text-gray-400">(입력 필요)</dd>
-                </div>
-                <div className="flex md:justify-end">
-                  <dt className="w-32 shrink-0 font-semibold text-gray-700 md:text-right">
-                    사업자등록번호
-                  </dt>
-                  <dd className="ml-4 text-gray-400">(입력 필요)</dd>
-                </div>
-                <div className="flex md:justify-end">
-                  <dt className="w-32 shrink-0 font-semibold text-gray-700 md:text-right">
-                    사업자 주소
-                  </dt>
-                  <dd className="ml-4 text-gray-400">(입력 필요)</dd>
-                </div>
-                <div className="flex md:justify-end">
-                  <dt className="w-32 shrink-0 font-semibold text-gray-700 md:text-right">
-                    유선번호
-                  </dt>
-                  <dd className="ml-4 text-gray-400">(입력 필요)</dd>
-                </div>
-                <div className="flex md:justify-end">
-                  <dt className="w-32 shrink-0 font-semibold text-gray-700 md:text-right">
-                    통신판매업 신고번호
-                  </dt>
-                  <dd className="ml-4 text-gray-400">(입력 필요)</dd>
-                </div>
-              </dl>
+            <div>
+              <div className="space-y-1.5 text-xs leading-relaxed text-gray-600">
+                <p>
+                  <span className="font-semibold text-gray-700">상호명</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                  <span className="mx-2 text-gray-300">|</span>
+                  <span className="font-semibold text-gray-700">대표자명</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                  <span className="mx-2 text-gray-300">|</span>
+                  <span className="font-semibold text-gray-700">사업자등록번호</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                </p>
+                <p>
+                  <span className="font-semibold text-gray-700">사업자 주소</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                  <span className="mx-2 text-gray-300">|</span>
+                  <span className="font-semibold text-gray-700">고객센터</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                  <span className="mx-2 text-gray-300">|</span>
+                  <span className="font-semibold text-gray-700">이메일 문의</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                </p>
+                <p>
+                  <span className="font-semibold text-gray-700">통신판매업 신고번호</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                  <span className="mx-2 text-gray-300">|</span>
+                  <span className="font-semibold text-gray-700">개인정보관리책임자</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                  <span className="mx-2 text-gray-300">|</span>
+                  <span className="font-semibold text-gray-700">호스팅제공자</span>{" "}
+                  <span className="text-gray-400">(입력 필요)</span>
+                </p>
+              </div>
             </div>
           </div>
 
           <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-gray-200 pt-8 text-[10px] font-bold uppercase tracking-widest text-gray-500 md:flex-row">
             <p>© {new Date().getFullYear()} AI인사팀 (K Prime HR Solution). All Rights Reserved.</p>
             <div className="flex space-x-8">
-              <a href="#" className="transition-colors hover:text-gray-900">Privacy Policy</a>
-              <a href="#" className="transition-colors hover:text-gray-900">Terms of Service</a>
-              <a href="#" className="transition-colors hover:text-gray-900">Security</a>
+              <a href="#" className="transition-colors hover:text-gray-900">개인정보처리방침</a>
+              <a href="#" className="transition-colors hover:text-gray-900">서비스 이용약관</a>
+              <a href="#" className="transition-colors hover:text-gray-900">보안</a>
             </div>
           </div>
         </div>
