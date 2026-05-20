@@ -150,10 +150,9 @@ export default function ATSAnalyzer({ onBack }: ATSAnalyzerProps) {
   };
 
   return (
-    <div style={{ fontFamily: "'Pretendard', sans-serif" }} className="bg-slate-50 text-slate-800">
+    <div style={{ fontFamily: "'Pretendard', sans-serif" }} className="bg-gray-50 text-gray-800">
       <header
-        className="text-white py-20 px-4 text-center shadow-lg relative overflow-hidden pb-32"
-        style={{ background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" }}
+        className="bg-blue-600 text-white py-20 px-4 text-center shadow-sm relative overflow-hidden pb-32"
       >
         <div className="max-w-4xl mx-auto relative z-10">
           <button
@@ -181,8 +180,8 @@ export default function ATSAnalyzer({ onBack }: ATSAnalyzerProps) {
         className="max-w-7xl mx-auto px-4 pb-20"
         style={{ marginTop: "-6rem", position: "relative", zIndex: 20 }}
       >
-        <section className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden mb-16 max-w-4xl mx-auto">
-          <div className="bg-slate-50 border-b border-slate-100 px-8 py-6">
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-16 max-w-4xl mx-auto">
+          <div className="bg-gray-50 border-b border-gray-100 px-8 py-6">
             <h2 className="text-2xl font-bold text-slate-800 flex items-center">
               <i className="fas fa-file-signature text-blue-600 mr-3"></i>진단 시작하기
             </h2>
@@ -353,7 +352,7 @@ export default function ATSAnalyzer({ onBack }: ATSAnalyzerProps) {
                 <button
                   onClick={handleExecute}
                   disabled={isLoading}
-                  className="text-white font-bold text-lg py-4 px-12 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center mx-auto group disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-white font-bold text-lg py-4 px-12 rounded-xl shadow-sm hover:shadow-md transition-all flex items-center justify-center mx-auto group disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: isLoading ? "#94a3b8" : "#2563eb" }}
                 >
                   <i className="fas fa-play mr-3"></i>분석 실행하기

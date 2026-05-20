@@ -22,9 +22,9 @@ interface EvalCollectorProps {
 }
 
 const css = `
-  .ec-wrap{font-family:'Noto Sans KR',sans-serif;background:#E5E7EB;color:#1F2937;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:100px 16px 32px}
-  .ec-card{background:#FFF;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);width:100%;max-width:680px;overflow:hidden}
-  .ec-hd{background:linear-gradient(135deg,#1E3A5F,#1E40AF 60%,#2563EB);color:#FFF;padding:28px 32px}
+  .ec-wrap{font-family:'Noto Sans KR',sans-serif;background:#F9FAFB;color:#1F2937;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:100px 16px 32px}
+  .ec-card{background:#FFF;border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid #F3F4F6;width:100%;max-width:680px;overflow:hidden}
+  .ec-hd{background:#2563EB;color:#FFF;padding:28px 32px}
   .ec-hd h1{font-size:22px;font-weight:700}.ec-hd p{font-size:13px;opacity:.8;margin-top:4px}
   .ec-bd{padding:28px 32px}
   .ec-fg{margin-bottom:22px}
@@ -36,7 +36,7 @@ const css = `
   .ec-gc-wrap{display:flex;gap:8px;margin-bottom:12px}
   .ec-gc-btn{padding:6px 14px;border:1.5px solid #D1D5DB;border-radius:6px;background:#FFF;font-size:12px;cursor:pointer;font-family:inherit;transition:all .2s}
   .ec-gc-btn:hover{border-color:#3B82F6;color:#3B82F6}
-  .ec-gc-btn.active{background:#1E40AF;color:#FFF;border-color:#1E40AF}
+  .ec-gc-btn.active{background:#2563EB;color:#FFF;border-color:#2563EB}
   .ec-gt{width:100%;border-collapse:collapse;margin-bottom:6px}
   .ec-gt th{background:#F3F4F6;padding:8px 12px;font-size:12px;font-weight:600;color:#6B7280;text-align:center;border-bottom:2px solid #D1D5DB}
   .ec-gt td{padding:6px 8px;border-bottom:1px solid #F3F4F6}
@@ -46,7 +46,7 @@ const css = `
   .ec-type-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
   .ec-tc{border:2px solid #D1D5DB;border-radius:12px;padding:16px;cursor:pointer;transition:all .2s;text-align:center}
   .ec-tc:hover{border-color:#3B82F6;background:#EFF6FF}
-  .ec-tc.selected{border-color:#1E40AF;background:#EFF6FF;box-shadow:0 0 0 3px rgba(30,64,175,.15)}
+  .ec-tc.selected{border-color:#2563EB;background:#EFF6FF;box-shadow:0 0 0 3px rgba(37,99,235,.15)}
   .ec-tc-icon{font-size:32px;margin-bottom:8px}
   .ec-tc-title{font-size:14px;font-weight:600;color:#1F2937}
   .ec-tc-desc{font-size:11px;color:#6B7280;margin-top:4px;line-height:1.5}
@@ -58,12 +58,12 @@ const css = `
   .ec-flist{margin-top:8px}
   .ec-fitem{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#F3F4F6;border-radius:6px;margin-top:4px;font-size:12px}
   .ec-rm{color:#DC2626;cursor:pointer;font-weight:700;padding:2px 6px;background:none;border:none;font-size:12px;line-height:1}
-  .ec-submit{width:100%;padding:14px;background:linear-gradient(135deg,#1E40AF,#2563EB);color:#FFF;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s;margin-top:8px}
+  .ec-submit{width:100%;padding:14px;background:#2563EB;color:#FFF;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s;margin-top:8px}
   .ec-submit:hover{opacity:.9}.ec-submit:disabled{opacity:.5;cursor:not-allowed}
   .ec-spinner{width:48px;height:48px;border:4px solid rgba(255,255,255,.3);border-top-color:white;border-radius:50%;animation:ec-spin 1s linear infinite}
   @keyframes ec-spin{to{transform:rotate(360deg)}}
-  .ec-back-btn{position:fixed;top:24px;left:24px;z-index:50;padding:8px 16px;background:#FFF;color:#1E40AF;border:1.5px solid #1E40AF;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 2px 8px rgba(0,0,0,.08);transition:all .2s}
-  .ec-back-btn:hover{background:#1E40AF;color:#FFF}
+  .ec-back-btn{position:fixed;top:24px;left:24px;z-index:50;padding:8px 16px;background:#FFF;color:#2563EB;border:1px solid #DBEAFE;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 1px 3px rgba(0,0,0,.06);transition:all .2s}
+  .ec-back-btn:hover{background:#EFF6FF;color:#2563EB;border-color:#2563EB}
 `;
 
 export default function EvalCollector({ onBack }: EvalCollectorProps) {
