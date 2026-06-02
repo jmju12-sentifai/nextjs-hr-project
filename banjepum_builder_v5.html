@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>반제품 v5 — 규정 적용 앱 빌더</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--paper:#FBFAF6;--ink:#1B1A16;--soft:#5A574C;--line:#E3DFD3;--lsoft:#EDEAE0;
+    --amber:#A85D17;--amber-s:#F4ECDD;--live:#1C7349;--live-s:#E7F1EA;--warn:#A3331F;--warn-s:#F6E7E2;--card:#fff;--nav:#1B2A4A;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",sans-serif;font-size:14px;line-height:1.6;padding-bottom:60px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 26px}
+  header{border-bottom:1px solid var(--line);padding:22px 0 0}
+  .htop{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}
+  h1{font-family:"Fraunces",serif;font-weight:600;font-size:24px;letter-spacing:-.01em}
+  h1 small{display:block;font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin-bottom:6px}
+  .tools{display:flex;gap:8px}
+  .btn{font-family:"IBM Plex Mono",monospace;font-size:11.5px;border:1px solid var(--ink);background:var(--card);color:var(--ink);padding:7px 13px;border-radius:2px;cursor:pointer}
+  .btn.solid{background:var(--ink);color:var(--paper)}.btn:hover{opacity:.85}
+  .tabs{display:flex;gap:2px;margin-top:20px;flex-wrap:wrap}
+  .tab{font-family:"IBM Plex Mono",monospace;font-size:11.5px;padding:10px 14px;border:1px solid var(--line);border-bottom:0;background:var(--lsoft);color:var(--soft);cursor:pointer;border-radius:3px 3px 0 0}
+  .tab.on{background:var(--card);color:var(--ink);font-weight:500}.tab b{color:var(--amber)}
+  main{border:1px solid var(--line);border-top:0;background:var(--card);min-height:440px}
+  .pane{display:none;padding:24px}.pane.on{display:block}
+  .pane-h h2{font-family:"Fraunces",serif;font-size:19px;font-weight:600}
+  .pane-h .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+  .desc{font-size:12.5px;color:var(--soft);margin:6px 0 16px;line-height:1.55;max-width:840px}
+  .empty{border:1px dashed var(--line);border-radius:3px;padding:26px;text-align:center;color:var(--soft);font-size:13px;font-family:"IBM Plex Mono",monospace}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  td{padding:7px 10px;border-bottom:1px solid var(--lsoft);vertical-align:middle}
+  input,select,textarea{font-family:"IBM Plex Sans",sans-serif;font-size:13px;border:1px solid var(--line);border-radius:2px;padding:6px 8px;background:var(--paper);color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--amber);background:#fff}
+  input.mono{font-family:"IBM Plex Mono",monospace}
+  .x{cursor:pointer;color:var(--warn);font-family:"IBM Plex Mono",monospace;font-size:11.5px;border:1px solid var(--warn-s);background:var(--warn-s);border-radius:2px;padding:3px 8px}
+  .add-row{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  .add-row .lbl{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--soft)}
+  .g{font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--soft);background:var(--paper);border:1px solid var(--line);padding:1px 6px;border-radius:2px}
+  .pill{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:3px 9px;border-radius:2px}
+  .pill.ok{background:var(--live-s);color:var(--live)}.pill.no{background:var(--warn-s);color:var(--warn)}
+  .flow{border:1px solid var(--line);border-radius:3px;background:var(--paper);padding:16px;margin-bottom:20px}
+  .flow .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .fbox{border:1px solid var(--line);background:var(--card);border-radius:3px;padding:9px 13px;font-size:12.5px;font-family:"IBM Plex Mono",monospace}
+  .fbox.dim{opacity:.4}
+  .fdec{border:1px solid var(--amber);background:var(--amber-s);color:var(--amber);border-radius:3px;padding:9px 14px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:500}
+  .fpath{display:flex;flex-direction:column;gap:8px}.fbranch{display:flex;align-items:center;gap:9px}
+  .flab{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--soft);min-width:54px}
+  .fbox.taken{border-color:var(--live);background:var(--live-s);color:var(--live);opacity:1}
+  .fbox.taken-no{border-color:var(--warn);background:var(--warn-s);color:var(--warn);opacity:1}
+  .farr{color:var(--soft);font-family:"IBM Plex Mono",monospace}
+  .sec-t{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin:22px 0 10px;display:flex;align-items:center;gap:9px}
+  .sec-t::after{content:"";flex:1;height:1px;background:var(--lsoft)}.sec-t:first-child{margin-top:0}
+  .jrow{display:grid;grid-template-columns:1fr 84px 1fr 150px 84px 54px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--lsoft)}
+  .jrow .cmp{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--soft)}
+  @media(max-width:760px){.jrow{grid-template-columns:1fr 1fr}}
+  .decision{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:3px;padding:12px 16px;margin:14px 0 4px;background:var(--card)}
+  .decision .lab{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
+  .decision .verdict{font-family:"Fraunces",serif;font-size:18px;font-weight:600}
+  .decision.ok{background:var(--live-s)}.decision.ok .verdict{color:var(--live)}
+  .decision.no{background:var(--warn-s)}.decision.no .verdict{color:var(--warn)}
+  .step{border:1px solid var(--line);border-radius:3px;margin-bottom:11px;overflow:hidden}.step.skip{opacity:.45}
+  .sh{display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--paper);border-bottom:1px solid var(--lsoft);flex-wrap:wrap}
+  .badge{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase;padding:3px 8px;border-radius:2px;font-weight:500;white-space:nowrap}
+  .b-branch{background:#EFEDE6;color:#5A574C}.b-classify{background:#FAEFE6;color:#A85D17}
+  .b-table{background:#F1ECF6;color:#5A3F86}.b-formula{background:#E7F1EA;color:#1C7349}.b-clamp{background:#F6ECEA;color:#A3331F}.b-date{background:#EAEFF6;color:#2C4E78}
+  .sh input.nm{width:150px;font-weight:500}
+  .sh .say{flex:1;font-size:12.5px;min-width:180px}.sh .say b{color:var(--amber);font-weight:600}
+  .sh .live{font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--live);background:var(--live-s);padding:4px 10px;border-radius:2px}
+  .sh .live.bad{color:var(--warn);background:var(--warn-s)}
+  .sh .unit{font-family:"IBM Plex Mono",monospace;font-size:11px;width:78px}
+  .sb{padding:10px 13px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;font-size:12.5px;color:var(--soft)}
+  .sb .seg{display:flex;align-items:center;gap:6px}
+  .sb input,.sb select{font-size:12.5px;padding:5px 7px}
+  .sb input.n{width:80px;text-align:right;font-family:"IBM Plex Mono",monospace}
+  .errln{color:var(--warn);font-family:"IBM Plex Mono",monospace;font-size:11.5px;width:100%}
+  .band{display:inline-flex;gap:4px;align-items:center;font-family:"IBM Plex Mono",monospace;font-size:12px;border:1px solid var(--lsoft);padding:3px 6px;border-radius:2px}
+  .band input{width:44px;text-align:center;padding:3px}
+  .pick-hint{font-size:11.5px;color:var(--soft);font-family:"IBM Plex Mono",monospace}
+  .tkblock{width:100%;border:1px solid var(--lsoft);border-radius:3px;background:var(--paper);padding:10px 11px}
+  .tkchips{display:flex;flex-wrap:wrap;gap:6px;min-height:34px;padding:6px;background:var(--card);border:1px solid var(--lsoft);border-radius:2px;align-items:center}
+  .tkchips .blank{color:var(--soft);font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+  .tkc{display:inline-flex;align-items:center;gap:5px;font-family:"IBM Plex Mono",monospace;font-size:12px;padding:3px 4px 3px 9px;border-radius:2px}
+  .tkc.var{background:#E7F1EA;color:#1C7349}
+  .tkc.num{background:var(--amber-s);color:var(--amber)}
+  .tkc.op{background:#EFEDE6;color:#5A574C}
+  .tkc.par{background:#EAEFF6;color:#2C4E78}
+  .tkc .d{cursor:pointer;font-weight:600;opacity:.6;padding:0 3px}
+  .tkc .d:hover{opacity:1}
+  .tkbar{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:9px}
+  .tkbar .grp{display:flex;align-items:center;gap:5px;border-right:1px solid var(--lsoft);padding-right:10px}
+  .tkbar .grp:last-child{border-right:0}
+  .tkbar select,.tkbar input{font-size:12px;padding:4px 6px}
+  .tkbar input.tnum{width:80px;text-align:right;font-family:"IBM Plex Mono",monospace}
+  .tkb{font-family:"IBM Plex Mono",monospace;font-size:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:4px 9px;border-radius:2px;cursor:pointer}
+  .tkb:hover{background:var(--lsoft)}
+  .tkb.opb{min-width:30px;text-align:center;font-weight:600}
+  .tklabel{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--soft)}
+  .tkval{font-family:"IBM Plex Mono",monospace;font-size:12px;margin-left:auto;color:var(--live)}
+  .tkval.bad{color:var(--warn)}
+  .rb{display:grid;grid-template-columns:260px 1fr;gap:20px;align-items:start}
+  @media(max-width:900px){.rb{grid-template-columns:1fr}}
+  .palette{border:1px solid var(--line);border-radius:3px;padding:14px;background:var(--paper);position:sticky;top:10px;max-height:calc(100vh - 40px);overflow:auto}
+  .palette h3{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);margin-bottom:4px}
+  .palette .ph2{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--amber);margin-bottom:12px;padding:5px 8px;background:var(--amber-s);border-radius:2px;text-align:center}
+  .pitem{border:1px solid var(--line);background:var(--card);border-radius:3px;padding:8px 10px;margin-bottom:7px;cursor:grab;transition:all .12s}
+  .pitem:hover{border-color:var(--amber);box-shadow:0 1px 6px rgba(168,93,23,.18);transform:translateX(2px)}
+  .pitem:active{cursor:grabbing}
+  .pitem .head{display:flex;align-items:center;gap:6px}
+  .pitem .head .grip{color:var(--soft);font-size:11px;font-family:"IBM Plex Mono",monospace;letter-spacing:-1px}
+  .pitem .t{font-size:12px;font-weight:600;flex:1;color:var(--ink)}
+  .pitem .s{font-size:10.5px;color:var(--soft);margin-top:2px;margin-left:18px}
+  .pitem .thumb{margin-top:6px;height:30px;background:var(--paper);border:1px dashed var(--lsoft);border-radius:2px;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:2px}
+  .pitem .thumb svg{max-height:26px;width:auto}
+  .canvas-wrap{border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#fff;box-shadow:0 1px 8px rgba(0,0,0,.04)}
+  .canvas-bar{background:#1B2A4A;color:#FBFAF6;padding:10px 16px;font-family:"Fraunces",serif;font-size:13.5px;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .canvas-bar .m{font-family:"IBM Plex Mono",monospace;font-size:9.5px;opacity:.7;font-weight:400}
+  .canvas{border:0;border-radius:0;min-height:320px;padding:18px;background:#fff;display:grid;grid-template-columns:repeat(6,1fr);grid-auto-rows:96px;gap:12px;align-content:start}
+  .canvas.drag{background:var(--amber-s)}
+  .canvas .ph{grid-column:1/-1;grid-row:span 2;text-align:center;color:var(--soft);font-family:"IBM Plex Mono",monospace;font-size:12px;border:1.5px dashed var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center}
+  .el{border:1px solid var(--line);border-radius:3px;background:var(--card);overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .el.s2{grid-column:span 2}.el.s3{grid-column:span 3}.el.s6{grid-column:span 6}
+  .el.h2{grid-row:span 2}.el.h3{grid-row:span 3}
+  .el-bar{display:flex;align-items:center;gap:4px;padding:5px 8px;background:var(--paper);border-bottom:1px solid var(--lsoft);font-size:11px;cursor:grab;opacity:.55;transition:opacity .15s;flex-wrap:wrap}
+  .el:hover .el-bar{opacity:1}
+  .el-bar .nm{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);cursor:grab;margin-right:4px}
+  .el-bar select{font-size:11px;padding:2px 5px;max-width:130px}
+  .el-bar .w,.el-bar .hh{font-family:"IBM Plex Mono",monospace;font-size:9.5px;border:1px solid var(--line);background:var(--card);padding:2px 5px;border-radius:2px;cursor:pointer}
+  .el-bar .w.on,.el-bar .hh.on{background:var(--ink);color:var(--paper)}
+  .el-bar .sep{color:var(--soft);opacity:.4;margin:0 1px;font-size:11px}
+  .el-bar .rm{cursor:pointer;color:var(--warn);font-weight:600;padding:0 4px;margin-left:auto}
+  .el-body{padding:10px 13px;flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .el-body>*:not(.lab){flex:1;min-height:0}
+  .lab{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin-bottom:6px}
+  .big{font-family:"Fraunces",serif;font-size:18px;font-weight:600;color:var(--amber)}
+  .calc{font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--paper);border:1px solid var(--lsoft);border-radius:2px;padding:9px 11px;line-height:1.8}
+  .calc .r{color:var(--live);font-weight:500}
+  .tag{display:inline-block;padding:3px 9px;border-radius:2px;font-size:12px;margin:0 5px 5px 0}
+  .tag.i{background:var(--live-s);color:var(--live)}.tag.e{background:var(--warn-s);color:var(--warn)}
+  .ctbl{width:100%;font-size:12px;border-collapse:collapse}
+  .ctbl th,.ctbl td{padding:5px 7px;border-bottom:1px solid var(--lsoft);text-align:left}
+  .ctbl th{font-family:"IBM Plex Mono",monospace;font-size:9.5px;text-transform:uppercase;color:var(--soft)}
+  .bar{display:flex;align-items:flex-end;gap:6px;height:78px;padding-top:4px}
+  .bcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;justify-content:flex-end;height:100%}
+  .bcol .bb{width:100%;background:var(--amber-s);border:1px solid var(--amber);border-radius:2px 2px 0 0}
+  .bcol.cur .bb{background:var(--amber)}.bcol .bl{font-family:"IBM Plex Mono",monospace;font-size:9px;color:var(--soft)}
+  .note{font-size:13px;line-height:1.8}
+  /* meta editor */
+  .mform{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 20px;max-width:880px}
+  .mform .full{grid-column:1/-1}
+  .mform label{display:block;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin-bottom:5px}
+  .mform input,.mform textarea{width:100%}
+  .mform textarea{min-height:60px;resize:vertical;line-height:1.6}
+  .listed{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+  .listed .li{display:flex;gap:6px}.listed .li input{flex:1}
+  /* 완제품 preview */
+  .prev{border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .pvnav{background:var(--nav);color:#EAF0FB;padding:14px 20px}
+  .pvnav h3{font-family:"Fraunces",serif;font-size:17px;font-weight:600;display:flex;align-items:center;gap:10px}
+  .pvnav .badge2{font-size:10px;background:rgba(255,255,255,.15);padding:3px 9px;border-radius:10px;font-family:"IBM Plex Mono",monospace}
+  .pvnav p{font-size:11.5px;opacity:.75;margin-top:3px}
+  .pvtabs{display:flex;gap:0;background:#F4F6FA;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .pvtab{flex:1;min-width:130px;text-align:center;padding:13px 8px;font-size:12px;color:var(--soft);cursor:pointer;border-right:1px solid var(--line);border-bottom:2px solid transparent}
+  .pvtab:last-child{border-right:0}
+  .pvtab.on{background:#fff;color:var(--nav);font-weight:600;border-bottom-color:var(--nav)}
+  .pvtab .n{display:inline-flex;width:18px;height:18px;border-radius:50%;background:#D7DEEC;color:var(--nav);font-size:10px;align-items:center;justify-content:center;margin-right:6px;font-family:"IBM Plex Mono",monospace}
+  .pvtab.on .n{background:var(--nav);color:#fff}
+  .pvbody{padding:22px;background:#fff;min-height:380px}
+  .frame{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
+  @media(max-width:860px){.frame{grid-template-columns:1fr}}
+  .fcol{display:flex;flex-direction:column;gap:14px}
+  .pcard{border:1px solid var(--line);border-radius:4px;padding:14px}
+  .pcard h4{font-size:13px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:7px}
+  .pcard .sub{font-size:11.5px;color:var(--soft);margin-bottom:10px}
+  .updrop{border:1.5px dashed var(--line);border-radius:4px;padding:18px;text-align:center;background:var(--paper)}
+  .updrop.done{border-color:var(--live);background:var(--live-s)}
+  .updrop .ico{font-size:20px}.updrop .fn{font-size:12px;font-weight:600;margin-top:6px}
+  .updrop .st{font-size:11px;color:var(--live);margin-top:5px;font-family:"IBM Plex Mono",monospace}
+  .adjrow{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+  .adjrow input,.adjrow select{font-size:12px;padding:5px 6px}
+  .adjrow .nm{width:110px}.adjrow .vl{width:96px}.adjrow .un{width:62px}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--lsoft);font-size:13px}
+  .kv:last-child{border-bottom:0}
+  .kv .k2{color:var(--soft)}.kv .v2{font-weight:600;font-family:"IBM Plex Mono",monospace}
+  .kv .v2.miss{color:var(--warn)}
+  .dlbar{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+  .dlbar .btn{font-size:11px}
+  .pcards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  @media(max-width:760px){.pcards{grid-template-columns:repeat(2,1fr)}}
+  .pc{border:1px solid var(--line);border-radius:6px;padding:14px}
+  .pc .pl{font-size:11px;color:var(--soft)}.pc .pv2{font-family:"Fraunces",serif;font-size:18px;font-weight:600;color:var(--nav);margin-top:5px}
+  .report{border:1px solid var(--line);border-radius:3px}
+  .rbar{background:#1B2A4A;color:#FBFAF6;padding:13px 18px;font-family:"Fraunces",serif;font-size:16px;font-weight:600;border-radius:3px 3px 0 0;display:flex;justify-content:space-between;align-items:center}
+  .rbar .m{font-family:"IBM Plex Mono",monospace;font-size:10px;opacity:.65}
+  .rbody{padding:18px;display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .pv{border:1px solid var(--line);border-radius:3px;padding:12px 13px}
+  .pv.s2{grid-column:span 2}.pv.s3{grid-column:span 3}.pv.s6{grid-column:span 6}
+  .msaas{display:grid;grid-template-columns:1fr;gap:16px}
+  .msaas .hero{border:1px solid var(--line);border-radius:6px;padding:20px;background:var(--paper)}
+  .msaas .hero h4{font-family:"Fraunces",serif;font-size:20px;font-weight:600}
+  .msaas .hero .tg{color:var(--soft);font-size:13px;margin-top:6px}
+  .msaas .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:760px){.msaas .grid3{grid-template-columns:1fr}}
+  .msaas .ec{border:1px solid var(--line);border-radius:6px;padding:14px;font-size:12.5px}
+  .msaas .ec b{display:block;color:var(--nav);margin-bottom:4px}
+  .proc{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .proc .pstep{border:1px solid var(--line);border-radius:6px;padding:10px 14px;font-size:12px;background:#fff}
+  .proc .pstep b{color:var(--nav)}
+  .pagehint{font-size:11px;color:var(--soft);font-family:"IBM Plex Mono",monospace;margin-top:8px;text-align:right}
+  .pagehint.over{color:var(--warn)}
+  footer{font-size:11.5px;color:var(--soft);margin-top:22px;line-height:1.7}footer b{color:var(--ink)}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="htop">
+    <h1><small>반제품 · 저작 도구 v5</small>규정 적용 앱 빌더</h1>
+    <div class="tools"><button class="btn solid" id="loadEx">임금피크제 예시 불러오기</button><button class="btn" id="clear">전체 비우기</button></div>
+  </div>
+  <div class="tabs">
+    <div class="tab on" data-p="m0"><b>⓪</b> 앱 개요</div>
+    <div class="tab" data-p="r1"><b>①</b> 규정 변수</div>
+    <div class="tab" data-p="r2"><b>②</b> 개인 변수</div>
+    <div class="tab" data-p="lg"><b>③</b> 분석 로직</div>
+    <div class="tab" data-p="rp"><b>④</b> 리포트 구성</div>
+    <div class="tab" data-p="pv"><b>⑤</b> 완제품 미리보기</div>
+  </div>
+</div></header>
+
+<main><div class="wrap">
+  <section class="pane on" id="pm0">
+    <div class="pane-h"><span class="k">메타 · M SaaS 설명 정의</span><h2>앱 개요</h2></div>
+    <div class="desc">완제품 첫 화면(M SaaS 설명 탭)과 리포트 머리글을 채웁니다. 기획서 1탭에 해당. 비워도 동작하지만 양산 시 앱 정체성이 됩니다.</div>
+    <div class="mform" id="mform"></div>
+  </section>
+
+  <section class="pane" id="pr1">
+    <div class="pane-h"><span class="k">1차 · 규정 파싱</span><h2>규정에서 뽑을 항목</h2></div>
+    <div class="desc">규정 문서에서 파싱할 기준값·정책 상수 선언. <b>단위</b>는 표시 전용(런타임 계산엔 원수치 사용). <b>날짜</b> 타입은 ③ 날짜 블록의 입력이 됩니다. <span class="g">% = 0.2 저장 → 20% 표시</span></div>
+    <div id="t_규정"></div>
+    <div class="add-row"><span class="lbl">+ 규정 변수</span>
+      <input id="n1Name" placeholder="변수명 (공백 없이)" style="width:180px">
+      <select id="n1Type"><option value="number">number</option><option value="text">text</option><option value="date">date</option></select>
+      <select id="n1Unit" class="uunit"></select>
+      <button class="btn" data-addg="규정">추가</button></div>
+  </section>
+
+  <section class="pane" id="pr2">
+    <div class="pane-h"><span class="k">2차 · 개인 파싱</span><h2>개인 정보에서 뽑을 항목</h2></div>
+    <div class="desc">개인 1명 문서에서 파싱할 항목. 필수는 누락 시 수기 보완 대상.</div>
+    <div id="t_개인"></div>
+    <div class="add-row"><span class="lbl">+ 개인 변수</span>
+      <input id="n2Name" placeholder="변수명 (공백 없이)" style="width:180px">
+      <select id="n2Type"><option value="number">number</option><option value="text">text</option><option value="date">date</option></select>
+      <select id="n2Unit" class="uunit"></select>
+      <label class="lbl"><input type="checkbox" id="n2Req"> 필수</label>
+      <button class="btn" data-addg="개인">추가</button></div>
+  </section>
+
+  <section class="pane" id="plg">
+    <div class="pane-h"><span class="k">Layer 3 · 판단 흐름</span><h2>분석 로직 (판정 → 산출)</h2></div>
+    <div class="desc">계산식은 <b>변수 콤보박스 + 연산자·괄호·숫자 버튼</b>으로 쌓습니다. 단계마다 <b>결과 단위</b>(원/일/명/% 등)를 지정할 수 있습니다. <b>날짜</b> 블록으로 생년월일→나이, 출생월 추출이 가능합니다.</div>
+    <div class="flow" id="flow"></div>
+    <div class="sec-t">판정부 · 규정 ↔ 신청자 비교</div>
+    <div id="jList"></div>
+    <div class="add-row"><span class="lbl">+ 비교 추가</span><button class="btn" id="addJ">추가</button>
+      <span class="pick-hint">예: [최초적용연령] ≤ [만나이]</span></div>
+    <div class="decision" id="decision"></div>
+    <div class="sec-t">산출부 · 적용 대상일 때만 실행</div>
+    <div id="lList"></div>
+    <div class="add-row"><span class="lbl">+ 산출 블록</span>
+      <select id="nStepT">
+        <option value="branch">분기 — 조건 → A/B (텍스트 또는 계산식)</option>
+        <option value="classify">분류 — 항목 골라 집계(합계/개수/평균/최대/최소)</option>
+        <option value="table">구간표 — 값 → 단계값</option>
+        <option value="formula">계산식 — 콤보박스로 변수+수식 쌓기</option>
+        <option value="clamp">보정 — 상·하한</option>
+        <option value="date">날짜 — 두 날짜 차이(년/월/일) 또는 연·월·일 추출</option>
+      </select>
+      <button class="btn" id="addStep">추가</button>
+      <span class="pick-hint" id="pickHint"></span>
+    </div>
+  </section>
+
+  <section class="pane" id="prp">
+    <div class="pane-h"><span class="k">Layer 4 · WYSIWYG</span><h2>리포트 구성</h2></div>
+    <div class="desc">팔레트에서 끌어다 놓고 · 폭 · 순서. 단위가 자동 반영됩니다. 1~2페이지 분량 가이드가 우측 하단에 표시됩니다.</div>
+    <div class="rb">
+      <div class="palette" id="palette"></div>
+      <div class="canvas-wrap">
+        <div class="canvas-bar"><span>📄 리포트 미리보기 (편집)</span><span class="m">⇕ 드래그 순서 · ⅓·½·전체 폭 · 1·2·3 높이 · ✕ 삭제</span></div>
+        <div class="canvas" id="canvas"></div>
+      </div>
+    </div>
+    <div class="pagehint" id="pageHint"></div>
+  </section>
+
+  <section class="pane" id="ppv">
+    <div class="pane-h"><span class="k">검증 · 완제품 시뮬레이션</span><h2>완제품 미리보기 (5탭 / 4프레임)</h2></div>
+    <div class="desc">config가 실제로 찍어내는 완제품입니다. 1·2프레임 = 좌상 업로드 / 좌하 조정부 / 우측 파싱 출력 / 다운로드. 조정부에 추가 항목·예외 비교를 넣으면 분석이 즉시 재계산됩니다(완제품 운영자 시나리오).</div>
+    <div class="prev" id="prev"></div>
+  </section>
+</div></main>
+
+<div class="wrap"><footer>
+  <b>v5</b>: v4(닫힌 6블록·토큰 빌더) + <b>단위 시스템</b> · <b>날짜 블록</b> · <b>완제품 4프레임 런타임</b> · <b>런타임 조정부/단순 예외</b> · <b>meta·M SaaS 설명 탭</b>. 런타임 계산 경로에 LLM·자유 코드 없음(자체 토크나이저+RPN).
+</footer></div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s),uid=()=>Math.random().toString(36).slice(2,7);
+let S={meta:{appName:'',tagline:'',purpose:'',problem:'',users:'',security:'',effects:[],features:[]},vars:[],judge:[],steps:[],report:[]};
+let RT={extraVars:[],extraJudge:[]};            // 완제품 운영시 조정부 오버레이 (config 불변)
+let PVTAB='msaas';                              // 완제품 미리보기 내부 탭
+
+const UNITS=['','원','일','명','%','배','점','개','년','월','시간','건','회'];
+
+/* ---- evaluator (v4 그대로 — 검증된 닫힌 문법, eval 금지) ---- */
+function tok(s){const t=[];let i=0;while(i<s.length){const c=s[i];
+  if(c===' '||c==='\t'){i++;continue}
+  if("+-*/()".includes(c)){t.push({k:c});i++;continue}
+  if(/[0-9.]/.test(c)){let j=i;while(j<s.length&&/[0-9.]/.test(s[j]))j++;t.push({k:'num',v:+s.slice(i,j)});i=j;continue}
+  let j=i;while(j<s.length&&!"+-*/() \t".includes(s[j]))j++;t.push({k:'id',v:s.slice(i,j)});i=j}return t}
+function rpn(ts){const o=[],op=[],P={'+':1,'-':1,'*':2,'/':2,'u':3};let pv=null;
+  for(const x of ts){if(x.k==='num'||x.k==='id')o.push(x);
+    else if(x.k==='(')op.push(x);
+    else if(x.k===')'){while(op.length&&op[op.length-1].k!=='(')o.push(op.pop());if(!op.length)throw'괄호';op.pop()}
+    else{let k=x.k;if(k==='-'&&(pv===null||pv.k==='('||"+-*/".includes(pv.k)))k='u';
+      while(op.length){const t=op[op.length-1];if(t.k==='(')break;
+        if(k!=='u'&&P[t.k]>=P[k])o.push(op.pop());
+        else if(k==='u'&&P[t.k]>P['u'])o.push(op.pop());else break}
+      op.push({k:k})}pv=x}
+  while(op.length){const z=op.pop();if(z.k==='(')throw'괄호';o.push(z)}return o}
+function evstr(e,sc){const r=rpn(tok(e)),st=[];for(const x of r){
+  if(x.k==='num')st.push(x.v);
+  else if(x.k==='id'){if(!(x.v in sc))throw'미정의: '+x.v;const v=sc[x.v];
+    if(typeof v!=='number'||isNaN(v))throw'숫자 아님: '+x.v;st.push(v)}
+  else if(x.k==='u')st.push(-st.pop());
+  else{const b=st.pop(),a=st.pop();st.push(x.k==='+'?a+b:x.k==='-'?a-b:x.k==='*'?a*b:a/b)}}
+  if(st.length!==1)throw'식 오류';return st[0]}
+const OPSYM={'*':'×','/':'÷','+':'+','-':'−'};
+function tk2str(tks){return (tks||[]).map(t=>
+  t.t==='var'?t.name:t.t==='num'?String(t.v):t.t==='op'?t.op:t.t==='lp'?'(':')').join(' ')}
+function tk2disp(tks){return (tks||[]).map(t=>
+  t.t==='var'?t.name:t.t==='num'?String(t.v):t.t==='op'?OPSYM[t.op]:t.t==='lp'?'(':')').join(' ')}
+function evtok(tks,sc){if(!tks||!tks.length)throw'식 비어 있음';return evstr(tk2str(tks),sc)}
+
+/* ---- 단위 포맷 (표시 전용) ---- */
+const num0=n=>Math.round(n).toLocaleString('ko-KR');
+function fmtU(n,unit){
+  if(typeof n!=='number'||isNaN(n))return '—';
+  if(unit==='%')return (Math.round(n*1000)/10).toString().replace(/\.0$/,'')+'%';
+  return num0(n)+(unit||'');
+}
+const fmt=n=>fmtU(n,'');                         // 단위 없는 기존 호출 호환
+const cmp=(a,o,b)=>o==='>='?a>=b:o==='<='?a<=b:o==='>'?a>b:o==='<'?a<b:o==='=='?a==b:a!=b;
+const KOP={'>=':'이상','<=':'이하','>':'초과','<':'미만','==':'같음','!=':'다름'};
+const AGG={sum:'합계',count:'개수',avg:'평균',max:'최댓값',min:'최솟값'};
+
+/* ---- 날짜 ---- */
+function pdate(s){if(s==null)return null;const m=String(s).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if(!m)return null;const d=new Date(+m[1],+m[2]-1,+m[3]);return isNaN(d)?null:d}
+function ageY(a,b){let y=b.getFullYear()-a.getFullYear();
+  const md=b.getMonth()-a.getMonth();if(md<0||(md===0&&b.getDate()<a.getDate()))y--;return y}
+function monthsDiff(a,b){return (b.getFullYear()-a.getFullYear())*12+(b.getMonth()-a.getMonth())-(b.getDate()<a.getDate()?1:0)}
+
+/* ---- 변수 풀 ---- */
+const allVars=()=>S.vars.concat(RT.extraVars.map(v=>({id:v.id,grp:'조정',name:v.name,type:v.type,unit:v.unit,test:v.val})));
+const allJudge=()=>S.judge.concat(RT.extraJudge);
+const V=id=>S.vars.find(v=>v.id===id);
+function names(before){const n=allVars().map(v=>v.name);n.push('적용여부');
+  for(const s of S.steps){if(before&&s.id===before)break;if(s.name)n.push(s.name)}return n}
+function numNames(before){return names(before).filter(nm=>{
+  const v=allVars().find(x=>x.name===nm);if(v)return v.type==='number';return nm!=='적용여부'})}
+function dateNames(before){const n=allVars().filter(v=>v.type==='date').map(v=>v.name);
+  for(const s of S.steps){if(before&&s.id===before)break;}n.unshift('오늘');return n}
+function unitOf(name){const v=allVars().find(x=>x.name===name);if(v)return v.unit||'';
+  const st=S.steps.find(s=>s.name===name);return st?(st.unit||''):''}
+
+/* ---- 런타임 ---- */
+function run(){
+  const sc={},disp={};
+  allVars().forEach(v=>{
+    if(v.type==='number'){sc[v.name]=Number(v.test||0);disp[v.name]=fmtU(sc[v.name],v.unit)}
+    else{sc[v.name]=(v.test||'');disp[v.name]=v.test||'—'}});
+  const rv=x=>x in sc?sc[x]:(isNaN(parseFloat(x))?x:parseFloat(x));
+  // 1) 산출 단계를 먼저 실행해 sc를 채운다 (판정부가 단계 결과 — 예: 만나이 — 를 참조할 수 있어야 하므로).
+  //    "비대상에 산출 노출 금지"는 단계 3)에서 표시만 가리는 방식으로 유지.
+  const res={};
+  for(const s of S.steps){
+    let r,d;try{
+      if(s.type==='branch'){const cond=cmp(rv(s.ref),s.op,rv(s.rhs));
+        const side=(txt,tks,t)=>{if(t==='calc')return evtok(tks,sc);return txt};
+        r=cond?side(s.then,s.thenTok,s.thenT||'text'):side(s.els,s.elsTok,s.elsT||'text');
+        d=typeof r==='number'?fmtU(r,s.unit):r;}
+      else if(s.type==='classify'){const vals=s.items.filter(it=>it.inc).map(it=>Number(sc[it.ref]||0));
+        const a=s.agg||'sum';
+        r=a==='sum'?vals.reduce((x,y)=>x+y,0):a==='count'?vals.length:
+          a==='avg'?(vals.length?vals.reduce((x,y)=>x+y,0)/vals.length:0):
+          a==='max'?(vals.length?Math.max(...vals):0):(vals.length?Math.min(...vals):0);
+        d=fmtU(r,s.unit);}
+      else if(s.type==='table'){const a=rv(s.ref),bd=s.bands.find(b=>a>=b.from&&a<=b.to);
+        if(!bd)throw'구간 없음: '+a;r=bd.v;d=fmtU(r,s.unit);}
+      else if(s.type==='formula'){r=evtok(s.tokens,sc);d=fmtU(r,s.unit)}
+      else if(s.type==='clamp'){let x=Number(rv(s.ref));if(s.min!=='')x=Math.max(x,Number(rv(s.min)));if(s.max!=='')x=Math.min(x,Number(rv(s.max)));r=x;d=fmtU(x,s.unit)}
+      else if(s.type==='date'){const A=pdate(s.a==='오늘'?todayStr():sc[s.a]);
+        if(!A)throw'날짜 형식 오류: '+s.a;
+        if(s.mode==='diff'){const B=pdate(s.b==='오늘'?todayStr():sc[s.b]);if(!B)throw'날짜 형식 오류: '+s.b;
+          r=s.out==='year'?ageY(A,B):s.out==='month'?monthsDiff(A,B):Math.round((B-A)/86400000);}
+        else r=s.out==='year'?A.getFullYear():s.out==='month'?(A.getMonth()+1):A.getDate();
+        d=fmtU(r,s.unit);}
+      if(s.name){sc[s.name]=r;disp[s.name]=d}res[s.id]={r,d,bad:false}
+    }catch(e){res[s.id]={r:null,d:String(e),bad:true};if(s.name){sc[s.name]=NaN;disp[s.name]='—'}}}
+  // 2) sc가 다 찬 뒤 판정부 평가
+  const jr=allJudge();
+  const jres=jr.map(j=>{const a=rv(j.a),b=rv(j.b);let ok=false;try{ok=cmp(a,j.op,b)}catch(e){ok=false}
+    return{a:j.a,b:j.b,op:j.op,av:a,bv:b,ok,ex:S.judge.indexOf(j)<0}});
+  const applied=jres.length?jres.every(r=>r.ok):true;
+  sc['적용여부']=applied?'적용 대상':'비대상';disp['적용여부']=sc['적용여부'];
+  // 3) 비대상이면 산출 표시만 가림 (계산은 이미 끝났으나 노출하지 않음 — MD 안전 원칙 유지)
+  if(!applied){
+    for(const s of S.steps){
+      if(res[s.id]&&!res[s.id].bad)res[s.id]={r:res[s.id].r,d:'비대상',skip:true};
+      if(s.name)disp[s.name]='—';
+    }
+  }
+  return{sc,disp,res,jres,applied}
+}
+function todayStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+
+/* ---- 빌더: ⓪ 앱 개요 ---- */
+function rMeta(){const m=S.meta;
+  const li=(key,ph)=>`<div class="listed" data-list="${key}">`+
+    (m[key].length?m[key]:['']).map((v,i)=>`<div class="li"><input data-mk="${key}" data-i="${i}" value="${(v||'').replace(/"/g,'&quot;')}" placeholder="${ph}"><span class="x" data-mdel="${key}" data-i="${i}">✕</span></div>`).join('')+
+    `</div><span class="x" data-madd="${key}" style="background:var(--amber-s);color:var(--amber);border-color:var(--amber-s);margin-top:6px;display:inline-block">+ 추가</span>`;
+  $('#mform').innerHTML=`
+    <div><label>앱명 / 상단 타이틀</label><input data-m="appName" value="${(m.appName||'').replace(/"/g,'&quot;')}" placeholder="임금피크제 자동화 마이크로 SaaS 앱"></div>
+    <div><label>서비스 한줄 설명</label><input data-m="tagline" value="${(m.tagline||'').replace(/"/g,'&quot;')}" placeholder="1명의 임직원 정보를 파싱하여 …"></div>
+    <div class="full"><label>구축 목적</label><textarea data-m="purpose" placeholder="무엇을 자동화하는 서비스인가">${m.purpose||''}</textarea></div>
+    <div><label>해결하려는 문제</label><textarea data-m="problem">${m.problem||''}</textarea></div>
+    <div><label>대상 사용자</label><textarea data-m="users">${m.users||''}</textarea></div>
+    <div class="full"><label>보안 / 클라우드 안내</label><input data-m="security" value="${(m.security||'').replace(/"/g,'&quot;')}" placeholder="개인정보 보호 · 보안 암호화 · 클라우드 기반"></div>
+    <div><label>기대 효과 (카드)</label>${li('effects','업무 시간 최대 90% 절감')}</div>
+    <div><label>핵심 특징</label>${li('features','모듈형 마이크로 SaaS')}</div>`;
+  $('#mform').querySelectorAll('[data-m]').forEach(el=>el.addEventListener('input',e=>{S.meta[e.target.dataset.m]=e.target.value;}));
+  $('#mform').querySelectorAll('[data-mk]').forEach(el=>el.addEventListener('input',e=>{
+    const k=e.target.dataset.mk;if(!S.meta[k].length)S.meta[k]=[''];S.meta[k][+e.target.dataset.i]=e.target.value;}));
+  $('#mform').querySelectorAll('[data-madd]').forEach(b=>b.onclick=()=>{S.meta[b.dataset.madd].push('');rMeta()});
+  $('#mform').querySelectorAll('[data-mdel]').forEach(b=>b.onclick=()=>{S.meta[b.dataset.mdel].splice(+b.dataset.i,1);rMeta()});
+}
+
+/* ---- 빌더: ① ② 변수 ---- */
+function uOpts(sel){return UNITS.map(u=>`<option value="${u}" ${u===sel?'selected':''}>${u===''?'(단위없음)':u}</option>`).join('')}
+function rVars(){
+  ['규정','개인'].forEach(g=>{const list=S.vars.filter(v=>v.grp===g);let h='';
+    if(!list.length)h=`<div class="empty">${g} 변수가 없습니다.</div>`;
+    else{h='<table><tr><th>변수명</th><th>타입</th><th>단위</th>'+(g==='개인'?'<th>필수</th>':'')+'<th></th></tr>';
+      list.forEach(v=>{h+=`<tr><td><input class="mono" style="width:200px" value="${v.name}" data-id="${v.id}" data-f="name"></td>
+        <td><select data-id="${v.id}" data-f="type">${['number','text','date'].map(t=>`<option value="${t}" ${v.type===t?'selected':''}>${t}</option>`).join('')}</select></td>
+        <td><select data-id="${v.id}" data-f="unit" ${v.type!=='number'?'disabled':''}>${uOpts(v.unit||'')}</select></td>`;
+        if(g==='개인')h+=`<td><input type="checkbox" data-id="${v.id}" data-f="req" ${v.req?'checked':''}></td>`;
+        h+=`<td><span class="x" data-del="${v.id}">삭제</span></td></tr>`});h+='</table>'}
+    $('#t_'+g).innerHTML=h});
+  document.querySelectorAll('[data-f][data-id]').forEach(el=>{
+    const ev=(el.type==='checkbox'||el.tagName==='SELECT')?'change':'input';
+    el.addEventListener(ev,e=>{
+      const v=V(e.target.dataset.id),f=e.target.dataset.f;
+      v[f]=f==='req'?e.target.checked:e.target.value;
+      // 'change'(select/checkbox)에서만 변수 테이블 재구축. text input은 blur에서만 정합 → 포커스 보존.
+      if(ev==='change'&&(f==='type'||f==='name')){rVars();rLogic();rCanvas();rPrev();}
+      else if(ev==='change'){rPrev();}
+      else{rPrevSoft();}
+    });
+    el.addEventListener('blur',()=>{rVars();rLogic();rCanvas();rPrev();});
+  });
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{S.vars=S.vars.filter(v=>v.id!==b.dataset.del);rAll()});
+}
+document.querySelectorAll('.uunit').forEach(s=>s.innerHTML=uOpts(''));
+document.querySelectorAll('[data-addg]').forEach(btn=>btn.onclick=()=>{
+  const g=btn.dataset.addg,P=g==='규정'?'1':'2',nm=$('#n'+P+'Name').value.trim();
+  if(!nm||/\s/.test(nm))return alert('공백 없는 변수명');
+  const ty=$('#n'+P+'Type').value;
+  S.vars.push({id:uid(),grp:g,name:nm,type:ty,unit:ty==='number'?$('#n'+P+'Unit').value:'',req:g==='개인'&&$('#n2Req').checked,test:''});
+  $('#n'+P+'Name').value='';rAll()});
+
+/* ---- 빌더: ③ 로직 ---- */
+function rFlow(){const {jres,applied}=run();const ok=jres.filter(r=>r.ok).length;
+  $('#flow').innerHTML=`<div class="row">
+    <div class="fbox">규정 ↔ 개인 비교<br><span style="font-size:10.5px;color:var(--soft)">${ok}/${jres.length} 충족</span></div>
+    <span class="farr">→</span><div class="fdec">◇ 모두 충족?</div><span class="farr">→</span>
+    <div class="fpath">
+      <div class="fbranch"><span class="flab">예 →</span><div class="fbox ${applied?'taken':'dim'}">산출부 실행</div><span class="farr">→</span><div class="fbox ${applied?'taken':'dim'}">결과 산출</div></div>
+      <div class="fbranch"><span class="flab">아니오 →</span><div class="fbox ${!applied?'taken-no':'dim'}">비대상 · 산출 생략</div></div>
+    </div></div>`;}
+function judgeNames(){const n=allVars().map(v=>v.name);for(const s of S.steps)if(s.name)n.push(s.name);return n}
+function varOpts(sel){return judgeNames().map(n=>`<option ${n===sel?'selected':''}>${n}</option>`).join('')}
+function rJudge(){let h='';
+  if(!S.judge.length)h='<div class="empty">비교가 없습니다.</div>';
+  else{const {jres}=run();
+    h='<div class="jrow" style="border-bottom:1px solid var(--line)"><div class="cmp">기준 측</div><div class="cmp">관계</div><div class="cmp">대상자 측</div><div class="cmp">실제값</div><div class="cmp">결과</div><div></div></div>';
+    S.judge.forEach((j,i)=>{const r=jres[i];
+      h+=`<div class="jrow"><select data-j="${j.id}" data-f="a">${varOpts(j.a)}</select>
+        <select data-j="${j.id}" data-f="op">${['>=','<=','>','<','==','!='].map(o=>`<option ${o===j.op?'selected':''}>${o}</option>`).join('')}</select>
+        <select data-j="${j.id}" data-f="b">${varOpts(j.b)}</select>
+        <span class="cmp">${r?`${typeof r.av==='number'?fmt(r.av):r.av} ${j.op} ${typeof r.bv==='number'?fmt(r.bv):r.bv}`:''}</span>
+        <span class="pill ${r&&r.ok?'ok':'no'}">${r&&r.ok?'충족':'미충족'}</span>
+        <span class="x" data-dj="${j.id}">✕</span></div>`});}
+  $('#jList').innerHTML=h;
+  $('#jList').querySelectorAll('[data-f]').forEach(el=>el.addEventListener('change',e=>{
+    const j=S.judge.find(x=>x.id===e.target.dataset.j);j[e.target.dataset.f]=e.target.value;rLogic();rPrev()}));
+  $('#jList').querySelectorAll('[data-dj]').forEach(b=>b.onclick=()=>{S.judge=S.judge.filter(x=>x.id!==b.dataset.dj);rLogic();rPrev()});
+}
+$('#addJ').onclick=()=>{const n=S.vars[0]?S.vars[0].name:'';S.judge.push({id:uid(),a:n,op:'>=',b:n});rLogic();rPrev()};
+
+const BG={branch:['b-branch','분기'],classify:['b-classify','분류'],table:['b-table','구간표'],formula:['b-formula','계산식'],clamp:['b-clamp','보정'],date:['b-date','날짜']};
+function opt(l,sel){return l.map(n=>`<option ${n===sel?'selected':''}>${n}</option>`).join('')}
+function tkGet(s,slot){return slot==='expr'?s.tokens:slot==='then'?s.thenTok:s.elsTok}
+function tkSet(s,slot,arr){if(slot==='expr')s.tokens=arr;else if(slot==='then')s.thenTok=arr;else s.elsTok=arr}
+function tkBlock(s,slot){
+  const tks=tkGet(s,slot)||[],nm=numNames(s.id);
+  let chips=tks.length?tks.map((t,i)=>{
+    const cls=t.t==='var'?'var':t.t==='num'?'num':t.t==='op'?'op':'par';
+    const lab=t.t==='var'?t.name:t.t==='num'?t.v:t.t==='op'?OPSYM[t.op]:t.t==='lp'?'(':')';
+    return `<span class="tkc ${cls}">${lab}<span class="d" data-tk="del" data-i="${i}">✕</span></span>`}).join('')
+    :'<span class="blank">비어 있음 — 아래에서 변수/숫자/연산자를 추가하세요</span>';
+  let live='';try{const {sc}=run();const v=tks.length?evstr(tk2str(tks),sc):null;
+    live=`<span class="tkval">= ${v==null?'—':fmt(v)}</span>`}catch(e){live=`<span class="tkval bad">▲ ${e}</span>`}
+  return `<div class="tkblock" data-step="${s.id}" data-slot="${slot}">
+    <div class="tkchips">${chips}</div>
+    <div class="tkbar">
+      <span class="grp"><span class="tklabel">변수</span>
+        <select class="tkvar">${nm.map(n=>`<option>${n}</option>`).join('')||'<option disabled>없음</option>'}</select>
+        <button class="tkb" data-tk="addvar">+ 변수</button></span>
+      <span class="grp"><span class="tklabel">숫자</span>
+        <input class="tnum" type="number" placeholder="0">
+        <button class="tkb" data-tk="addnum">+ 숫자</button></span>
+      <span class="grp"><span class="tklabel">연산</span>
+        <button class="tkb opb" data-tk="op" data-op="+">+</button>
+        <button class="tkb opb" data-tk="op" data-op="-">−</button>
+        <button class="tkb opb" data-tk="op" data-op="*">×</button>
+        <button class="tkb opb" data-tk="op" data-op="/">÷</button></span>
+      <span class="grp"><span class="tklabel">괄호</span>
+        <button class="tkb opb" data-tk="lp">(</button>
+        <button class="tkb opb" data-tk="rp">)</button></span>
+      <span class="grp"><button class="tkb" data-tk="pop">⌫ 마지막</button>
+        <button class="tkb" data-tk="clear">비우기</button></span>
+      ${live}
+    </div></div>`;
+}
+function bindTk(root){
+  root.querySelectorAll('.tkblock').forEach(bl=>{
+    const s=S.steps.find(x=>x.id===bl.dataset.step),slot=bl.dataset.slot;
+    const arr=()=>tkGet(s,slot)||(tkSet(s,slot,[]),tkGet(s,slot));
+    bl.querySelectorAll('[data-tk]').forEach(b=>b.addEventListener('click',()=>{
+      const a=arr(),act=b.dataset.tk;
+      if(act==='addvar'){const sel=bl.querySelector('.tkvar');if(sel&&sel.value)a.push({t:'var',name:sel.value})}
+      else if(act==='addnum'){const inp=bl.querySelector('.tnum');const v=parseFloat(inp.value);if(!isNaN(v)){a.push({t:'num',v});inp.value=''}}
+      else if(act==='op')a.push({t:'op',op:b.dataset.op});
+      else if(act==='lp')a.push({t:'lp'});
+      else if(act==='rp')a.push({t:'rp'});
+      else if(act==='pop')a.pop();
+      else if(act==='clear')a.length=0;
+      else if(act==='del')a.splice(+b.dataset.i,1);
+      rLogic();rPrev();
+    }));
+  });
+}
+function say(s){
+  if(s.type==='branch'){const sd=(txt,tks,t)=>t==='calc'?`계산식[${tk2disp(tks)||'…'}]`:`"${txt}"`;
+    return `<b>${s.ref||'?'}</b> ${KOP[s.op]||s.op} <b>${s.rhs}</b> → 참: ${sd(s.then,s.thenTok,s.thenT)}, 거짓: ${sd(s.els,s.elsTok,s.elsT)}`}
+  if(s.type==='classify'){const i=s.items.filter(x=>x.inc).map(x=>x.ref).join(', ')||'?';return `<b>${AGG[s.agg||'sum']}</b>( ${i} )`}
+  if(s.type==='table')return `<b>${s.ref||'?'}</b> 가 속한 구간의 단계값`;
+  if(s.type==='formula')return `계산식: <b>${tk2disp(s.tokens)||'(비어 있음)'}</b>`;
+  if(s.type==='clamp')return `<b>${s.ref||'?'}</b> 을 ${s.min?`<b>${s.min}</b> 이상`:''}${s.min&&s.max?', ':''}${s.max?`<b>${s.max}</b> 이하`:''}${(!s.min&&!s.max)?'(미설정)':'로 보정'}`;
+  if(s.type==='date')return s.mode==='diff'?`<b>${s.a||'?'}</b> ↔ <b>${s.b||'?'}</b> 차이(${({year:'년',month:'월',day:'일'})[s.out]})`:`<b>${s.a||'?'}</b> 의 ${({year:'연도',month:'월',day:'일'})[s.out]} 추출`;
+  return ''}
+const PICK={branch:'조건에 따라 값을 가릅니다. 참/거짓에 텍스트 또는 계산식.',
+  classify:'항목 골라 집계 (합계·개수·평균·최대·최소).',
+  table:'구간별 단계값 (58세→0.2 → 단위 % 면 20%).',
+  formula:'변수 콤보박스 + 연산/괄호/숫자 버튼으로 식을 쌓습니다.',
+  clamp:'결과를 상·하한으로 보정.',
+  date:'두 날짜 차이(년/월/일) 또는 연·월·일 추출. 생년월일→만나이, 출생월 등.'};
+function rDecision(){const {applied}=run();
+  $('#decision').className='decision '+(applied?'ok':'no');
+  $('#decision').innerHTML=`<span class="lab">판정 결과</span><span class="verdict">${applied?'적용 대상 → 산출 진행':'비대상 → 산출 생략'}</span>`;}
+function rSteps(){const {res}=run();let h='';
+  if(!S.steps.length)h='<div class="empty">산출 블록이 없습니다.</div>';
+  S.steps.forEach((s,i)=>{const rs=res[s.id],bg=BG[s.type],av=names(s.id),dn=dateNames(s.id);
+    h+=`<div class="step ${rs&&rs.skip?'skip':''}"><div class="sh">
+      <span class="badge ${bg[0]}">${i+1}·${bg[1]}</span>
+      <input class="nm" value="${s.name}" data-s="${s.id}" data-f="name" placeholder="결과 이름">
+      <select class="unit" data-s="${s.id}" data-f="unit" title="결과 단위">${uOpts(s.unit||'')}</select>
+      <span class="say">${say(s)}</span>
+      <span class="live ${rs&&rs.bad?'bad':''}">${rs?rs.d:'—'}</span>
+      <span class="x" data-ds="${s.id}">삭제</span></div><div class="sb">`;
+    if(s.type==='branch'){h+=`<div class="seg"><select data-s="${s.id}" data-f="ref">${opt(av,s.ref)}</select>
+      <select data-s="${s.id}" data-f="op">${opt(['>=','<=','>','<','==','!='],s.op)}</select>
+      <input class="n" data-s="${s.id}" data-f="rhs" value="${s.rhs}"></div>
+      <div class="seg" style="width:100%">참 →
+        <select data-s="${s.id}" data-f="thenT"><option value="text" ${(s.thenT||'text')==='text'?'selected':''}>텍스트</option><option value="calc" ${s.thenT==='calc'?'selected':''}>계산식</option></select>
+        ${(s.thenT==='calc')?'':`<input data-s="${s.id}" data-f="then" value="${(s.then||'').replace(/"/g,'&quot;')}" style="width:180px">`}</div>
+      ${(s.thenT==='calc')?tkBlock(s,'then'):''}
+      <div class="seg" style="width:100%">거짓 →
+        <select data-s="${s.id}" data-f="elsT"><option value="text" ${(s.elsT||'text')==='text'?'selected':''}>텍스트</option><option value="calc" ${s.elsT==='calc'?'selected':''}>계산식</option></select>
+        ${(s.elsT==='calc')?'':`<input data-s="${s.id}" data-f="els" value="${(s.els||'').replace(/"/g,'&quot;')}" style="width:180px">`}</div>
+      ${(s.elsT==='calc')?tkBlock(s,'els'):''}`;}
+    else if(s.type==='classify'){h+=`<div class="seg">집계방식
+      <select data-s="${s.id}" data-f="agg">${Object.entries(AGG).map(([k,v])=>`<option value="${k}" ${(s.agg||'sum')===k?'selected':''}>${v}</option>`).join('')}</select> — 항목 (체크=포함):</div>`;
+      s.items.forEach((it,ii)=>h+=`<label class="seg" style="cursor:pointer"><input type="checkbox" data-s="${s.id}" data-f="inc" data-i="${ii}" ${it.inc?'checked':''}><select data-s="${s.id}" data-f="iref" data-i="${ii}">${opt(av,it.ref)}</select></label>`);
+      h+=`<span class="x" data-additem="${s.id}" style="background:var(--amber-s);color:var(--amber);border-color:var(--amber-s)">+ 항목</span>`;}
+    else if(s.type==='table'){h+=`<div class="seg"><select data-s="${s.id}" data-f="ref">${opt(av,s.ref)}</select> 구간 →</div>`;
+      s.bands.forEach((b,bi)=>h+=`<span class="band"><input data-s="${s.id}" data-bf="from" data-i="${bi}" value="${b.from}">–<input data-s="${s.id}" data-bf="to" data-i="${bi}" value="${b.to}">:<input data-s="${s.id}" data-bf="v" data-i="${bi}" value="${b.v}" style="width:52px"></span>`);
+      h+=`<span class="x" data-addband="${s.id}" style="background:var(--amber-s);color:var(--amber);border-color:var(--amber-s)">+ 구간</span>`;}
+    else if(s.type==='formula'){h+=tkBlock(s,'expr');if(rs&&rs.bad&&!rs.skip)h+=`<div class="errln">▲ ${rs.d}</div>`;}
+    else if(s.type==='clamp'){h+=`<div class="seg"><select data-s="${s.id}" data-f="ref">${opt(av,s.ref)}</select> 를</div>
+      <div class="seg">하한 <select data-s="${s.id}" data-f="min"><option value=""> (없음) </option>${opt(av,s.min)}</select></div>
+      <div class="seg">상한 <select data-s="${s.id}" data-f="max"><option value=""> (없음) </option>${opt(av,s.max)}</select></div>`;}
+    else if(s.type==='date'){h+=`<div class="seg">모드
+      <select data-s="${s.id}" data-f="mode"><option value="diff" ${s.mode==='diff'?'selected':''}>두 날짜 차이</option><option value="part" ${s.mode==='part'?'selected':''}>연·월·일 추출</option></select></div>
+      <div class="seg">${s.mode==='diff'?'시작':'대상'} <select data-s="${s.id}" data-f="a">${opt(dn,s.a)}</select></div>
+      ${s.mode==='diff'?`<div class="seg">끝 <select data-s="${s.id}" data-f="b">${opt(dn,s.b)}</select></div>`:''}
+      <div class="seg">단위 <select data-s="${s.id}" data-f="out">
+        <option value="year" ${s.out==='year'?'selected':''}>${s.mode==='diff'?'년(만나이)':'연도'}</option>
+        <option value="month" ${s.out==='month'?'selected':''}>${s.mode==='diff'?'개월':'월'}</option>
+        <option value="day" ${s.out==='day'?'selected':''}>일</option></select></div>
+      ${rs&&rs.bad&&!rs.skip?`<div class="errln">▲ ${rs.d}</div>`:''}`;}
+    h+='</div></div>';});
+  $('#lList').innerHTML=h;
+  const L=$('#lList');
+  L.querySelectorAll('[data-f],[data-bf]').forEach(el=>{
+    const ev=(el.type==='checkbox'||el.tagName==='SELECT')?'change':'input';
+    el.addEventListener(ev,e=>{
+      const s=S.steps.find(x=>x.id===e.target.dataset.s),t=e.target;
+      if(t.dataset.bf)s.bands[+t.dataset.i][t.dataset.bf]=parseFloat(t.value)||0;
+      else{const f=t.dataset.f;
+        if(f==='inc')s.items[+t.dataset.i].inc=t.checked;
+        else if(f==='iref')s.items[+t.dataset.i].ref=t.value;
+        else if(f==='rhs')s.rhs=isNaN(parseFloat(t.value))?t.value:parseFloat(t.value);
+        else if(f==='thenT'){s.thenT=t.value;if(t.value==='calc'&&!s.thenTok)s.thenTok=[]}
+        else if(f==='elsT'){s.elsT=t.value;if(t.value==='calc'&&!s.elsTok)s.elsTok=[]}
+        else s[f]=t.value}
+      const rerender=['mode','thenT','elsT'].includes(t.dataset.f);
+      if(ev==='change'){rLogic();rPrev();if(rerender)rSteps();}
+      else{rFlow();rJudge();rDecision();rPrevSoft();}   // text input: #lList 재구축 금지(포커스 보존)
+    });
+    if(ev==='input')el.addEventListener('blur',()=>{rSteps();rPrev();});
+  });
+  L.querySelectorAll('[data-ds]').forEach(b=>b.onclick=()=>{S.steps=S.steps.filter(x=>x.id!==b.dataset.ds);rAll()});
+  L.querySelectorAll('[data-additem]').forEach(b=>b.onclick=()=>{S.steps.find(x=>x.id===b.dataset.additem).items.push({ref:S.vars[0]?S.vars[0].name:'',inc:true});rSteps();rPrev()});
+  L.querySelectorAll('[data-addband]').forEach(b=>b.onclick=()=>{S.steps.find(x=>x.id===b.dataset.addband).bands.push({from:0,to:0,v:0});rSteps();rPrev()});
+  bindTk(L);
+}
+function rLogic(){rFlow();rJudge();rDecision();rSteps()}
+$('#nStepT').addEventListener('change',e=>$('#pickHint').textContent=PICK[e.target.value]);
+$('#pickHint').textContent=PICK.branch;
+$('#addStep').onclick=()=>{const t=$('#nStepT').value,b={id:uid(),type:t,name:'',unit:''};
+  if(t==='branch')Object.assign(b,{ref:'',op:'<=',rhs:0,then:'A',thenT:'text',thenTok:[],els:'B',elsT:'text',elsTok:[]});
+  if(t==='classify')Object.assign(b,{agg:'sum',items:[{ref:S.vars[0]?S.vars[0].name:'',inc:true}]});
+  if(t==='table')Object.assign(b,{ref:'',bands:[{from:0,to:0,v:0}]});
+  if(t==='formula')Object.assign(b,{tokens:[]});
+  if(t==='clamp')Object.assign(b,{ref:'',min:'',max:''});
+  if(t==='date')Object.assign(b,{mode:'diff',a:'',b:'오늘',out:'year'});
+  S.steps.push(b);rLogic();rPrev()};
+
+/* ---- 빌더: ④ 리포트 ---- */
+const PAL=[
+  {kind:'field',t:'기본정보',s:'텍스트 한 줄',thumb:'<svg viewBox="0 0 60 18"><rect x="0" y="2" width="22" height="3" fill="#5A574C" opacity=".4"/><rect x="0" y="10" width="44" height="3" fill="#5A574C"/></svg>'},
+  {kind:'card',t:'요약 카드',s:'핵심 결과 큰 숫자',thumb:'<svg viewBox="0 0 60 22"><rect x="1" y="1" width="58" height="20" fill="none" stroke="#A85D17"/><text x="30" y="15" text-anchor="middle" font-size="10" font-weight="700" fill="#A85D17" font-family="IBM Plex Mono">4,560,000</text></svg>'},
+  {kind:'compare',t:'판단 근거 비교표',s:'판정부 그대로',thumb:'<svg viewBox="0 0 60 22"><g stroke="#5A574C" stroke-width=".5" opacity=".6" fill="none"><rect x="0" y="0" width="60" height="22"/><line x1="20" y1="0" x2="20" y2="22"/><line x1="40" y1="0" x2="40" y2="22"/><line x1="0" y1="11" x2="60" y2="11"/></g><circle cx="50" cy="16" r="2" fill="#1C7349"/></svg>'},
+  {kind:'calc',t:'산출 근거',s:'계산식 + 결과값',thumb:'<svg viewBox="0 0 60 18"><text x="0" y="13" font-size="9.5" font-family="IBM Plex Mono" fill="#5A574C">a × (1−b) =</text><text x="48" y="13" font-size="9.5" font-weight="700" fill="#1C7349" font-family="IBM Plex Mono">c</text></svg>'},
+  {kind:'incexc',t:'포함/제외 태그',s:'분류 단계 항목',thumb:'<svg viewBox="0 0 60 18"><rect x="0" y="4" width="26" height="10" rx="2" fill="#E7F1EA"/><text x="13" y="12" text-anchor="middle" font-size="8" fill="#1C7349">포함</text><rect x="30" y="4" width="26" height="10" rx="2" fill="#F6E7E2"/><text x="43" y="12" text-anchor="middle" font-size="8" fill="#A3331F">제외</text></svg>'},
+  {kind:'chart',ctype:'bar',t:'구간 막대 차트',s:'구간표 → 막대',thumb:'<svg viewBox="0 0 60 22"><rect x="2" y="16" width="10" height="4" fill="#F4ECDD" stroke="#A85D17"/><rect x="16" y="11" width="10" height="9" fill="#F4ECDD" stroke="#A85D17"/><rect x="30" y="6" width="10" height="14" fill="#A85D17"/><rect x="44" y="2" width="10" height="18" fill="#F4ECDD" stroke="#A85D17"/></svg>'},
+  {kind:'chart',ctype:'step',t:'구간 계단선',s:'연령별 감액률 등',thumb:'<svg viewBox="0 0 60 22"><path d="M0 18 L15 18 L15 13 L30 13 L30 7 L45 7 L45 3 L60 3" stroke="#A85D17" stroke-width="1.6" fill="none"/><circle cx="30" cy="7" r="2.2" fill="#A85D17"/></svg>'},
+  {kind:'chart',ctype:'donut',t:'포함/제외 도넛',s:'분류 단계 비율',thumb:'<svg viewBox="0 0 60 22"><circle cx="30" cy="11" r="8" fill="none" stroke="#F4ECDD" stroke-width="4"/><circle cx="30" cy="11" r="8" fill="none" stroke="#A85D17" stroke-width="4" stroke-dasharray="32 50" transform="rotate(-90 30 11)"/></svg>'},
+  {kind:'note',t:'안내문',s:'{변수}로 문장',thumb:'<svg viewBox="0 0 60 18"><rect x="0" y="2" width="60" height="2" fill="#5A574C" opacity=".5"/><rect x="0" y="8" width="52" height="2" fill="#5A574C" opacity=".5"/><rect x="0" y="14" width="44" height="2" fill="#5A574C" opacity=".5"/></svg>'},
+];
+function rPalette(){
+  $('#palette').innerHTML='<h3>요소 팔레트</h3><div class="ph2">↓ 우측 캔버스로 끌어다 놓으세요</div>'+
+    PAL.map(p=>{const key=p.kind+(p.ctype?'|'+p.ctype:'');
+      return `<div class="pitem" draggable="true" data-key="${key}"><div class="head"><span class="grip">⋮⋮</span><span class="t">${p.t}</span></div><div class="s">${p.s}</div><div class="thumb">${p.thumb||''}</div></div>`;}).join('');
+  $('#palette').querySelectorAll('.pitem').forEach(el=>el.addEventListener('dragstart',e=>e.dataTransfer.setData('new',el.dataset.key)));
+}
+function chartRender(e,sc){
+  const st=S.steps.find(s=>s.name===e.bind);const ct=e.ctype||'bar';
+  if(ct==='donut'){
+    if(!st||st.type!=='classify')return '<div style="font-size:11px;color:var(--soft)">분류(classify) 단계에 바인딩 필요</div>';
+    const incV=st.items.filter(i=>i.inc).reduce((a,i)=>a+Number(sc[i.ref]||0),0);
+    const exV=st.items.filter(i=>!i.inc).reduce((a,i)=>a+Number(sc[i.ref]||0),0);
+    const tot=incV+exV||1,pct=Math.round(incV/tot*100),r=22,C=2*Math.PI*r,off=C*(1-incV/tot);
+    return `<div style="display:flex;align-items:center;gap:14px;height:100%">
+      <svg width="80" height="80" viewBox="0 0 72 72" style="flex-shrink:0">
+        <circle cx="36" cy="36" r="${r}" fill="none" stroke="#F4ECDD" stroke-width="11"/>
+        <circle cx="36" cy="36" r="${r}" fill="none" stroke="#A85D17" stroke-width="11" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 36 36)"/>
+        <text x="36" y="40" text-anchor="middle" font-size="13" font-weight="700" fill="#A85D17" font-family="IBM Plex Mono">${pct}%</text></svg>
+      <div style="font-size:11.5px;line-height:1.7"><div><span class="tag i">포함</span> ${fmtU(incV,unitOf(e.bind)||'원')}</div><div><span class="tag e">제외</span> ${fmtU(exV,unitOf(e.bind)||'원')}</div></div></div>`;
+  }
+  if(!st||st.type!=='table')return '<div style="font-size:11px;color:var(--soft)">구간표(table) 단계에 바인딩 필요</div>';
+  const cur=sc[st.ref],mx=Math.max(...st.bands.map(b=>Math.abs(b.v)),.0001),u=st.unit||'';
+  if(ct==='bar'){
+    return '<div class="bar" style="height:100%;min-height:60px">'+st.bands.map(b=>{const on=cur>=b.from&&cur<=b.to;
+      return `<div class="bcol ${on?'cur':''}"><div class="bb" style="height:${Math.max(6,Math.abs(b.v)/mx*100)}%"></div><div class="bl">${b.from}–${b.to}</div></div>`}).join('')+'</div>';
+  }
+  // step-line
+  const n=st.bands.length;if(!n)return '<div style="font-size:11px;color:var(--soft)">구간 없음</div>';
+  const W=280,H=84;
+  const xs=st.bands.map((_,i)=>10+(i/Math.max(n-1,1))*(W-20));
+  const ys=st.bands.map(b=>H-10-(Math.abs(b.v)/mx)*(H-22));
+  let path='';st.bands.forEach((b,i)=>{if(i===0)path+=`M ${xs[i]} ${ys[i]} `;else path+=`L ${xs[i]} ${ys[i-1]} L ${xs[i]} ${ys[i]} `;});
+  const lbl=st.bands.map((b,i)=>`<text x="${xs[i]}" y="${H-1}" font-size="9" fill="#5A574C" text-anchor="middle">${b.from}</text>`).join('');
+  const ci=st.bands.findIndex(b=>cur>=b.from&&cur<=b.to);
+  let dot='';if(ci>=0){const curDisp=u==='%'?(Math.round(st.bands[ci].v*1000)/10)+'%':fmtU(st.bands[ci].v,u);
+    dot=`<circle cx="${xs[ci]}" cy="${ys[ci]}" r="4" fill="#A85D17"/><text x="${xs[ci]}" y="${ys[ci]-8}" font-size="9.5" fill="#A85D17" text-anchor="middle" font-weight="700">현재 ${curDisp}</text>`;}
+  return `<svg viewBox="0 0 ${W} ${H+4}" preserveAspectRatio="none" style="display:block;width:100%;height:100%;max-height:100%"><path d="${path}" stroke="#A85D17" stroke-width="2" fill="none"/>${lbl}${dot}</svg>`;
+}
+function elInner(e,sc,disp,jres){
+  if(e.kind==='field')return `<div class="lab">${e.label}</div><div style="font-size:14px">${disp[e.bind]??'—'}</div>`;
+  if(e.kind==='card')return `<div class="lab">${e.label}</div><div class="big">${disp[e.bind]??'—'}</div>`;
+  if(e.kind==='compare'){if(!jres||!jres.length)return `<div class="lab">${e.label}</div><div style="font-size:12px;color:var(--soft)">판정부 비교가 없습니다</div>`;
+    return `<div class="lab">${e.label}</div><table class="ctbl"><tr><th>기준</th><th>규정 측</th><th>관계</th><th>대상자 측</th><th>결과</th></tr>`+
+      jres.map(r=>`<tr><td>${r.a}${r.ex?' <span class="g">예외</span>':''}</td><td>${typeof r.av==='number'?fmtU(r.av,unitOf(r.a)):r.av}</td><td>${r.op}</td><td>${typeof r.bv==='number'?fmtU(r.bv,unitOf(r.b)):r.bv}</td><td><span class="tag ${r.ok?'i':'e'}">${r.ok?'충족':'미충족'}</span></td></tr>`).join('')+`</table>`;}
+  if(e.kind==='calc'){const st=S.steps.find(s=>s.name===e.bind);
+    return `<div class="lab">${e.label}</div><div class="calc">${st&&st.type==='formula'?tk2disp(st.tokens).split(' ').map(w=>w in disp?disp[w]:w).join(' '):'(계산식 단계 바인딩)'} = <span class="r">${disp[e.bind]??'—'}</span></div>`;}
+  if(e.kind==='incexc'){const st=S.steps.find(s=>s.name===e.bind);let inc='—',ex='—';
+    if(st&&st.type==='classify'){inc=st.items.filter(i=>i.inc).map(i=>`<span class="tag i">${i.ref}</span>`).join('')||'—';
+      ex=st.items.filter(i=>!i.inc).map(i=>`<span class="tag e">${i.ref}</span>`).join('')||'—';}
+    return `<div class="lab">${e.label}</div><div style="font-size:12px"><b style="font-size:10.5px;color:var(--soft)">포함</b> ${inc}<br><b style="font-size:10.5px;color:var(--soft)">제외</b> ${ex}</div>`;}
+  if(e.kind==='chart')return `<div class="lab">${e.label}</div>${chartRender(e,sc)}`;
+  if(e.kind==='note')return `<div class="lab">${e.label}</div><div class="note">${(e.tpl||'').replace(/\{([^}]+)\}/g,(_,n)=>n in disp?disp[n]:'{'+n+'}')}</div>`;
+  return ''}
+function pageHint(){const n=S.report.length;
+  const units=S.report.reduce((a,e)=>a+({full:6,half:3,third:2}[e.w||'full'])*(e.h||1),0);
+  const pages=Math.max(1,Math.ceil(units/12));const el=$('#pageHint');
+  el.textContent=`요소 ${n}개 · 폭×높이 단위합 ${units} · 추정 ${pages}페이지 (1~2페이지 권장)`;
+  el.className='pagehint'+(pages>2?' over':'');}
+function rCanvas(){
+  const {sc,disp,jres}=run();const c=$('#canvas');const sw={full:'s6',half:'s3',third:'s2'};const av=names();
+  if(!S.report.length){c.innerHTML='<div class="ph">팔레트에서 요소를 이곳으로 끌어다 놓으세요</div>';bindDrop();pageHint();return}
+  c.innerHTML=S.report.map(e=>{
+    const pal=PAL.find(p=>p.kind===e.kind&&(p.ctype||'')===(e.ctype||''))||PAL.find(p=>p.kind===e.kind);
+    const ctypeSel=(e.kind==='chart')?`<select data-e="${e.id}" data-f="ctype" title="차트 종류">${[['bar','막대'],['step','계단선'],['donut','도넛']].map(([k,n])=>`<option value="${k}" ${(e.ctype||'bar')===k?'selected':''}>${n}</option>`).join('')}</select>`:'';
+    return `<div class="el ${sw[e.w||'full']} h${e.h||1}" draggable="true" data-id="${e.id}">
+    <div class="el-bar"><span class="nm">${pal?pal.t:e.kind}</span>
+    ${(e.kind!=='note'&&e.kind!=='compare')?`<select data-e="${e.id}" data-f="bind">${opt(av,e.bind)}</select>`:''}
+    ${ctypeSel}
+    <span class="w ${(e.w||'full')==='full'?'on':''}" data-e="${e.id}" data-w="full">전체</span>
+    <span class="w ${e.w==='half'?'on':''}" data-e="${e.id}" data-w="half">½</span>
+    <span class="w ${e.w==='third'?'on':''}" data-e="${e.id}" data-w="third">⅓</span>
+    <span class="sep">·</span>
+    <span class="hh ${(e.h||1)===1?'on':''}" data-e="${e.id}" data-hv="1">1×</span>
+    <span class="hh ${e.h===2?'on':''}" data-e="${e.id}" data-hv="2">2×</span>
+    <span class="hh ${e.h===3?'on':''}" data-e="${e.id}" data-hv="3">3×</span>
+    <span class="rm" data-de="${e.id}">✕</span></div>
+    <div class="el-body">${elInner(e,sc,disp,jres)}
+    ${e.kind==='note'?`<input style="width:100%;margin-top:8px;font-family:'IBM Plex Mono';font-size:11.5px" data-e="${e.id}" data-f="tpl" value="${(e.tpl||'').replace(/"/g,'&quot;')}">`:''}
+    </div></div>`;}).join('');
+  bindDrop();pageHint();
+  c.querySelectorAll('[data-f]').forEach(el=>el.addEventListener(el.tagName==='SELECT'?'change':'input',ev2=>{
+    const x=S.report.find(r=>r.id===ev2.target.dataset.e);x[ev2.target.dataset.f]=ev2.target.value;
+    if(ev2.target.dataset.f==='tpl'){rPrev();return}rCanvas();rPrev()}));
+  c.querySelectorAll('[data-f="tpl"]').forEach(el=>el.addEventListener('blur',()=>{rCanvas();rPrev()}));
+  c.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{S.report.find(r=>r.id===b.dataset.e).w=b.dataset.w;rCanvas();rPrev()});
+  c.querySelectorAll('[data-hv]').forEach(b=>b.onclick=()=>{S.report.find(r=>r.id===b.dataset.e).h=+b.dataset.hv;rCanvas();rPrev()});
+  c.querySelectorAll('[data-de]').forEach(b=>b.onclick=()=>{S.report=S.report.filter(r=>r.id!==b.dataset.de);rCanvas();rPrev()});
+  c.querySelectorAll('.el').forEach(el=>{
+    el.addEventListener('dragstart',e=>e.dataTransfer.setData('move',el.dataset.id));
+    el.addEventListener('dragover',e=>e.preventDefault());
+    el.addEventListener('drop',e=>{e.preventDefault();const mv=e.dataTransfer.getData('move');
+      if(!mv||mv===el.dataset.id)return;e.stopPropagation();
+      const f=S.report.findIndex(r=>r.id===mv),t=S.report.findIndex(r=>r.id===el.dataset.id);
+      const[m]=S.report.splice(f,1);S.report.splice(t,0,m);rCanvas();rPrev()})});
+}
+function bindDrop(){const c=$('#canvas');
+  c.ondragover=e=>{e.preventDefault();c.classList.add('drag')};
+  c.ondragleave=()=>c.classList.remove('drag');
+  c.ondrop=e=>{e.preventDefault();c.classList.remove('drag');const key=e.dataTransfer.getData('new');if(!key)return;
+    const[kind,ctype='']=key.split('|');
+    const p=PAL.find(x=>x.kind===kind&&(x.ctype||'')===ctype)||PAL.find(x=>x.kind===kind);
+    const wDef={card:'third',field:'third',compare:'full',calc:'half',incexc:'half',chart:'half',note:'half'};
+    const hDef={chart:2,compare:2};
+    S.report.push({id:uid(),kind,ctype:ctype||undefined,label:p?p.t:kind,bind:'',w:wDef[kind]||'full',h:hDef[kind]||1,tpl:kind==='note'?'{성명} 님은 {적용여부}입니다.':undefined});rCanvas();rPrev()};
+}
+
+/* ---- ⑤ 완제품 미리보기 (5탭 / 4프레임 런타임) ---- */
+function rPrev(){
+  const m=S.meta,{sc,disp,jres,applied,res}=run();
+  const TABS=[['msaas','M SaaS 설명',''],['f1','기준 지식화','1'],['f2','개인 정보 파싱','2'],['f3','적용 여부 판단 및 분석','3'],['f4','산출 및 안내','4']];
+  let body='';
+  if(PVTAB==='msaas')body=pvMsaas(m);
+  else if(PVTAB==='f1')body=pvParseFrame('규정','취업규칙 / 인사규정 업로드','임금피크제 운영 세칙.docx',sc,disp);
+  else if(PVTAB==='f2')body=pvParseFrame('개인','1인 인사 데이터 업로드','홍길동 부장 신상정보.docx',sc,disp);
+  else if(PVTAB==='f3')body=pvAnalyze(sc,disp,jres,applied,res);
+  else if(PVTAB==='f4')body=pvReport(sc,disp,jres);
+  $('#prev').innerHTML=`
+    <div class="pvnav"><h3>${m.appName||'(앱명 미설정)'} <span class="badge2">개인 1명 단위 처리</span></h3>
+      <p>${m.tagline||m.purpose||'서비스 한줄 설명을 ⓪ 앱 개요에서 입력하세요.'}</p></div>
+    <div class="pvtabs">${TABS.map(t=>`<div class="pvtab ${PVTAB===t[0]?'on':''}" data-pv="${t[0]}">${t[2]?`<span class="n">${t[2]}</span>`:'📖 '}${t[1]}</div>`).join('')}</div>
+    <div class="pvbody">${body}</div>`;
+  $('#prev').querySelectorAll('[data-pv]').forEach(t=>t.onclick=()=>{PVTAB=t.dataset.pv;rPrev()});
+  bindPrevInputs();
+}
+function pvMsaas(m){
+  return `<div class="msaas">
+    <div class="hero"><h4>${m.appName||'(앱명 미설정)'}</h4><div class="tg">${m.tagline||''}</div>
+      <p style="margin-top:10px;font-size:13px">${m.purpose||'<span style=\"color:var(--soft)\">구축 목적이 비어 있습니다 (⓪ 앱 개요).</span>'}</p>
+      ${m.security?`<p style="margin-top:8px;font-size:11.5px;color:var(--soft)">🔒 ${m.security}</p>`:''}</div>
+    ${m.effects.filter(Boolean).length?`<div><div class="lab">기대 효과</div><div class="grid3">${m.effects.filter(Boolean).map(e=>`<div class="ec"><b>✦</b>${e}</div>`).join('')}</div></div>`:''}
+    <div><div class="lab">전체 프로세스</div><div class="proc">
+      <div class="pstep"><b>1.</b> 기준 지식화</div><span class="farr">→</span>
+      <div class="pstep"><b>2.</b> 개인 정보 파싱</div><span class="farr">→</span>
+      <div class="pstep"><b>3.</b> 적용 여부 판단·분석</div><span class="farr">→</span>
+      <div class="pstep"><b>4.</b> 산출 및 안내</div></div></div>
+    ${m.features.filter(Boolean).length?`<div><div class="lab">핵심 특징</div><div class="grid3">${m.features.filter(Boolean).map(f=>`<div class="ec"><b>✓</b>${f}</div>`).join('')}</div></div>`:''}
+    ${(m.problem||m.users)?`<div class="grid3">${m.problem?`<div class="ec"><b>해결하려는 문제</b>${m.problem}</div>`:''}${m.users?`<div class="ec"><b>대상 사용자</b>${m.users}</div>`:''}</div>`:''}</div>`;
+}
+function pvParseFrame(grp,upTitle,fname,sc,disp){
+  const vs=S.vars.filter(v=>v.grp===grp);
+  const miss=vs.filter(v=>v.req&&!(v.test&&String(v.test).trim()));
+  return `<div class="frame">
+    <div class="fcol">
+      <div class="pcard"><h4>📂 ${upTitle}</h4><div class="sub">PDF·Docx·Xlsx 업로드 → 자동 파싱 (데모: 모형 파일)</div>
+        <div class="updrop done"><div class="ico">✓</div><div class="fn">${fname}</div><div class="st">파싱 완료 · 우측에서 확인</div></div></div>
+      <div class="pcard"><h4>🛠 조정부 <span class="g">운영 시 추가 반영</span></h4>
+        <div class="sub">기본 산식에 단순 예외/추가 정보를 더합니다 (config 불변).</div>
+        ${grp==='개인'?adjVarsUI():adjJudgeUI()}
+      </div>
+    </div>
+    <div class="fcol">
+      <div class="pcard"><h4>🧾 파싱 결과 — ${grp} 항목</h4>
+        ${miss.length?`<div class="sub" style="color:var(--warn)">⚠ 필수 누락 ${miss.length}건 — 수기 보완 필요</div>`:`<div class="sub">전 항목 확인됨</div>`}
+        ${vs.length?vs.map(v=>{const empty=!(v.test&&String(v.test).trim());
+          return `<div class="kv"><span class="k2">${v.name} ${v.req?'<span class="g">필수</span>':''} <span class="g">${v.type}${v.unit?'·'+v.unit:''}</span></span>
+            <span class="v2 ${empty&&v.req?'miss':''}">${empty?(v.req?'누락 — 보완 필요':'—'):(v.type==='number'?fmtU(Number(v.test),v.unit):v.test)}</span></div>`}).join('')
+          :'<div class="empty">변수가 없습니다 (① / ②에서 정의).</div>'}
+        <div class="dlbar"><button class="btn">${grp==='규정'?'policy_parsed.json':'employee_parsed_data.json'} 저장</button></div>
+      </div>
+    </div></div>`;
+}
+function adjVarsUI(){
+  return `<div class="adjust">${RT.extraVars.map(v=>`<div class="adjrow">
+      <input class="nm" data-av="${v.id}" data-f="name" value="${v.name}" placeholder="추가 항목명">
+      <input class="vl" data-av="${v.id}" data-f="val" value="${v.val}" placeholder="값">
+      <select class="un" data-av="${v.id}" data-f="unit">${uOpts(v.unit)}</select>
+      <span class="x" data-rav="${v.id}">✕</span></div>`).join('')}
+    <span class="x" data-addav style="background:var(--amber-s);color:var(--amber);border-color:var(--amber-s)">+ 추가 신상정보</span></div>`;
+}
+function adjJudgeUI(){
+  const opts=allVars().map(v=>`<option>${v.name}</option>`).join('');
+  return `<div class="adjust">${RT.extraJudge.map(j=>`<div class="adjrow">
+      <select data-aj="${j.id}" data-f="a" style="width:104px">${allVars().map(v=>`<option ${v.name===j.a?'selected':''}>${v.name}</option>`).join('')}</select>
+      <select data-aj="${j.id}" data-f="op" style="width:54px">${['>=','<=','>','<','==','!='].map(o=>`<option ${o===j.op?'selected':''}>${o}</option>`).join('')}</select>
+      <select data-aj="${j.id}" data-f="b" style="width:104px">${allVars().map(v=>`<option ${v.name===j.b?'selected':''}>${v.name}</option>`).join('')}</select>
+      <span class="x" data-raj="${j.id}">✕</span></div>`).join('')}
+    <span class="x" data-addaj style="background:var(--amber-s);color:var(--amber);border-color:var(--amber-s)">+ 예외 비교 기준</span></div>`;
+}
+function pvAnalyze(sc,disp,jres,applied,res){
+  const cards=S.report.filter(e=>e.kind==='card').slice(0,4);
+  const cardHtml=(cards.length?cards:[null]).map(e=>e?`<div class="pc"><div class="pl">${e.label}</div><div class="pv2">${disp[e.bind]??'—'}</div></div>`:'').join('');
+  return `<div>
+    <h4 style="font-family:Fraunces,serif;font-size:17px;margin-bottom:4px">${S.meta.appName||''} 적용 여부 판단 결과</h4>
+    <div class="sub" style="font-size:12px;color:var(--soft);margin-bottom:14px">규정 기준과 대상자 정보를 비교하여 적용 여부·수준을 분석합니다.</div>
+    <div class="pcards">${cardHtml||'<div class="empty" style="grid-column:1/-1">④에서 요약 카드를 배치하면 표시됩니다.</div>'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" class="agrid">
+      <div class="pcard"><h4>판단 근거 비교표</h4>${jres.length?elInner({kind:'compare',label:''},sc,disp,jres):'<div class="sub">판정부 비교 없음</div>'}</div>
+      <div class="pcard"><h4>산출 로직</h4>${S.steps.filter(s=>s.name).map(s=>{const r=res[s.id];
+        return `<div class="kv"><span class="k2">${s.name}</span><span class="v2 ${r&&r.bad?'miss':''}">${r?r.d:'—'}</span></div>`}).join('')||'<div class="sub">산출 단계 없음</div>'}
+        <div style="margin-top:10px;padding:10px 12px;background:var(--live-s);border-radius:4px;font-family:'IBM Plex Mono';font-size:12px;color:${applied?'var(--live)':'var(--warn)'}">판정: ${applied?'적용 대상':'비대상'}</div></div>
+    </div></div>`;
+}
+function pvReport(sc,disp,jres){
+  const sw={full:'s6',half:'s3',third:'s2'};
+  const head=`<div class="rbar"><span>${S.meta.appName?S.meta.appName.replace(/ ?앱$/,''):'적용 결과'} 안내서</span><span class="m">AUTO · ${todayStr()}</span></div>`;
+  const u=S.report.reduce((a,e)=>a+({full:6,half:3,third:2}[e.w||'full']),0),pages=Math.max(1,Math.ceil(u/12));
+  if(!S.report.length)return `<div class="report">${head}<div class="empty" style="padding:30px">④에서 리포트를 구성하면 안내서가 자동 생성됩니다.</div></div>`;
+  return `<div class="report">${head}<div class="rbody">`+
+    S.report.map(e=>`<div class="pv ${sw[e.w||'full']}">${elInner(e,sc,disp,jres)}</div>`).join('')+`</div></div>
+    <div class="dlbar" style="margin-top:14px"><button class="btn">PDF</button><button class="btn">DOCX</button><button class="btn">JSON 요약</button>
+    <span class="pagehint ${pages>2?'over':''}" style="align-self:center;margin-left:auto">추정 ${pages}페이지</span></div>`;
+}
+function bindPrevInputs(){const p=$('#prev');
+  p.querySelectorAll('[data-av]').forEach(el=>el.addEventListener(el.tagName==='SELECT'?'change':'input',e=>{
+    const v=RT.extraVars.find(x=>x.id===e.target.dataset.av);v[e.target.dataset.f]=e.target.value;
+    if(e.target.dataset.f==='unit')rPrev();else rPrevSoft()}));
+  p.querySelectorAll('[data-aj]').forEach(el=>el.addEventListener('change',e=>{
+    const j=RT.extraJudge.find(x=>x.id===e.target.dataset.aj);j[e.target.dataset.f]=e.target.value;rPrev()}));
+  const addav=p.querySelector('[data-addav]');if(addav)addav.onclick=()=>{RT.extraVars.push({id:uid(),name:'추가항목',type:'number',unit:'',val:'0'});rPrev()};
+  const addaj=p.querySelector('[data-addaj]');if(addaj)addaj.onclick=()=>{const n=allVars()[0]?allVars()[0].name:'';RT.extraJudge.push({id:uid(),a:n,op:'>=',b:n});rPrev()};
+  p.querySelectorAll('[data-rav]').forEach(b=>b.onclick=()=>{RT.extraVars=RT.extraVars.filter(x=>x.id!==b.dataset.rav);rPrev()});
+  p.querySelectorAll('[data-raj]').forEach(b=>b.onclick=()=>{RT.extraJudge=RT.extraJudge.filter(x=>x.id!==b.dataset.raj);rPrev()});
+}
+let _pvTimer;function rPrevSoft(){clearTimeout(_pvTimer);_pvTimer=setTimeout(rPrev,400)}
+
+/* ---- 전체 ---- */
+function rAll(){rMeta();rVars();rLogic();rPalette();rCanvas();rPrev()}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on');$('#p'+t.dataset.p).classList.add('on');
+  if(t.dataset.p==='rp')rCanvas();if(t.dataset.p==='pv')rPrev();});
+
+$('#loadEx').onclick=()=>{RT={extraVars:[],extraJudge:[]};S={
+  meta:{appName:'임금피크제 자동화 마이크로 SaaS 앱',
+    tagline:'1명의 임직원 정보를 파싱하여 임금피크제 적용 여부와 수준, 시기 등을 도출하고 적용합니다.',
+    purpose:'임금피크제 적용에 필요한 기준 정보와 개인 데이터를 자동 처리하여 적용 여부·시기·수준·산출·안내까지 전 과정을 자동화합니다.',
+    problem:'규정 해석과 개인별 적용 판단을 수작업으로 하면 시간이 많이 들고 오류·일관성 문제가 큽니다.',
+    users:'HR 운영팀 · 보상 담당자',
+    security:'개인정보 보호 · 보안 암호화 · 클라우드 기반',
+    effects:['업무 시간 최대 90% 절감','데이터 기반 자동 처리로 오류 최소화','최신 법령·기준 반영으로 컴플라이언스 강화'],
+    features:['모듈형 마이크로 SaaS — 단계 선택 사용','닫힌 문법 결정론 계산(LLM 미사용)','샘플 1명 테스트로 정확성 검증']},
+  vars:[
+  {id:uid(),grp:'개인',name:'성명',type:'text',unit:'',req:true,test:'홍길동'},
+  {id:uid(),grp:'개인',name:'사번',type:'text',unit:'',req:true,test:'20142563'},
+  {id:uid(),grp:'개인',name:'소속',type:'text',unit:'',req:false,test:'렌탈사업부'},
+  {id:uid(),grp:'개인',name:'직급',type:'text',unit:'',req:false,test:'부장'},
+  {id:uid(),grp:'규정',name:'운영모델',type:'text',unit:'',req:false,test:'혼합형'},
+  {id:uid(),grp:'규정',name:'최초적용연령',type:'number',unit:'년',req:false,test:'56'},
+  {id:uid(),grp:'규정',name:'최저임금월액',type:'number',unit:'원',req:false,test:'2060000'},
+  {id:uid(),grp:'규정',name:'기준일',type:'date',unit:'',req:false,test:'2025-07-01'},
+  {id:uid(),grp:'개인',name:'생년월일',type:'date',unit:'',req:true,test:'1967-03-26'},
+  {id:uid(),grp:'개인',name:'기본급',type:'number',unit:'원',req:true,test:'5500000'},
+  {id:uid(),grp:'개인',name:'직책수당',type:'number',unit:'원',req:true,test:'200000'},
+  {id:uid(),grp:'개인',name:'분기상여',type:'number',unit:'원',req:false,test:'500000'},
+],judge:[{id:uid(),a:'최초적용연령',op:'<=',b:'만나이'}],
+steps:[
+  {id:uid(),type:'date',name:'만나이',unit:'년',mode:'diff',a:'생년월일',b:'기준일',out:'year'},
+  {id:uid(),type:'date',name:'출생월',unit:'월',mode:'part',a:'생년월일',out:'month'},
+  {id:uid(),type:'branch',name:'적용시점',unit:'',ref:'출생월',op:'<=',rhs:6,then:'해당 연도 7월 1일',thenT:'text',thenTok:[],els:'다음 연도 1월 1일',elsT:'text',elsTok:[]},
+  {id:uid(),type:'classify',name:'통상임금기준액',unit:'원',agg:'sum',items:[{ref:'기본급',inc:true},{ref:'직책수당',inc:true},{ref:'분기상여',inc:false}]},
+  {id:uid(),type:'table',name:'감액률',unit:'%',ref:'만나이',bands:[{from:56,to:57,v:0},{from:58,to:58,v:0.2},{from:59,to:59,v:0.3},{from:60,to:65,v:0.35}]},
+  {id:uid(),type:'formula',name:'적용후월기준액',unit:'원',tokens:[{t:'var',name:'통상임금기준액'},{t:'op',op:'*'},{t:'lp'},{t:'num',v:1},{t:'op',op:'-'},{t:'var',name:'감액률'},{t:'rp'}]},
+  {id:uid(),type:'clamp',name:'최종월기준액',unit:'원',ref:'적용후월기준액',min:'최저임금월액',max:''},
+],report:[
+  {id:uid(),kind:'field',label:'성명',bind:'성명',w:'third'},
+  {id:uid(),kind:'field',label:'사번',bind:'사번',w:'third'},
+  {id:uid(),kind:'card',label:'적용 여부',bind:'적용여부',w:'third'},
+  {id:uid(),kind:'card',label:'적용 시작',bind:'적용시점',w:'third'},
+  {id:uid(),kind:'card',label:'적용 후 월기준액',bind:'최종월기준액',w:'third'},
+  {id:uid(),kind:'card',label:'현재 감액률',bind:'감액률',w:'third'},
+  {id:uid(),kind:'compare',label:'판단 근거 비교표',bind:'',w:'full',h:2},
+  {id:uid(),kind:'calc',label:'산출 근거',bind:'적용후월기준액',w:'half',h:1},
+  {id:uid(),kind:'incexc',label:'포함 / 제외',bind:'통상임금기준액',w:'half',h:1},
+  {id:uid(),kind:'chart',ctype:'step',label:'연령별 감액률 (계단선)',bind:'감액률',w:'half',h:2},
+  {id:uid(),kind:'chart',ctype:'donut',label:'통상임금 포함/제외 비율',bind:'통상임금기준액',w:'half',h:2},
+  {id:uid(),kind:'note',label:'적용 안내',bind:'',w:'full',h:1,tpl:'{성명}({사번}) 님은 {운영모델} 기준 {적용여부}입니다. 만 {만나이} 기준 {적용시점}부터 적용되며 감액률 {감액률} 반영, 최종 월기준액 {최종월기준액}.'},
+]};rAll()};
+$('#clear').onclick=()=>{RT={extraVars:[],extraJudge:[]};S={meta:{appName:'',tagline:'',purpose:'',problem:'',users:'',security:'',effects:[],features:[]},vars:[],judge:[],steps:[],report:[]};rAll()};
+rAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "app-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "mathjs": "^13.0.0",
+    "recharts": "^2.12.7"
+  }
+}
