@@ -327,20 +327,15 @@ ${slotsDesc}
 
 응답 형식 예시:
 { "변수명1": 값, "변수명2": null }`;
-  try {
-    const text = await generate(prompt, fileBase64, mimeType);
-    const parsed = extractJson(text);
-    if (!parsed || typeof parsed !== "object") {
-      return Object.fromEntries(slots.map((s) => [s.name, null]));
-    }
-    // 누락된 슬롯은 null로 채움
-    const out: Record<string, any> = {};
-    for (const s of slots) {
-      out[s.name] = parsed[s.name] ?? null;
-    }
-    return out;
-  } catch (e) {
-    console.error("parseDocument error:", e);
-    return Object.fromEntries(slots.map((s) => [s.name, null]));
+  const text = await generate(prompt, fileBase64, mimeType);
+  const parsed = extractJson(text);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("AI 응답이 비어 있거나 JSON 형식이 아님 (모델 응답 파싱 실패)");
   }
+  // 누락된 슬롯은 null로 채움
+  const out: Record<string, any> = {};
+  for (const s of slots) {
+    out[s.name] = parsed[s.name] ?? null;
+  }
+  return out;
 }
