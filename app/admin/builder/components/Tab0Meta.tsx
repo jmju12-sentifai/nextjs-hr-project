@@ -114,6 +114,38 @@ export default function Tab0Meta({ meta, onChange }: Props) {
           />
         </div>
         <div className="md:col-span-2">
+          <label className={lbl}>처리 흐름 4단계 (1 → 2 → 3 → 4)</label>
+          <div className="space-y-1.5">
+            {[0, 1, 2, 3].map((i) => {
+              const flow = meta.flow && meta.flow.length === 4 ? meta.flow : ["", "", "", ""];
+              return (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white shrink-0">
+                    {i + 1}
+                  </span>
+                  <input
+                    value={flow[i] || ""}
+                    onChange={(e) => {
+                      const next = [...flow];
+                      next[i] = e.target.value;
+                      set("flow", next);
+                    }}
+                    className="flex-1 rounded border px-2 py-1 text-sm"
+                    placeholder={
+                      [
+                        "임금피크제 운영 세칙·기준 파일 지식화",
+                        "임직원 인사·급여 데이터 파싱 및 정합성 확인",
+                        "적용 여부·운영모델(가산/표준)·감액률 판단",
+                        "최종 월기준액 산출 및 개인별 안내자료 생성",
+                      ][i]
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="md:col-span-2">
           <label className={lbl}>보안 / 클라우드 안내</label>
           <input
             className={inp}

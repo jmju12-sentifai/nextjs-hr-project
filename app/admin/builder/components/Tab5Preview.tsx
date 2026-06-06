@@ -58,7 +58,7 @@ export default function Tab5Preview({ schema }: Props) {
           완제품 미리보기
         </h2>
         <p className="text-base text-gray-600 whitespace-nowrap overflow-x-auto">
-          config가 실제로 찍어내는 완제품입니다 — 조정부에 추가 항목·예외를 넣으면 즉시 재계산됩니다.
+          빌더 설정대로 실제 사용자에게 보일 완제품 화면입니다 — 조정부에 추가 항목·예외를 넣으면 즉시 재계산됩니다.
         </p>
       </div>
 
@@ -159,72 +159,132 @@ function Lab({ children }: { children: React.ReactNode }) {
 }
 
 function MSaaS({ meta }: { meta: any }) {
+  const defaultFlow = [
+    "기준 지식화",
+    "개인 정보 파싱",
+    "적용 여부 판단·분석",
+    "산출 및 안내",
+  ];
+  const flow: string[] =
+    Array.isArray(meta.flow) && meta.flow.length === 4
+      ? meta.flow.map((s: string, i: number) => s || defaultFlow[i])
+      : defaultFlow;
+  const stepColors = [
+    "bg-sky-500 ring-sky-100",
+    "bg-blue-500 ring-blue-100",
+    "bg-indigo-500 ring-indigo-100",
+    "bg-violet-500 ring-violet-100",
+  ];
   return (
-    <div className="space-y-4">
-      <div className="rounded-md border bg-gray-50 p-5">
-        <h4 className="font-serif text-xl font-semibold">
-          {meta.appName || "(앱명 미설정)"}
-        </h4>
-        <div className="text-sm text-gray-600 mt-1.5">{meta.tagline}</div>
-        <p className="mt-3 text-sm">
-          {meta.purpose || (
-            <span className="text-gray-400">구축 목적이 비어 있습니다.</span>
+    <div className="space-y-6">
+      {/* 히어로 카드 — 그라데이션 + 제목 + 태그라인 */}
+      <div className="relative overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-7 shadow-sm">
+        <div className="absolute right-0 top-0 h-24 w-24 rounded-full bg-blue-100/40 blur-3xl" />
+        <div className="relative">
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 shadow-sm ring-1 ring-blue-100">
+            ⓪ Overview
+          </div>
+          <h4 className="font-serif text-2xl font-bold text-gray-900">
+            {meta.appName || "(앱명 미설정)"}
+          </h4>
+          {meta.tagline && (
+            <p className="mt-2 text-sm text-gray-700">{meta.tagline}</p>
           )}
-        </p>
-        {meta.security && (
-          <p className="mt-2 text-xs text-gray-500">🔒 {meta.security}</p>
-        )}
+          {meta.purpose ? (
+            <p className="mt-4 text-sm leading-relaxed text-gray-700">
+              {meta.purpose}
+            </p>
+          ) : (
+            <p className="mt-4 text-xs italic text-gray-400">
+              구축 목적이 비어 있습니다.
+            </p>
+          )}
+          {meta.security && (
+            <div className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1 text-[11px] text-gray-600 ring-1 ring-gray-200">
+              🔒 {meta.security}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* 기대 효과 */}
       {meta.effects.filter(Boolean).length > 0 && (
         <div>
           <Lab>기대 효과</Lab>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {meta.effects.filter(Boolean).map((e: string, i: number) => (
-              <div key={i} className="rounded-md border p-3 text-xs">
-                <b className="text-gray-900 block mb-1">✦</b>
-                {e}
+              <div
+                key={i}
+                className="group rounded-xl border border-gray-100 bg-white p-4 text-xs shadow-sm transition hover:border-blue-200 hover:shadow-md"
+              >
+                <div className="mb-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-base text-amber-500">
+                  ✦
+                </div>
+                <p className="text-gray-700 leading-relaxed">{e}</p>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* 전체 프로세스 — 세로 한 줄 한 줄 */}
       <div>
         <Lab>전체 프로세스</Lab>
-        <div className="flex gap-2 flex-wrap items-center">
-          <Pstep>1. 기준 지식화</Pstep>
-          <span className="text-gray-400">→</span>
-          <Pstep>2. 개인 정보 파싱</Pstep>
-          <span className="text-gray-400">→</span>
-          <Pstep>3. 적용 여부 판단·분석</Pstep>
-          <span className="text-gray-400">→</span>
-          <Pstep>4. 산출 및 안내</Pstep>
-        </div>
+        <ol className="relative rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          {/* 세로 연결선 — 동그라미 중앙(20+12=32 → 31)에 맞춤 */}
+          <div className="absolute left-[31px] top-6 bottom-6 w-px bg-gradient-to-b from-sky-200 via-blue-200 via-indigo-200 to-violet-200" />
+          {flow.map((s, i) => (
+            <li key={i} className="relative flex items-center gap-3 py-2">
+              <span
+                className={
+                  "relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ring-4 " +
+                  stepColors[i % stepColors.length]
+                }
+              >
+                {i + 1}
+              </span>
+              <div className="flex-1 text-sm font-semibold text-gray-900">
+                {s}
+              </div>
+            </li>
+          ))}
+        </ol>
       </div>
+
+      {/* 핵심 특징 — 한 줄씩 */}
       {meta.features.filter(Boolean).length > 0 && (
         <div>
           <Lab>핵심 특징</Lab>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <ul className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm divide-y divide-gray-100">
             {meta.features.filter(Boolean).map((f: string, i: number) => (
-              <div key={i} className="rounded-md border p-3 text-xs">
-                <b className="text-gray-900 block mb-1">✓</b>
-                {f}
-              </div>
+              <li key={i} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-sm text-emerald-600">
+                  ✓
+                </span>
+                <span className="text-sm text-gray-800 leading-relaxed">{f}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       )}
+
+      {/* 문제·대상 사용자 */}
       {(meta.problem || meta.users) && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {meta.problem && (
-            <div className="rounded-md border p-3 text-xs">
-              <b className="block text-gray-900 mb-1">해결하려는 문제</b>
-              {meta.problem}
+            <div className="rounded-xl border-l-4 border-rose-300 bg-rose-50/40 p-4 text-xs">
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-rose-700">
+                해결하려는 문제
+              </div>
+              <p className="text-gray-700 leading-relaxed">{meta.problem}</p>
             </div>
           )}
           {meta.users && (
-            <div className="rounded-md border p-3 text-xs">
-              <b className="block text-gray-900 mb-1">대상 사용자</b>
-              {meta.users}
+            <div className="rounded-xl border-l-4 border-blue-300 bg-blue-50/40 p-4 text-xs">
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-700">
+                대상 사용자
+              </div>
+              <p className="text-gray-700 leading-relaxed">{meta.users}</p>
             </div>
           )}
         </div>
@@ -264,100 +324,155 @@ function ParseFrame({
 }) {
   const vs = schema.vars.filter((v) => v.grp === grp);
   const miss = vs.filter((v) => v.req && !(v.test && String(v.test).trim()));
+  const panelTitle =
+    grp === "규정"
+      ? `${schema.meta.appName || ""} 규정·기준 지식화`.trim()
+      : `${schema.meta.appName || ""} 개인 정보 파싱`.trim();
+  const panelDesc =
+    grp === "규정"
+      ? "회사 규정·기준 문서를 업로드하여 적용 기준값을 자동으로 추출합니다."
+      : "임직원 1인의 인사·급여 데이터를 업로드하여 변수값을 자동으로 추출합니다.";
+  const stepNum = grp === "규정" ? 1 : 2;
+  const stepColor = grp === "규정"
+    ? "bg-sky-500 ring-sky-100"
+    : "bg-blue-500 ring-blue-100";
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4">
-      <div className="flex flex-col gap-3">
-        <div className="rounded-md border p-3">
-          <h4 className="text-sm font-semibold flex items-center gap-1.5">
-            📂 {upTitle}
-          </h4>
-          <div className="text-xs text-gray-500 mt-1 mb-2.5">
-            PDF·Docx·Xlsx 업로드 → 자동 파싱
-          </div>
-          <div className="rounded border-2 border-dashed border-emerald-600 bg-emerald-50 p-4 text-center">
-            <div className="text-xl">✓</div>
-            <div className="text-xs font-semibold mt-1">{fname}</div>
-            <div className="text-[10px] text-emerald-700 mt-1 font-mono">
-              파싱 완료 · 우측에서 확인
-            </div>
-          </div>
-        </div>
-        <div className="rounded-md border p-3">
-          <h4 className="text-sm font-semibold mb-1">
-            🛠 조정부{" "}
-            <span className="text-[10px] font-mono text-gray-500 border rounded px-1">
-              운영 시 추가 반영
-            </span>
-          </h4>
-          <div className="text-xs text-gray-500 mb-2">
-            기본 산식에 단순 예외/추가 정보를 더합니다 (config 불변).
-          </div>
-          {grp === "개인" ? (
-            <AdjustVars vars={extraVars} setVars={setExtraVars} />
-          ) : (
-            <AdjustJudge
-              schema={schema}
-              extra={extraJudge}
-              setExtra={setExtraJudge}
-              extraVars={extraVars}
-            />
-          )}
+    <div className="space-y-5">
+      {/* 패널 헤더 */}
+      <div className="flex items-start gap-3">
+        <span
+          className={
+            "shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ring-4 " +
+            stepColor
+          }
+        >
+          {stepNum}
+        </span>
+        <div>
+          <h4 className="text-base font-semibold text-gray-900">{panelTitle}</h4>
+          <p className="text-xs text-gray-500 mt-0.5">{panelDesc}</p>
         </div>
       </div>
-      <div>
-        <div className="rounded-md border p-3">
-          <h4 className="text-sm font-semibold mb-1">
-            🧾 파싱 결과 — {grp} 항목
-          </h4>
-          <div
-            className={
-              "text-xs mb-2.5 " +
-              (miss.length ? "text-rose-600" : "text-gray-500")
-            }
-          >
-            {miss.length
-              ? `⚠ 필수 누락 ${miss.length}건 — 수기 보완 필요`
-              : "전 항목 확인됨"}
+
+      <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4">
+        <div className="flex flex-col gap-3">
+          {/* 업로드 카드 */}
+          <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+            <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+              📂 {upTitle}
+            </h4>
+            <div className="text-xs text-gray-500 mt-1 mb-3">
+              PDF · Docx · Xlsx 업로드 → 자동 파싱
+            </div>
+            <div className="rounded-lg border-2 border-dashed border-emerald-300 bg-gradient-to-br from-emerald-50 to-white p-4 text-center">
+              <div className="mx-auto mb-1 inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-white text-base">
+                ✓
+              </div>
+              <div className="text-xs font-semibold mt-1 text-gray-900 truncate">
+                {fname}
+              </div>
+              <div className="text-[10px] text-emerald-700 mt-1 font-mono">
+                파싱 완료 · 우측에서 확인
+              </div>
+            </div>
+          </div>
+
+          {/* 조정부 */}
+          <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+            <h4 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-1.5">
+              🛠 조정부
+              <span className="text-[10px] font-mono text-gray-500 border border-gray-200 rounded px-1.5 py-0.5">
+                운영 시 추가 반영
+              </span>
+            </h4>
+            <div className="text-xs text-gray-500 mb-3">
+              기본 산식에 단순 예외/추가 정보를 더합니다 (config 불변).
+            </div>
+            {grp === "개인" ? (
+              <AdjustVars vars={extraVars} setVars={setExtraVars} />
+            ) : (
+              <AdjustJudge
+                schema={schema}
+                extra={extraJudge}
+                setExtra={setExtraJudge}
+                extraVars={extraVars}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* 파싱 결과 */}
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+              🧾 파싱 결과
+              <span className="text-[10px] font-mono text-gray-500 border border-gray-200 rounded px-1.5 py-0.5">
+                {grp} 항목
+              </span>
+            </h4>
+            <span
+              className={
+                "text-[11px] font-medium rounded-full px-2.5 py-1 " +
+                (miss.length
+                  ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+                  : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200")
+              }
+            >
+              {miss.length ? `⚠ 필수 누락 ${miss.length}건` : "✓ 전 항목 확인됨"}
+            </span>
           </div>
           {vs.length === 0 ? (
-            <div className="text-xs text-gray-500">변수 없음</div>
+            <div className="text-xs text-gray-500 py-6 text-center">변수 없음</div>
           ) : (
-            vs.map((v) => {
-              const empty = !(v.test && String(v.test).trim());
-              return (
-                <div
-                  key={v.id}
-                  className="flex justify-between items-center gap-2 py-2 border-b border-gray-100 last:border-b-0 text-sm"
-                >
-                  <span className="text-gray-600">
-                    {v.name}{" "}
-                    {v.req && (
-                      <span className="text-[9px] border rounded px-1 font-mono text-gray-500">
-                        필수
-                      </span>
-                    )}{" "}
-                    <span className="text-[9px] font-mono text-gray-400">
-                      {v.type}
-                      {v.unit ? "·" + v.unit : ""}
-                    </span>
-                  </span>
-                  <span
-                    className={
-                      "font-mono font-semibold " +
-                      (empty && v.req ? "text-rose-600" : "")
-                    }
+            <ul className="divide-y divide-gray-100">
+              {vs.map((v) => {
+                const empty = !(v.test && String(v.test).trim());
+                return (
+                  <li
+                    key={v.id}
+                    className="flex items-center gap-3 py-2.5 text-sm first:pt-0 last:pb-0"
                   >
-                    {empty
-                      ? v.req
-                        ? "누락 — 보완 필요"
-                        : "—"
-                      : v.type === "number"
-                      ? fmtU(Number(v.test), v.unit)
-                      : v.test}
-                  </span>
-                </div>
-              );
-            })
+                    <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-gray-800 truncate">{v.name}</span>
+                      {v.req && (
+                        <span
+                          className={
+                            "text-[9px] rounded px-1.5 py-0.5 font-mono shrink-0 ring-1 " +
+                            (grp === "개인"
+                              ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                              : "bg-gray-100 text-gray-600 ring-gray-200")
+                          }
+                        >
+                          필수
+                        </span>
+                      )}
+                      <span className="text-[10px] font-mono text-gray-400 shrink-0">
+                        {v.type}
+                        {v.unit ? " · " + v.unit : ""}
+                      </span>
+                    </div>
+                    <span
+                      className={
+                        "font-mono font-semibold text-right whitespace-nowrap shrink-0 " +
+                        (empty && v.req
+                          ? "text-rose-600"
+                          : empty
+                          ? "text-gray-400"
+                          : "text-gray-900")
+                      }
+                    >
+                      {empty
+                        ? v.req
+                          ? "누락"
+                          : "—"
+                        : v.type === "number"
+                        ? fmtU(Number(v.test), v.unit)
+                        : v.test}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       </div>
@@ -513,32 +628,60 @@ function Analyze({ schema, result, activePath }: any) {
   const cards = (activePath?.report || []).filter((e: any) => e.kind === "card").slice(0, 4);
   const { sc, disp, jres, res, applied, pathMatches } = result;
   return (
-    <div>
-      <h4 className="text-base font-semibold mb-1">
-        {schema.meta.appName || ""} 적용 여부 판단 결과
-      </h4>
-      <p className="text-xs text-gray-500 mb-3">
-        규정 기준과 대상자 정보를 비교하여 적용 여부·수준을 분석합니다.
-      </p>
+    <div className="space-y-5">
+      {/* 패널 헤더 */}
+      <div className="flex items-start gap-3">
+        <span className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ring-4 bg-indigo-500 ring-indigo-100">
+          3
+        </span>
+        <div>
+          <h4 className="text-base font-semibold text-gray-900">
+            {schema.meta.appName || ""} 적용 여부 판단 결과
+          </h4>
+          <p className="text-xs text-gray-500 mt-0.5">
+            규정 기준과 대상자 정보를 비교하여 적용 여부·수준을 분석합니다.
+          </p>
+        </div>
+      </div>
 
       {/* 경로 매칭 trace */}
-      <div className="rounded-md border bg-gray-50 p-3 mb-4">
-        <div className="text-xs font-semibold text-gray-700 mb-2">
-          경로 매칭 결과 (first-match)
+      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h5 className="text-sm font-semibold text-gray-900">
+            경로 매칭 결과
+          </h5>
+          <span className="text-[10px] font-mono text-gray-500 border border-gray-200 rounded px-1.5 py-0.5">
+            first-match
+          </span>
         </div>
-        <div className="space-y-1">
+        <ul className="space-y-1.5">
           {pathMatches.map((pm: any) => {
             const active = pm.id === result.activePathId;
             return (
-              <div
+              <li
                 key={pm.id}
                 className={
-                  "flex items-center gap-2 text-xs px-2 py-1 rounded " +
-                  (active ? "bg-emerald-100 text-emerald-800 font-semibold" : "")
+                  "flex items-center gap-3 text-xs px-3 py-2 rounded-lg transition " +
+                  (active
+                    ? "bg-emerald-50 ring-1 ring-emerald-200 text-emerald-800"
+                    : "bg-gray-50/60 text-gray-600")
                 }
               >
-                <span className="w-4">{active ? "✓" : pm.ok ? "✓" : "·"}</span>
-                <span className="flex-1">{pm.label}</span>
+                <span
+                  className={
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold " +
+                    (active
+                      ? "bg-emerald-500 text-white"
+                      : pm.ok
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-gray-200 text-gray-500")
+                  }
+                >
+                  {active || pm.ok ? "✓" : "·"}
+                </span>
+                <span className={"flex-1 " + (active ? "font-semibold" : "")}>
+                  {pm.label}
+                </span>
                 <span className="font-mono text-[10px] text-gray-500">
                   {pm.conditionResults.length === 0
                     ? "(조건 없음)"
@@ -549,42 +692,61 @@ function Analyze({ schema, result, activePath }: any) {
                         )
                         .join(" · ")}
                 </span>
-                {active && <span className="text-[10px]">활성</span>}
-              </div>
+                {active && (
+                  <span className="text-[10px] font-medium rounded-full bg-emerald-500 text-white px-2 py-0.5">
+                    활성
+                  </span>
+                )}
+              </li>
             );
           })}
-          {/* fallback */}
           {result.activePathId === mig.fallback?.id && (
-            <div className="flex items-center gap-2 text-xs px-2 py-1 rounded bg-rose-100 text-rose-700 font-semibold">
-              <span className="w-4">▣</span>
-              <span className="flex-1">{mig.fallback.label}</span>
-              <span className="text-[10px]">활성 (fallback)</span>
-            </div>
+            <li className="flex items-center gap-3 text-xs px-3 py-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 text-rose-700">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white text-[10px]">
+                ▣
+              </span>
+              <span className="flex-1 font-semibold">{mig.fallback?.label}</span>
+              <span className="text-[10px] font-medium rounded-full bg-rose-500 text-white px-2 py-0.5">
+                활성 · fallback
+              </span>
+            </li>
           )}
-        </div>
+        </ul>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      {/* 요약 카드 4개 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {cards.length === 0 ? (
-          <div className="col-span-full rounded border border-dashed p-4 text-center text-xs text-gray-500">
+          <div className="col-span-full rounded-xl border border-dashed border-gray-200 bg-gray-50/40 p-5 text-center text-xs text-gray-500">
             ④에서 요약 카드를 배치하면 표시됩니다.
           </div>
         ) : (
           cards.map((e: any) => (
-            <div key={e.id} className="rounded-md border p-3">
-              <div className="text-[10px] text-gray-500">{e.label}</div>
-              <div className="text-lg font-semibold text-gray-900 mt-1">
+            <div
+              key={e.id}
+              className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition hover:border-indigo-200 hover:shadow-md"
+            >
+              <div className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                {e.label}
+              </div>
+              <div className="text-lg font-bold text-gray-900 mt-1.5">
                 {disp[e.bind] ?? "—"}
               </div>
             </div>
           ))
         )}
       </div>
+
+      {/* 비교표 + 산출 로직 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-md border p-3">
-          <h4 className="text-sm font-semibold mb-2">판단 근거 비교표</h4>
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <h5 className="text-sm font-semibold text-gray-900 mb-3">
+            판단 근거 비교표
+          </h5>
           {jres.length === 0 ? (
-            <div className="text-xs text-gray-500">판정부 비교 없음</div>
+            <div className="text-xs text-gray-500 py-6 text-center">
+              판정부 비교 없음
+            </div>
           ) : (
             <ElementRenderer
               schema={schema}
@@ -595,41 +757,53 @@ function Analyze({ schema, result, activePath }: any) {
             />
           )}
         </div>
-        <div className="rounded-md border p-3">
-          <h4 className="text-sm font-semibold mb-2">산출 로직 (활성 경로)</h4>
-          {allSteps
-            .filter((s: any) => s.name)
-            .map((s: any) => {
-              const r = res[s.id];
-              return (
-                <div
-                  key={s.id}
-                  className="flex justify-between items-center py-1.5 border-b border-gray-100 text-sm last:border-b-0"
-                >
-                  <span className="text-gray-600">{s.name}</span>
-                  <span
-                    className={
-                      "font-mono font-semibold " +
-                      (r && r.bad ? "text-rose-600" : "")
-                    }
-                  >
-                    {r ? r.d : "—"}
-                  </span>
-                </div>
-              );
-            })}
-          {allSteps.filter((s: any) => s.name).length === 0 && (
-            <div className="text-xs text-gray-500">산출 단계 없음</div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <h5 className="text-sm font-semibold text-gray-900 mb-3">
+            산출 로직 <span className="text-xs font-normal text-gray-500">(활성 경로)</span>
+          </h5>
+          {allSteps.filter((s: any) => s.name).length === 0 ? (
+            <div className="text-xs text-gray-500 py-6 text-center">
+              산출 단계 없음
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {allSteps
+                .filter((s: any) => s.name)
+                .map((s: any) => {
+                  const r = res[s.id];
+                  return (
+                    <li
+                      key={s.id}
+                      className="grid grid-cols-[minmax(80px,auto)_1fr] gap-x-4 gap-y-1 items-baseline py-2 text-sm first:pt-0 last:pb-0"
+                    >
+                      <span className="text-gray-600 whitespace-nowrap">
+                        {s.name}
+                      </span>
+                      <span
+                        className={
+                          "font-mono font-semibold text-right break-words min-w-0 " +
+                          (r && r.bad ? "text-rose-600" : "text-gray-900")
+                        }
+                      >
+                        {r ? r.d : "—"}
+                      </span>
+                    </li>
+                  );
+                })}
+            </ul>
           )}
           <div
             className={
-              "mt-3 rounded p-2.5 font-mono text-xs " +
+              "mt-4 rounded-lg p-3 text-xs font-semibold flex items-center gap-2 " +
               (applied
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-rose-50 text-rose-700")
+                ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                : "bg-rose-50 text-rose-700 ring-1 ring-rose-200")
             }
           >
-            판정: {result.activePathLabel}
+            <span className="text-base">{applied ? "✓" : "✗"}</span>
+            <span className="text-[11px] uppercase tracking-wider opacity-70">판정</span>
+            <span className="font-bold">{result.activePathLabel}</span>
           </div>
         </div>
       </div>
@@ -645,14 +819,21 @@ const wClass: Record<string, string> = {
 
 function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
   const list = (activePath?.report || []) as any[];
-  const u = list.reduce(
-    (a: number, e: any) =>
-      a +
-      ({ full: 6, half: 3, third: 2 }[e.w || "full"] as number) *
-        (e.h || 1),
-    0
-  );
-  const pages = Math.max(1, Math.ceil(u / 12));
+  // 페이지 추정 — wSpan/hSpan 우선, 없으면 옛 w/h
+  // A4 1페이지 용량: 6열 × 약 8행 = 48 unit
+  // (Tab5/사용자 앱은 auto-rows-[96px]로 약 7~8행, PDF는 minHeight 기반 약 12행)
+  // PDF·DOCX의 안전 평균치로 48 채택. grid-flow-row-dense 가 빈자리를 채워 실제로 약간 적게 나올 수도 있음.
+  const PAGE_CAPACITY = 48;
+  const W_MAP: Record<string, number> = { full: 6, half: 3, third: 2 };
+  const u = list.reduce((a: number, e: any) => {
+    const wSp = Math.max(
+      1,
+      Math.min(6, e.wSpan ?? (W_MAP[e.w || "full"] || 6))
+    );
+    const hSp = Math.max(1, Math.min(6, e.hSpan ?? (e.h || 1)));
+    return a + wSp * hSp;
+  }, 0);
+  const pages = Math.max(1, Math.ceil(u / PAGE_CAPACITY));
 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -759,7 +940,7 @@ function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
         <ReportHead title={schema.meta.appName} />
         <div className="p-5 grid grid-cols-6 grid-flow-row-dense auto-rows-[96px] gap-4 bg-slate-50/40">
           {list.map((e: any) => {
-            const wSp = Math.max(1, Math.min(6, e.wSpan ?? ({ full: 6, half: 3, third: 2 }[e.w || "full"] || 6)));
+            const wSp = Math.max(1, Math.min(6, e.wSpan ?? (({ full: 6, half: 3, third: 2 } as any)[e.w || "full"] || 6)));
             const hSp = Math.max(1, Math.min(6, e.hSpan ?? (e.h || 1)));
             return (
             <div

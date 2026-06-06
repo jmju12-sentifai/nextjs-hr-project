@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 32" width="130" height="32">
+  <style>
+    text { font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; }
+  </style>
+  <text x="0" y="24" font-size="26" font-weight="700" fill="#0064FF" letter-spacing="-1">toss</text>
+  <text x="62" y="24" font-size="22" font-weight="600" fill="#0064FF" letter-spacing="-0.3">pay</text>
+</svg>

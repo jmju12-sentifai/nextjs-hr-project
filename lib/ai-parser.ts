@@ -58,6 +58,7 @@ const EMPTY_V5 = {
     security: "",
     effects: [],
     features: [],
+    flow: ["", "", "", ""],
   },
   vars: [],
   shared: { steps: [] },
@@ -86,7 +87,14 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     "users": "대상 사용자 (예: 'HR 운영팀 · 보상 담당자')",
     "security": "보안 안내 (예: '개인정보 보호 · 보안 암호화 · 클라우드 기반')",
     "effects": ["기대 효과 3~5개"],
-    "features": ["핵심 특징 3~5개"]
+    "features": ["핵심 특징 3~5개"],
+    "flow": [
+      // 처리 흐름 4단계 — **정확히 4개 문자열**의 배열. 길이가 4 미만이면 빈 문자열로 채워라.
+      // 기획서에 "처리 흐름 4단계", "흐름", "프로세스", "4단계 패턴" 등이 있으면 그 4개 항목을 그대로 추출.
+      // 예: ["기준 지식화", "개인 데이터 파싱", "적용 여부·감액률 판단", "월기준액 산출·안내"]
+      // 명시적 항목이 없으면 기획서 흐름에서 4단계로 요약해 채워라.
+      "1단계 짧은 제목", "2단계 짧은 제목", "3단계 짧은 제목", "4단계 짧은 제목"
+    ]
   },
   "vars": [
     // grp='규정' : 규정 문서에서 뽑을 기준값/정책 상수
@@ -160,20 +168,54 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     //      "then": "당해 7월 1일", "thenT": "text", "thenTok": [],
     //      "els":  "익년 1월 1일", "elsT":  "text", "elsTok":  [] }
     //    thenT/elsT ∈ text|calc.  calc 면 thenTok/elsTok 에 formula 와 같은 tokens.
+    // 7) llm     — LLM(Gemini) 호출로 자연어 요약 텍스트 생성. 보통 경로의 마지막 단계.
+    //    { "type": "llm", "name": "LLM분석", "unit": "",
+    //      "items": ["만나이", "감액률", "최종월기준액"],  // 요약에 넣을 변수·산출 결과 이름들
+    //      "prompt": "",   // 빈 문자열 권장(기본 프롬프트 사용). 필요 시 커스텀.
+    //      "lastResult": "", "lastAt": "" }
+    //    기획서에 "LLM 요약", "AI 분석", "안내문 생성" 등이 단계 표에 등장하면 이 타입을 사용하라.
   ],
   "_report_elements": [
     // 참고용 — 실제 출력에선 paths[].report 또는 fallback.report 안에 배치
-    // 8 종 리포트 요소. 폭 w ∈ full|half|third, 높이 h ∈ 1|2|3
-    // kind:
-    //  - field   : 단순 텍스트 1행. bind=변수명
-    //  - card    : 큰 숫자 카드. bind=변수명
-    //  - compare : 판정부 비교표 (자동, bind 불필요)
-    //  - calc    : 계산식 한 줄 + 결과. bind=formula step name
-    //  - incexc  : 분류 단계 포함/제외 태그. bind=classify step name
-    //  - chart   : ctype ∈ bar|step|donut.
-    //              bar/step → table step name, donut → classify step name
-    //  - note    : 안내문, tpl 에 '{변수명}' 치환 패턴
-    { "id": "auto", "kind": "card", "label": "적용 여부", "bind": "적용여부", "w": "third", "h": 1 }
+    //
+    // ── 사이즈 매핑 (매우 중요) ──
+    // 리포트 캔버스는 6열 그리드. 각 요소는 wSpan(가로 1~6) · hSpan(세로 1~6) 으로 정의.
+    // 호환을 위해 w(full|half|third) · h(1|2|3) 도 함께 채울 것.
+    //   wSpan=1     w="third"  (1/6 폭, 좁은 카드)
+    //   wSpan=2     w="third"  (1/3 폭, 작은 카드 — 일반적 텍스트 카드)
+    //   wSpan=3     w="half"   (1/2 폭, 중간 카드 — 일반적 차트)
+    //   wSpan=4     w="half"   (2/3 폭)
+    //   wSpan=5     w="full"   (5/6 폭)
+    //   wSpan=6     w="full"   (전체 폭)
+    // 기획서에 "2x2", "3x2", "6x2" 같은 WxH 표기가 있으면 그대로 wSpan x hSpan 으로 매핑하라.
+    //   "2x2" → wSpan=2, hSpan=2, w="third", h=2
+    //   "3x2" → wSpan=3, hSpan=2, w="half",  h=2
+    //   "6x2" → wSpan=6, hSpan=2, w="full",  h=2
+    // 표기가 없으면 다음 기본값 적용:
+    //   field/fields/pathlabel : w="full", h=1, wSpan=6, hSpan=1
+    //   card                   : w="third", h=2, wSpan=2, hSpan=2
+    //   chart                  : w="half", h=2, wSpan=3, hSpan=2  (차트는 최소 3 폭 권장)
+    //   compare/calc           : w="full", h=2, wSpan=6, hSpan=2
+    //   incexc                 : w="half", h=2, wSpan=3, hSpan=2
+    //   note                   : w="full", h=2, wSpan=6, hSpan=2
+    //
+    // ── kind ──
+    //  - field     : 단순 텍스트 1행. bind=변수명
+    //  - fields    : 여러 변수를 한 카드에 묶음. binds=["성명","사번",...] (배열). label=""
+    //                기획서에 "기본정보 묶음", "성명/사번/소속/직급" 같이 변수 여러 개가 슬래시·콤마로
+    //                같이 나오면 무조건 fields 한 개로 만들어라. field 여러 개로 쪼개지 말 것.
+    //  - pathlabel : 현재 활성 경로 라벨 표시 (자동, bind/binds 불필요). label="경로"
+    //  - card      : 큰 숫자 카드. bind=변수명
+    //  - compare   : 판정부 비교표 (자동, bind 불필요)
+    //  - calc      : 계산식 한 줄 + 결과. bind=formula step name
+    //  - incexc    : 분류 단계 포함/제외 태그. bind=classify step name
+    //  - chart     : ctype ∈ bar|step|donut|gauge|ratio|bullet|stacked|comparison|delta
+    //                bar/step → table step name, donut/stacked → classify step name
+    //                gauge → clamp 또는 그냥 변수, ratio/bullet/comparison/delta → bind + bind2(비교 대상)
+    //  - note      : 안내문, tpl 에 '{변수명}' 치환 패턴. LLM 요약 결과를 표시하려면 tpl="{LLM분석}" 처럼.
+    { "id": "auto", "kind": "card", "label": "적용 여부", "bind": "적용여부", "w": "third", "h": 2, "wSpan": 2, "hSpan": 2 },
+    { "id": "auto", "kind": "fields", "label": "", "binds": ["성명","사번","소속","직급"], "w": "full", "h": 1, "wSpan": 6, "hSpan": 1 },
+    { "id": "auto", "kind": "chart", "ctype": "gauge", "label": "평가점수", "bind": "평가점수", "w": "half", "h": 2, "wSpan": 3, "hSpan": 2 }
   ]
 }
 
@@ -186,6 +228,11 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
 - 공통적으로 쓰이는 산출(예: 만나이 계산)은 shared.steps 에 한 번만.
 - 각 경로의 conditions 는 AND. 위 경로부터 first-match — 가장 좁은 조건을 먼저.
 - 경로마다 자기만의 report 를 가져라 (안내 메시지는 경로마다 달라야 의미가 있음).
+- **리포트 배치 순서 (필수)** — 각 경로의 report 배열은 다음 순서를 항상 지켜라:
+  1) fields (기본정보 묶음 — 성명/사번 등) — 있다면 항상 0번 인덱스
+  2) note (안내문 / LLM 요약 카드 등) — fields 다음 인덱스. fields 가 없으면 0번 인덱스.
+  3) card, chart, compare, calc, incexc 등 나머지 요소 — 기획서 순서대로
+  → 안내문(note)이 윗부분에 있어야 사용자가 결과를 한눈에 받아볼 수 있음. 절대 맨 아래로 보내지 말 것.
 - **기획서에 체크박스(✓·☑·■·●·검은/파란 채워진 사각형 등)로 표시된 모든 팔레트 항목은
   누락 없이 각 경로의 report 에 포함하라.** 동일 데이터를 시각화하는 chart(bar/step/donut)나
   유사 요소가 함께 체크돼 있어도 자체 판단으로 합치지 말고 모두 별도 요소로 추가하라.
@@ -216,6 +263,16 @@ function withIds(schema: any) {
         : x
     );
   };
+  // 리포트 배치 순서 정렬 — fields → note → 나머지
+  // (AI 프롬프트 지침과 같이 적용. AI가 어겨도 서버에서 강제)
+  const reorderReport = (report: any[]) => {
+    const fields = report.filter((e) => e?.kind === "fields");
+    const notes = report.filter((e) => e?.kind === "note");
+    const others = report.filter(
+      (e) => e?.kind !== "fields" && e?.kind !== "note"
+    );
+    return [...fields, ...notes, ...others];
+  };
   const stampPath = (p: any) =>
     p && typeof p === "object"
       ? {
@@ -223,7 +280,7 @@ function withIds(schema: any) {
           id: !p.id || p.id === "auto" ? uid() : p.id,
           conditions: stamp(p.conditions || []),
           steps: stamp(p.steps || []),
-          report: stamp(p.report || []),
+          report: reorderReport(stamp(p.report || [])),
         }
       : p;
   return {

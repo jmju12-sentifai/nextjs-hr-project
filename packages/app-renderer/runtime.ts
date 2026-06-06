@@ -299,7 +299,8 @@ export function migrateSchema(schema: AppSchema): AppSchema {
 export function run(
   rawSchema: AppSchema,
   extraVars: { name: string; type: string; unit?: Unit; val?: string }[] = [],
-  extraJudge: { a: string; op: CmpOp; b: string }[] = []
+  extraJudge: { a: string; op: CmpOp; b: string }[] = [],
+  forceActivePathId?: string
 ): RunResult {
   const schema = migrateSchema(rawSchema);
   const sc: Sc = {};
@@ -472,14 +473,24 @@ export function run(
     return { id: p.id, label: p.label, ok, conditionResults: results };
   });
 
-  const matchedPath = paths.find((p, i) => pathMatches[i].ok) || fallback;
+  // 빌더 라이브 검증용 — 특정 경로를 강제로 활성화시켜 시뮬레이션
+  // (편집 중인 경로의 산식 검증이 'sc 미정의' 로 떨어지는 문제 방지)
+  const forcedPath =
+    forceActivePathId &&
+    (paths.find((p) => p.id === forceActivePathId) ||
+      (fallback.id === forceActivePathId ? fallback : null));
+  const matchedPath =
+    forcedPath || paths.find((p, i) => pathMatches[i].ok) || fallback;
   const isFallback = matchedPath === fallback;
 
   // 3) 매칭 경로의 steps 실행 + extraJudge 추가 평가 (RT 조정부 반영)
   for (const s of matchedPath.steps) execStep(s);
 
   // 4) 활성 경로 conditions 결과 (jres — 호환 형태)
-  const activeConds: Judge[] = [...matchedPath.conditions, ...extraJudge];
+  const activeConds: Judge[] = [
+    ...matchedPath.conditions,
+    ...extraJudge.map((j) => ({ ...j, id: "rt-" + j.a + j.op + j.b })),
+  ];
   const jres: JudgeResult[] = activeConds.map((j) => {
     const a = resolveOperand(j.a, j.aMode);
     const b = resolveOperand(j.b, j.bMode);

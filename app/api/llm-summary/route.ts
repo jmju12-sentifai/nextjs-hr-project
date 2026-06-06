@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { requireActiveSubscription } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireActiveSubscription();
+  if ("error" in auth) return auth.error;
   try {
     const { meta, context, prompt } = await req.json();
     const key = process.env.GEMINI_API_KEY;

@@ -39,7 +39,7 @@ export default function TabVars({ grp, vars, onChange }: Props) {
         name: nm.trim(),
         type: ty,
         unit: ty === "number" ? un : "",
-        req: grp === "개인" ? req : false,
+        req,
         test: "",
       },
     ]);
@@ -54,15 +54,15 @@ export default function TabVars({ grp, vars, onChange }: Props) {
     <div className="space-y-5">
       <div className="pb-5 border-b border-gray-100">
         <div className="text-xs font-mono uppercase tracking-wider text-blue-700 mb-2">
-          {grp === "규정" ? "1차 · 규정 파싱" : "2차 · 개인 파싱"}
+          {grp === "규정" ? "변수 · 규정 측 정의" : "변수 · 개인 측 정의"}
         </div>
         <h2 className="text-2xl font-bold text-gray-900 mb-3">
-          {grp === "규정" ? "규정에서 뽑을 항목" : "개인 정보에서 뽑을 항목"}
+          {grp === "규정" ? "규정 변수" : "개인 변수"}
         </h2>
         <p className="text-base text-gray-600 whitespace-nowrap overflow-x-auto">
           {grp === "규정"
-            ? "규정 문서에서 파싱할 기준값·정책 상수를 선언합니다."
-            : "개인 1명 문서에서 파싱할 항목 — 필수는 누락 시 수기 보완 대상."}
+            ? "회사 규정·기준 문서에서 파싱할 기준값과 정책 상수를 정의합니다."
+            : "임직원 1인 문서에서 파싱할 항목을 정의합니다 — 필수는 누락 시 수기 보완 대상."}
         </p>
       </div>
 
@@ -73,13 +73,13 @@ export default function TabVars({ grp, vars, onChange }: Props) {
       ) : (
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs font-semibold tracking-wide text-gray-700 border-b">
-              <th className="py-2 px-2">변수명</th>
-              <th className="py-2 px-2 w-28">타입</th>
-              <th className="py-2 px-2 w-32">단위</th>
-              <th className="py-2 px-2 w-44">테스트값</th>
-              {grp === "개인" && <th className="py-2 px-2 w-14">필수</th>}
-              <th className="w-14"></th>
+            <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-blue-700 bg-blue-50 border-y border-blue-100">
+              <th className="py-2.5 px-3 rounded-l">변수명</th>
+              <th className="py-2.5 px-3 w-28">타입</th>
+              <th className="py-2.5 px-3 w-32">단위</th>
+              <th className="py-2.5 px-3 w-44">테스트값</th>
+              <th className="py-2.5 px-3 w-14 text-center">필수</th>
+              <th className="w-14 rounded-r"></th>
             </tr>
           </thead>
           <tbody>
@@ -131,15 +131,13 @@ export default function TabVars({ grp, vars, onChange }: Props) {
                     placeholder={v.type === "date" ? "YYYY-MM-DD" : ""}
                   />
                 </td>
-                {grp === "개인" && (
-                  <td className="py-1.5 px-2 text-center">
-                    <input
-                      type="checkbox"
-                      checked={!!v.req}
-                      onChange={(e) => update(v.id, { req: e.target.checked })}
-                    />
-                  </td>
-                )}
+                <td className="py-1.5 px-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={!!v.req}
+                    onChange={(e) => update(v.id, { req: e.target.checked })}
+                  />
+                </td>
                 <td className="py-1.5 px-2 whitespace-nowrap w-px">
                   <button
                     onClick={() => remove(v.id)}
@@ -185,16 +183,14 @@ export default function TabVars({ grp, vars, onChange }: Props) {
             </option>
           ))}
         </select>
-        {grp === "개인" && (
-          <label className="text-xs flex items-center gap-1 font-mono text-gray-600">
-            <input
-              type="checkbox"
-              checked={req}
-              onChange={(e) => setReq(e.target.checked)}
-            />
-            필수
-          </label>
-        )}
+        <label className="text-xs flex items-center gap-1 font-mono text-gray-600">
+          <input
+            type="checkbox"
+            checked={req}
+            onChange={(e) => setReq(e.target.checked)}
+          />
+          필수
+        </label>
         <button
           onClick={add}
           className="rounded border bg-white px-3 py-1 text-sm hover:bg-gray-50"

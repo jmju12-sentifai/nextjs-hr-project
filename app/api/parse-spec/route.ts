@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseAppSpec } from "@/lib/ai-parser";
+import { requireUser } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser();
+  if ("error" in auth) return auth.error;
   try {
     const { fileBase64, mimeType } = await req.json();
     if (!fileBase64 || !mimeType) {

@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import Footer from "./components/Footer";
 
 const geistSans = Inter({
   subsets: ["latin"],
@@ -18,9 +19,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className="bg-white text-gray-900 antialiased font-sans">
-        {children}
+    <html
+      lang="ko"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="bg-white text-gray-900 min-h-full flex flex-col font-sans">
+        <div className="flex-1">{children}</div>
+        <Footer />
       </body>
     </html>
   );

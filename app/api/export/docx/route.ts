@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireActiveSubscription } from "@/lib/api-auth";
 import {
   Document,
   Packer,
   Paragraph,
-  HeadingLevel,
   TextRun,
   Table,
   TableRow,
@@ -12,11 +12,16 @@ import {
   BorderStyle,
   ShadingType,
   AlignmentType,
+  HeightRule,
+  VerticalAlign,
 } from "docx";
 import type { AppSchema, Step } from "app-renderer";
 import { activePathOf, migrateSchema, tk2disp, unitOf, fmtU } from "app-renderer";
 
 export const runtime = "nodejs";
+
+// 한글 폰트 — 시스템에 흔히 설치된 산세리프 (Windows: 맑은 고딕, mac: Apple SD Gothic Neo)
+const KFONT = { ascii: "Malgun Gothic", eastAsia: "맑은 고딕", hAnsi: "Malgun Gothic", cs: "Malgun Gothic" };
 
 function allStepsOf(schema: AppSchema): Step[] {
   const m = migrateSchema(schema);
@@ -32,6 +37,7 @@ const COL = {
   sub: "6B7280",
   blue: "2563EB",
   blueBg: "DBEAFE",
+  blueLite: "EFF6FF",
   emerald: "059669",
   emeraldBg: "D1FAE5",
   rose: "DC2626",
@@ -40,7 +46,12 @@ const COL = {
   amberBg: "FEF3C7",
   bg: "F9FAFB",
   line: "E5E7EB",
+  slate: "475569",
+  slateBg: "94A3B8",
+  track: "F1F5F9",
 };
+
+const PALETTE = ["2563EB", "10B981", "F59E0B", "EF4444", "8B5CF6", "06B6D4", "EC4899", "84CC16"];
 
 const noBorder = {
   top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
@@ -55,65 +66,217 @@ const thinBorder = {
   right: { style: BorderStyle.SINGLE, size: 4, color: COL.line },
 };
 
-function lab(text: string) {
-  return new Paragraph({
-    children: [
-      new TextRun({ text: text.toUpperCase(), color: COL.sub, size: 16, bold: true, characterSpacing: 24 }),
-    ],
-    spacing: { after: 60 },
+function tr(opts: {
+  text?: string;
+  size?: number;
+  bold?: boolean;
+  color?: string;
+}): TextRun {
+  return new TextRun({
+    text: opts.text ?? "",
+    size: opts.size ?? 20,
+    bold: opts.bold,
+    color: opts.color || COL.ink,
+    font: KFONT,
   });
 }
 
-function p(text: string, opts: { size?: number; bold?: boolean; color?: string; alignment?: any } = {}) {
+function lab(text: string) {
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text: (text || "").toUpperCase(),
+        color: COL.sub,
+        size: 14,
+        bold: true,
+        characterSpacing: 12,
+        font: KFONT,
+      }),
+    ],
+    spacing: { after: 40 },
+  });
+}
+
+function p(text: string, opts: { size?: number; bold?: boolean; color?: string; alignment?: any; shade?: string } = {}) {
   return new Paragraph({
     alignment: opts.alignment,
+    shading: opts.shade ? { type: ShadingType.CLEAR, fill: opts.shade, color: "auto" } : undefined,
     children: [
       new TextRun({
         text,
-        size: opts.size ?? 22,
+        size: opts.size ?? 20,
         bold: opts.bold,
         color: opts.color || COL.ink,
+        font: KFONT,
       }),
     ],
   });
 }
 
-function cellCard(children: Paragraph[], opts: { width?: number; shade?: string; bordered?: boolean } = {}): TableCell {
-  return new TableCell({
-    children,
-    width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
-    shading: opts.shade ? { type: ShadingType.CLEAR, fill: opts.shade, color: "auto" } : undefined,
-    borders: opts.bordered ? thinBorder : noBorder,
-    margins: { top: 120, bottom: 120, left: 160, right: 160 },
+function emptyP() {
+  return new Paragraph({ children: [new TextRun({ text: "", font: KFONT })] });
+}
+
+// ───── 차트 구성용: 색상 칸 (가로 막대) ─────
+// 부모 셀 폭(DXA)에 정확히 맞춰 가로 비율 막대를 구성한다.
+function ratioBar(segments: { pct: number; fill: string }[], totalDXA: number, height = 240): Table {
+  const inner = Math.max(400, totalDXA - 80);
+  const sum = segments.reduce((a, s) => a + Math.max(0, s.pct), 0);
+  const segs = sum < 99.5 ? [...segments, { pct: 100 - sum, fill: COL.track }] : segments;
+  const widths = segs.map((s) => Math.max(10, Math.floor((Math.max(0, s.pct) / 100) * inner)));
+  const actual = widths.reduce((a, b) => a + b, 0);
+  return new Table({
+    width: { size: actual, type: WidthType.DXA },
+    columnWidths: widths,
+    borders: noBorder as any,
+    rows: [
+      new TableRow({
+        height: { value: height, rule: HeightRule.EXACT },
+        children: segs.map(
+          (s, i) =>
+            new TableCell({
+              width: { size: widths[i], type: WidthType.DXA },
+              shading: { type: ShadingType.CLEAR, fill: s.fill, color: "auto" },
+              borders: noBorder,
+              margins: { top: 0, bottom: 0, left: 0, right: 0 },
+              children: [emptyP()],
+            })
+        ),
+      }),
+    ],
   });
 }
 
-function elField(el: any, disp: any): Paragraph[] {
-  return [lab(el.label), p(String(disp[el.bind] ?? "—"), { alignment: AlignmentType.CENTER })];
+// 세로 막대 차트 — 부모 셀 폭(DXA) 내부에 맞춤
+function verticalBars(bars: { pct: number; fill: string; label: string; value: string; valColor?: string }[], cellDXA: number, height = 1400): Table {
+  const colDXA = Math.max(800, cellDXA - 80);
+  const n = bars.length || 1;
+  const barW = Math.floor(colDXA / n);
+  const widths = bars.map(() => barW);
+  // 한 행에서 각 셀이 막대 영역. 셀 내부에 빈 단락 + shading된 셀로는 부분 채우기가 어려우므로,
+  // 내부에 1열짜리 nested 테이블을 두어 위쪽은 투명/아래쪽은 색.
+  const actualW = widths.reduce((a, b) => a + b, 0);
+  return new Table({
+    width: { size: actualW, type: WidthType.DXA },
+    columnWidths: widths,
+    borders: noBorder as any,
+    rows: [
+      // 값 라벨 행
+      new TableRow({
+        children: bars.map(
+          (b, i) =>
+            new TableCell({
+              width: { size: widths[i], type: WidthType.DXA },
+              borders: noBorder,
+              margins: { top: 0, bottom: 20, left: 0, right: 0 },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: b.value, size: 16, color: b.valColor || COL.ink, font: KFONT, bold: true })],
+                }),
+              ],
+            })
+        ),
+      }),
+      // 막대 행 — 각 셀 안에 nested table로 막대 그리기
+      new TableRow({
+        height: { value: height, rule: HeightRule.EXACT },
+        children: bars.map((b, i) => {
+          const fillH = Math.max(40, Math.floor((Math.max(0, Math.min(100, b.pct)) / 100) * height));
+          const emptyH = Math.max(0, height - fillH);
+          return new TableCell({
+            width: { size: widths[i], type: WidthType.DXA },
+            verticalAlign: VerticalAlign.BOTTOM,
+            borders: noBorder,
+            margins: { top: 0, bottom: 0, left: 60, right: 60 },
+            children: [
+              new Table({
+                width: { size: widths[i] - 120, type: WidthType.DXA },
+                columnWidths: [widths[i] - 120],
+                borders: { ...noBorder, insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" } } as any,
+                rows: [
+                  new TableRow({
+                    height: { value: emptyH || 1, rule: HeightRule.EXACT },
+                    children: [
+                      new TableCell({
+                        width: { size: widths[i] - 120, type: WidthType.DXA },
+                        borders: noBorder,
+                        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                        children: [emptyP()],
+                      }),
+                    ],
+                  }),
+                  new TableRow({
+                    height: { value: fillH, rule: HeightRule.EXACT },
+                    children: [
+                      new TableCell({
+                        width: { size: widths[i] - 120, type: WidthType.DXA },
+                        shading: { type: ShadingType.CLEAR, fill: b.fill, color: "auto" },
+                        borders: noBorder,
+                        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                        children: [emptyP()],
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          });
+        }),
+      }),
+      // 라벨 행
+      new TableRow({
+        children: bars.map(
+          (b, i) =>
+            new TableCell({
+              width: { size: widths[i], type: WidthType.DXA },
+              borders: noBorder,
+              margins: { top: 40, bottom: 0, left: 0, right: 0 },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: b.label, size: 14, color: COL.sub, font: KFONT })],
+                }),
+              ],
+            })
+        ),
+      }),
+    ],
+  });
 }
 
-function elFields(el: any, disp: any): Paragraph[] {
-  const binds: string[] = el.binds || [];
-  const text = binds.length === 0
-    ? "—"
-    : binds.map((n) => `${n}  ${disp[n] ?? "—"}`).join("    |    ");
+// ───────────── element renderers ─────────────
+
+function elField(el: any, disp: any): (Paragraph | Table)[] {
   return [
-    ...(el.label ? [lab(el.label)] : []),
-    p(text, { alignment: AlignmentType.CENTER }),
+    lab(el.label),
+    p(String(disp[el.bind] ?? "—"), { alignment: AlignmentType.CENTER, size: 22 }),
   ];
 }
 
-function elPathLabel(el: any, pathLabel: string): Paragraph[] {
+function elFields(el: any, disp: any): (Paragraph | Table)[] {
+  const binds: string[] = el.binds || [];
+  const text =
+    binds.length === 0
+      ? "—"
+      : binds.map((n) => `${n}  ${disp[n] ?? "—"}`).join("    |    ");
+  return [
+    ...(el.label ? [lab(el.label)] : []),
+    p(text, { alignment: AlignmentType.CENTER, size: 22 }),
+  ];
+}
+
+function elPathLabel(el: any, pathLabel: string): (Paragraph | Table)[] {
   return [
     ...(el.label ? [lab(el.label)] : []),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: pathLabel || "—", size: 22, bold: true, color: COL.blue })],
+      children: [new TextRun({ text: pathLabel || "—", size: 22, bold: true, color: COL.blue, font: KFONT })],
     }),
   ];
 }
 
-function elCard(el: any, disp: any): Paragraph[] {
+function elCard(el: any, disp: any): (Paragraph | Table)[] {
   return [
     lab(el.label),
     new Paragraph({
@@ -121,45 +284,102 @@ function elCard(el: any, disp: any): Paragraph[] {
       children: [
         new TextRun({
           text: String(disp[el.bind] ?? "—"),
-          size: 36,
+          size: 34,
           bold: true,
           color: COL.blue,
+          font: KFONT,
         }),
       ],
     }),
   ];
 }
 
-function elCompare(el: any, schema: AppSchema, jres: any[]): Paragraph[] {
+function elCompare(el: any, schema: AppSchema, jres: any[]): (Paragraph | Table)[] {
   if (!jres || jres.length === 0) {
     return [lab(el.label), p("판정부 비교가 없습니다", { color: COL.sub, size: 18 })];
   }
-  return [
-    lab(el.label),
-    ...jres.map((r) => {
-      const av =
-        typeof r.av === "number" ? fmtU(r.av, unitOf(schema, r.a)) : String(r.av);
-      const bv =
-        typeof r.bv === "number" ? fmtU(r.bv, unitOf(schema, r.b)) : String(r.bv);
-      return new Paragraph({
-        spacing: { before: 40, after: 40 },
+  // 표로 구성: 기준 / 규정 측 / 관계 / 대상자 측 / 결과
+  const headers = ["기준", "규정 측", "관계", "대상자 측", "결과"];
+  const widthDXA = 8800;
+  const cw = [Math.floor(widthDXA * 0.28), Math.floor(widthDXA * 0.2), Math.floor(widthDXA * 0.12), Math.floor(widthDXA * 0.2), Math.floor(widthDXA * 0.2)];
+  const headRow = new TableRow({
+    children: headers.map(
+      (h, i) =>
+        new TableCell({
+          width: { size: cw[i], type: WidthType.DXA },
+          shading: { type: ShadingType.CLEAR, fill: COL.bg, color: "auto" },
+          borders: {
+            top: { style: BorderStyle.SINGLE, size: 4, color: COL.line },
+            bottom: { style: BorderStyle.SINGLE, size: 4, color: COL.line },
+            left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+            right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+          },
+          margins: { top: 60, bottom: 60, left: 80, right: 80 },
+          children: [new Paragraph({ children: [new TextRun({ text: h, size: 16, color: COL.sub, bold: true, font: KFONT })] })],
+        })
+    ),
+  });
+  const dataRows = jres.map(
+    (r) =>
+      new TableRow({
         children: [
-          new TextRun({ text: `${r.a}: `, size: 18, color: COL.sub }),
-          new TextRun({ text: `${av} ${r.op} ${bv}`, size: 18 }),
-          new TextRun({ text: "   " }),
-          new TextRun({
-            text: r.ok ? "충족" : "미충족",
-            size: 18,
-            bold: true,
-            color: r.ok ? COL.emerald : COL.rose,
+          new TableCell({
+            width: { size: cw[0], type: WidthType.DXA },
+            borders: { top: { style: BorderStyle.SINGLE, size: 2, color: COL.line }, bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" } },
+            margins: { top: 60, bottom: 60, left: 80, right: 80 },
+            children: [new Paragraph({ children: [new TextRun({ text: String(r.a), size: 18, font: KFONT })] })],
+          }),
+          new TableCell({
+            width: { size: cw[1], type: WidthType.DXA },
+            borders: { top: { style: BorderStyle.SINGLE, size: 2, color: COL.line }, bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" } },
+            margins: { top: 60, bottom: 60, left: 80, right: 80 },
+            children: [new Paragraph({ children: [new TextRun({ text: typeof r.av === "number" ? fmtU(r.av, unitOf(schema, r.a)) : String(r.av), size: 18, font: KFONT })] })],
+          }),
+          new TableCell({
+            width: { size: cw[2], type: WidthType.DXA },
+            borders: { top: { style: BorderStyle.SINGLE, size: 2, color: COL.line }, bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" } },
+            margins: { top: 60, bottom: 60, left: 80, right: 80 },
+            children: [new Paragraph({ children: [new TextRun({ text: r.op, size: 18, font: KFONT })] })],
+          }),
+          new TableCell({
+            width: { size: cw[3], type: WidthType.DXA },
+            borders: { top: { style: BorderStyle.SINGLE, size: 2, color: COL.line }, bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" } },
+            margins: { top: 60, bottom: 60, left: 80, right: 80 },
+            children: [new Paragraph({ children: [new TextRun({ text: typeof r.bv === "number" ? fmtU(r.bv, unitOf(schema, r.b)) : String(r.bv), size: 18, font: KFONT })] })],
+          }),
+          new TableCell({
+            width: { size: cw[4], type: WidthType.DXA },
+            borders: { top: { style: BorderStyle.SINGLE, size: 2, color: COL.line }, bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" } },
+            margins: { top: 60, bottom: 60, left: 80, right: 80 },
+            children: [
+              new Paragraph({
+                shading: { type: ShadingType.CLEAR, fill: r.ok ? COL.emeraldBg : COL.roseBg, color: "auto" },
+                children: [
+                  new TextRun({
+                    text: r.ok ? "충족" : "미충족",
+                    size: 16,
+                    bold: true,
+                    color: r.ok ? COL.emerald : COL.rose,
+                    font: KFONT,
+                  }),
+                ],
+              }),
+            ],
           }),
         ],
-      });
+      })
+  );
+  return [
+    lab(el.label),
+    new Table({
+      width: { size: widthDXA, type: WidthType.DXA },
+      columnWidths: cw,
+      rows: [headRow, ...dataRows],
     }),
   ];
 }
 
-function elCalc(el: any, schema: AppSchema, disp: any): Paragraph[] {
+function elCalc(el: any, schema: AppSchema, disp: any): (Paragraph | Table)[] {
   const st = allStepsOf(schema).find((s) => s.name === el.bind);
   const expr =
     st && st.type === "formula"
@@ -172,15 +392,16 @@ function elCalc(el: any, schema: AppSchema, disp: any): Paragraph[] {
     lab(el.label),
     new Paragraph({
       shading: { type: ShadingType.CLEAR, fill: COL.bg, color: "auto" },
+      spacing: { before: 40, after: 40 },
       children: [
-        new TextRun({ text: expr + " = ", size: 22, color: COL.ink }),
-        new TextRun({ text: String(disp[el.bind] ?? "—"), size: 22, bold: true, color: COL.emerald }),
+        new TextRun({ text: expr + " = ", size: 20, color: COL.ink, font: KFONT }),
+        new TextRun({ text: String(disp[el.bind] ?? "—"), size: 20, bold: true, color: COL.emerald, font: KFONT }),
       ],
     }),
   ];
 }
 
-function elIncExc(el: any, schema: AppSchema): Paragraph[] {
+function elIncExc(el: any, schema: AppSchema): (Paragraph | Table)[] {
   const st = allStepsOf(schema).find((s) => s.name === el.bind);
   if (!st || st.type !== "classify") {
     return [lab(el.label), p("분류 단계 바인딩 필요", { color: COL.sub, size: 18 })];
@@ -190,21 +411,33 @@ function elIncExc(el: any, schema: AppSchema): Paragraph[] {
   return [
     lab(el.label),
     new Paragraph({
+      spacing: { before: 30, after: 30 },
       children: [
-        new TextRun({ text: "포함  ", size: 18, color: COL.sub }),
-        new TextRun({ text: inc.length ? inc.join(", ") : "—", size: 20, color: COL.emerald, bold: true }),
+        new TextRun({ text: "포함  ", size: 16, color: COL.sub, font: KFONT }),
+        ...(inc.length
+          ? inc.flatMap((r, i) => [
+              new TextRun({ text: `  ${r}  `, size: 16, color: COL.emerald, bold: true, font: KFONT }),
+              ...(i < inc.length - 1 ? [new TextRun({ text: " · ", size: 14, color: COL.sub, font: KFONT })] : []),
+            ])
+          : [new TextRun({ text: "—", size: 16, font: KFONT })]),
       ],
     }),
     new Paragraph({
+      spacing: { before: 30, after: 30 },
       children: [
-        new TextRun({ text: "제외  ", size: 18, color: COL.sub }),
-        new TextRun({ text: ex.length ? ex.join(", ") : "—", size: 20, color: COL.rose, bold: true }),
+        new TextRun({ text: "제외  ", size: 16, color: COL.sub, font: KFONT }),
+        ...(ex.length
+          ? ex.flatMap((r, i) => [
+              new TextRun({ text: `  ${r}  `, size: 16, color: COL.rose, bold: true, font: KFONT }),
+              ...(i < ex.length - 1 ? [new TextRun({ text: " · ", size: 14, color: COL.sub, font: KFONT })] : []),
+            ])
+          : [new TextRun({ text: "—", size: 16, font: KFONT })]),
       ],
     }),
   ];
 }
 
-function elNote(el: any, disp: any): Paragraph[] {
+function elNote(el: any, disp: any): (Paragraph | Table)[] {
   const text = (el.tpl || "").replace(/\{([^}]+)\}/g, (_: any, n: string) =>
     n in disp ? disp[n] : "{" + n + "}"
   );
@@ -212,24 +445,27 @@ function elNote(el: any, disp: any): Paragraph[] {
   return [
     lab(el.label),
     ...lines.map(
-      (line) =>
+      (line: string) =>
         new Paragraph({
-          shading: { type: ShadingType.CLEAR, fill: "FEF3C7", color: "auto" },
-          spacing: { before: 60, after: 60 },
-          children: [new TextRun({ text: line || " ", size: 22, color: "7C2D12" })],
+          shading: { type: ShadingType.CLEAR, fill: COL.amberBg, color: "auto" },
+          spacing: { before: 40, after: 40 },
+          children: [new TextRun({ text: line || " ", size: 20, color: COL.amber, font: KFONT })],
         })
     ),
   ];
 }
 
-function elChart(el: any, schema: AppSchema, sc: any): Paragraph[] {
+// ───────────── chart renderers (시각) ─────────────
+
+function elChart(el: any, schema: AppSchema, sc: any, cellDXA: number): (Paragraph | Table)[] {
   const ct = el.ctype || "bar";
   const st = allStepsOf(schema).find((s) => s.name === el.bind);
 
-  // ── gauge / ratio ──
+  // ── gauge / ratio (수평 진행 바로 표현) ──
   if (ct === "gauge" || ct === "ratio") {
     const val = Number(sc[el.bind] || 0);
-    let min = 0, max = 100;
+    let min = 0,
+      max = 100;
     if (ct === "ratio") {
       max = Number(sc[el.bind2 || ""] || 0) || 1;
       min = 0;
@@ -259,42 +495,57 @@ function elChart(el: any, schema: AppSchema, sc: any): Paragraph[] {
       lab(el.label),
       new Paragraph({
         alignment: AlignmentType.CENTER,
+        spacing: { before: 40, after: 60 },
         children: [
           new TextRun({
             text: ct === "ratio" ? `${Math.round(pct * 100)}%` : fmtU(val, u),
-            size: 36, bold: true, color: COL.blue,
+            size: 32,
+            bold: true,
+            color: COL.blue,
+            font: KFONT,
           }),
         ],
       }),
-      p(
-        ct === "ratio"
-          ? `${fmtU(val, u)} / ${fmtU(max, uB)}`
-          : `범위 ${fmtU(min, u)} ~ ${fmtU(max, u)}  (달성 ${Math.round(pct * 100)}%)`,
-        { color: COL.sub, size: 18, alignment: AlignmentType.CENTER }
-      ),
+      ratioBar([{ pct: pct * 100, fill: COL.blue }], cellDXA, 280),
+      new Paragraph({
+        spacing: { before: 60 },
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            text:
+              ct === "ratio"
+                ? `${fmtU(val, u)} / ${fmtU(max, uB)}`
+                : `${fmtU(min, u)} ~ ${fmtU(max, u)}  (달성 ${Math.round(pct * 100)}%)`,
+            size: 14,
+            color: COL.sub,
+            font: KFONT,
+          }),
+        ],
+      }),
     ];
   }
 
-  // ── bullet ──
+  // ── bullet (실적/목표 진행 바) ──
   if (ct === "bullet") {
     const val = Number(sc[el.bind] || 0);
     const target = Number(sc[el.bind2 || ""] || 0);
+    const maxBase = Math.max(val, target, 1) * 1.2;
+    const valPct = Math.max(2, Math.min(100, (val / maxBase) * 100));
     const u = unitOf(schema, el.bind) || "";
     const ok = target > 0 && val >= target;
     return [
       lab(el.label),
+      ratioBar([{ pct: valPct, fill: ok ? COL.emerald : COL.blue }], cellDXA, 280),
       new Paragraph({
+        spacing: { before: 60 },
         children: [
-          new TextRun({ text: "실적 ", size: 18, color: COL.sub }),
-          new TextRun({ text: fmtU(val, u), size: 26, bold: true, color: ok ? COL.emerald : COL.blue }),
+          new TextRun({ text: "실적 ", size: 16, color: COL.sub, font: KFONT }),
+          new TextRun({ text: fmtU(val, u), size: 22, bold: true, color: ok ? COL.emerald : COL.blue, font: KFONT }),
           ...(target > 0
             ? [
-                new TextRun({ text: "   목표 ", size: 18, color: COL.sub }),
-                new TextRun({ text: fmtU(target, u), size: 26, bold: true, color: COL.rose }),
-                new TextRun({
-                  text: `   (${Math.round((val / target) * 100)}%)`,
-                  size: 18, color: COL.sub,
-                }),
+                new TextRun({ text: "    목표 ", size: 16, color: COL.sub, font: KFONT }),
+                new TextRun({ text: fmtU(target, u), size: 22, bold: true, color: COL.rose, font: KFONT }),
+                new TextRun({ text: `   (${Math.round((val / target) * 100)}%)`, size: 16, color: COL.sub, font: KFONT }),
               ]
             : []),
         ],
@@ -302,61 +553,65 @@ function elChart(el: any, schema: AppSchema, sc: any): Paragraph[] {
     ];
   }
 
-  // ── stacked ──
+  // ── stacked (가로 누적 막대) ──
   if (ct === "stacked") {
     if (!st || st.type !== "classify")
       return [lab(el.label), p("분류 단계 바인딩 필요", { color: COL.sub, size: 18 })];
     const incItems = st.items.filter((i) => i.inc).map((i) => ({ ref: i.ref, v: Number(sc[i.ref] || 0) }));
     const total = incItems.reduce((a, x) => a + x.v, 0) || 1;
     const u = unitOf(schema, el.bind) || "";
+    const segs = incItems.map((x, i) => ({ pct: (x.v / total) * 100, fill: PALETTE[i % PALETTE.length] }));
     return [
       lab(el.label),
-      ...incItems.map((x) =>
-        new Paragraph({
-          spacing: { before: 40, after: 40 },
-          children: [
-            new TextRun({ text: `${x.ref}  `, size: 20 }),
-            new TextRun({
-              text: `${fmtU(x.v, u)}`,
-              size: 22, bold: true,
-            }),
-            new TextRun({
-              text: `   (${Math.round((x.v / total) * 100)}%)`,
-              size: 18, color: COL.sub,
-            }),
-          ],
-        })
-      ),
-      p(`합계: ${fmtU(total, u)}`, { color: COL.sub, size: 18 }),
+      ratioBar(segs, cellDXA, 280),
+      new Paragraph({
+        spacing: { before: 80 },
+        children: incItems.flatMap((x, i) => [
+          new TextRun({ text: "■ ", size: 18, color: PALETTE[i % PALETTE.length], font: KFONT }),
+          new TextRun({
+            text: `${x.ref}  ${fmtU(x.v, u)} (${Math.round((x.v / total) * 100)}%)    `,
+            size: 14,
+            color: COL.sub,
+            font: KFONT,
+          }),
+        ]),
+      }),
     ];
   }
 
-  // ── comparison ──
+  // ── comparison (세로 막대 2개) ──
   if (ct === "comparison") {
     const aV = Number(sc[el.bind] || 0);
     const bV = Number(sc[el.bind2 || ""] || 0);
+    const mx = Math.max(Math.abs(aV), Math.abs(bV), 0.0001);
     const u = unitOf(schema, el.bind) || "";
     const uB = unitOf(schema, el.bind2 || "") || u;
     return [
       lab(el.label),
-      new Paragraph({
-        spacing: { before: 60, after: 60 },
-        children: [
-          new TextRun({ text: el.bind + " ", size: 20, color: COL.sub }),
-          new TextRun({ text: fmtU(aV, u), size: 26, bold: true, color: COL.blue }),
+      verticalBars(
+        [
+          {
+            pct: (Math.abs(aV) / mx) * 100,
+            fill: COL.blue,
+            label: el.bind,
+            value: fmtU(aV, u),
+            valColor: COL.blue,
+          },
+          {
+            pct: (Math.abs(bV) / mx) * 100,
+            fill: COL.slateBg,
+            label: el.bind2 || "—",
+            value: fmtU(bV, uB),
+            valColor: COL.slate,
+          },
         ],
-      }),
-      new Paragraph({
-        spacing: { before: 60, after: 60 },
-        children: [
-          new TextRun({ text: (el.bind2 || "—") + " ", size: 20, color: COL.sub }),
-          new TextRun({ text: fmtU(bV, uB), size: 26, bold: true, color: "475569" }),
-        ],
-      }),
+        cellDXA,
+        1400
+      ),
     ];
   }
 
-  // ── delta ──
+  // ── delta (이전→현재) ──
   if (ct === "delta") {
     const cur = Number(sc[el.bind] || 0);
     const prev = Number(sc[el.bind2 || ""] || 0);
@@ -369,77 +624,85 @@ function elChart(el: any, schema: AppSchema, sc: any): Paragraph[] {
     const arrow = flat ? "—" : up ? "▲" : "▼";
     return [
       lab(el.label),
-      p(`이전 ${fmtU(prev, u)} → 현재`, { color: COL.sub, size: 16 }),
+      p(`이전 ${fmtU(prev, u)} → 현재`, { color: COL.sub, size: 14 }),
       new Paragraph({
+        spacing: { before: 40 },
         children: [
-          new TextRun({ text: fmtU(cur, u), size: 36, bold: true }),
+          new TextRun({ text: fmtU(cur, u), size: 32, bold: true, font: KFONT }),
           new TextRun({
             text: `   ${arrow} ${fmtU(Math.abs(diff), u)}${prev !== 0 ? ` (${up ? "+" : flat ? "" : "-"}${Math.abs(Math.round(pct * 10) / 10)}%)` : ""}`,
-            size: 22, bold: true, color,
+            size: 20,
+            bold: true,
+            color,
+            font: KFONT,
           }),
         ],
       }),
     ];
   }
 
+  // ── donut (포함 비율 — 가로 진행 바로 표현 + 범례) ──
   if (ct === "donut") {
     if (!st || st.type !== "classify")
       return [lab(el.label), p("분류 단계 바인딩 필요", { color: COL.sub, size: 18 })];
     const incV = st.items.filter((i) => i.inc).reduce((a, i) => a + Number(sc[i.ref] || 0), 0);
     const exV = st.items.filter((i) => !i.inc).reduce((a, i) => a + Number(sc[i.ref] || 0), 0);
     const tot = incV + exV || 1;
-    const pct = Math.round((incV / tot) * 100);
+    const pct = (incV / tot) * 100;
     const u = unitOf(schema, el.bind) || "원";
     return [
-      lab(el.label + " (도넛)"),
+      lab(el.label),
       new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 40, after: 60 },
         children: [
-          new TextRun({ text: `포함 비율  `, size: 18, color: COL.sub }),
-          new TextRun({ text: `${pct}%`, size: 30, bold: true, color: COL.blue }),
+          new TextRun({ text: `포함 비율  `, size: 16, color: COL.sub, font: KFONT }),
+          new TextRun({ text: `${Math.round(pct)}%`, size: 28, bold: true, color: COL.blue, font: KFONT }),
         ],
       }),
-      p(`포함  ${fmtU(incV, u)}`, { size: 18 }),
-      p(`제외  ${fmtU(exV, u)}`, { size: 18 }),
+      ratioBar(
+        [
+          { pct, fill: COL.blue },
+          { pct: 100 - pct, fill: COL.blueLite },
+        ],
+        cellDXA,
+        280
+      ),
+      new Paragraph({
+        spacing: { before: 80 },
+        children: [
+          new TextRun({ text: "■ ", size: 18, color: COL.blue, font: KFONT }),
+          new TextRun({ text: `포함  ${fmtU(incV, u)}    `, size: 14, color: COL.sub, font: KFONT }),
+          new TextRun({ text: "■ ", size: 18, color: COL.blueLite, font: KFONT }),
+          new TextRun({ text: `제외  ${fmtU(exV, u)}`, size: 14, color: COL.sub, font: KFONT }),
+        ],
+      }),
     ];
   }
-  // bar/step → 표
+
+  // ── bar / step (구간표 기반 세로 막대) ──
   if (!st || st.type !== "table")
     return [lab(el.label), p("구간표 단계 바인딩 필요", { color: COL.sub, size: 18 })];
   const cur = sc[st.ref];
   const u = st.unit || "";
+  const mx = Math.max(...st.bands.map((b) => Math.abs(b.v)), 0.0001);
+  const bars = st.bands.map((b) => {
+    const on = cur >= b.from && cur <= b.to;
+    return {
+      pct: (Math.abs(b.v) / mx) * 100,
+      fill: on ? COL.blue : COL.blueBg,
+      label: `${b.from}~${b.to}`,
+      value: fmtU(b.v, u),
+      valColor: on ? COL.blue : COL.sub,
+    };
+  });
   return [
     lab(el.label + (ct === "step" ? " (계단선)" : " (막대)")),
-    ...st.bands.map((b) => {
-      const on = cur >= b.from && cur <= b.to;
-      return new Paragraph({
-        spacing: { before: 30, after: 30 },
-        children: [
-          new TextRun({
-            text: `${b.from} ~ ${b.to}: `,
-            size: 18,
-            color: COL.sub,
-          }),
-          new TextRun({
-            text: fmtU(b.v, u),
-            size: 20,
-            bold: on,
-            color: on ? COL.blue : COL.ink,
-          }),
-          on
-            ? new TextRun({
-                text: "  ● 현재",
-                size: 16,
-                bold: true,
-                color: COL.blue,
-              })
-            : new TextRun({ text: "" }),
-        ],
-      });
-    }),
+    verticalBars(bars, cellDXA, 1400),
   ];
 }
 
-function renderEl(el: any, schema: AppSchema, result: any): (Paragraph | Table)[] {
+function renderEl(el: any, schema: AppSchema, result: any, cellDXA: number): (Paragraph | Table)[] {
   const { sc, disp, jres } = result;
   if (el.kind === "field") return elField(el, disp);
   if (el.kind === "fields") return elFields(el, disp);
@@ -449,7 +712,7 @@ function renderEl(el: any, schema: AppSchema, result: any): (Paragraph | Table)[
   if (el.kind === "calc") return elCalc(el, schema, disp);
   if (el.kind === "incexc") return elIncExc(el, schema);
   if (el.kind === "note") return elNote(el, disp);
-  if (el.kind === "chart") return elChart(el, schema, sc);
+  if (el.kind === "chart") return elChart(el, schema, sc, cellDXA);
   return [lab(el.label), p(`[${el.kind}]`)];
 }
 
@@ -458,7 +721,7 @@ function groupRows(els: any[]): any[][] {
   const rows: any[][] = [];
   let cur: any[] = [];
   let curW = 0;
-  const wt = (e: any) => ({ full: 6, half: 3, third: 2 }[e.w || "full"] as number);
+  const wt = (e: any) => (({ full: 6, half: 3, third: 2 } as any)[e.w || "full"] as number);
   for (const el of els) {
     const w = wt(el);
     if (el.w === "full" || curW + w > 6) {
@@ -480,6 +743,8 @@ function groupRows(els: any[]): any[][] {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireActiveSubscription();
+  if ("error" in auth) return auth.error;
   try {
     const { schema, result } = await req.json();
     if (!schema || !result)
@@ -489,11 +754,11 @@ export async function POST(req: NextRequest) {
     const reportEls = activePath?.report || schema.report || [];
     const today = new Date().toISOString().slice(0, 10);
     const title =
-      (schema.meta?.appName || "분석 리포트").replace(/ ?읍$/, "") + " 안내서";
+      (schema.meta?.appName || "분석 리포트").replace(/ ?앱$/, "") + " 안내서";
 
     const children: (Paragraph | Table)[] = [];
 
-    // 헤더 — 큰 박스 (Table 1행 1열로 컬러 헤더 구현)
+    // 헤더 바 — 파란 단색 배경 + 흰 글씨
     children.push(
       new Table({
         width: { size: 9072, type: WidthType.DXA },
@@ -505,25 +770,17 @@ export async function POST(req: NextRequest) {
                 width: { size: 9072, type: WidthType.DXA },
                 shading: { type: ShadingType.CLEAR, fill: COL.blue, color: "auto" },
                 borders: noBorder,
-                margins: { top: 200, bottom: 200, left: 200, right: 200 },
+                margins: { top: 200, bottom: 200, left: 240, right: 240 },
                 children: [
                   new Paragraph({
                     children: [
-                      new TextRun({ text: title, size: 28, bold: true, color: "FFFFFF" }),
-                      new TextRun({
-                        text: `   [${result.activePathLabel || "—"}]`,
-                        size: 18,
-                        color: "FFFFFF",
-                      }),
+                      new TextRun({ text: title, size: 28, bold: true, color: "FFFFFF", font: KFONT }),
+                      new TextRun({ text: `   [${result.activePathLabel || "—"}]`, size: 18, color: "FFFFFF", font: KFONT }),
                     ],
                   }),
                   new Paragraph({
                     children: [
-                      new TextRun({
-                        text: `AUTO · ${today}`,
-                        size: 14,
-                        color: "FFFFFF",
-                      }),
+                      new TextRun({ text: `AUTO · ${today}`, size: 14, color: "E5E7EB", font: KFONT }),
                     ],
                   }),
                 ],
@@ -534,10 +791,10 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    children.push(new Paragraph({ children: [new TextRun({ text: "" })] }));
+    children.push(emptyP());
 
-    // 본문 — 행마다 표로 멀티컬럼 (DXA 고정 폭으로 Word 호환성 보장)
-    const PAGE_W = 9072; // A4 - 1" 좌우 여백 ≈ 9072 twips
+    // 본문 — 행마다 표로 멀티컬럼
+    const PAGE_W = 9072;
     const rows = groupRows(reportEls);
     for (const row of rows) {
       const totalW = row.reduce(
@@ -549,11 +806,12 @@ export async function POST(req: NextRequest) {
         return Math.floor((slot / totalW) * PAGE_W);
       });
       const cells = row.map((el, i) => {
-        const inner = renderEl(el, schema, result);
+        const cellInnerDXA = Math.max(800, colWidths[i] - 400); // 셀 margins(200+200) 제외
+        const inner = renderEl(el, schema, result, cellInnerDXA);
         return new TableCell({
           width: { size: colWidths[i], type: WidthType.DXA },
           borders: thinBorder,
-          margins: { top: 120, bottom: 120, left: 160, right: 160 },
+          margins: { top: 160, bottom: 160, left: 200, right: 200 },
           children: inner as any,
         });
       });
@@ -564,16 +822,34 @@ export async function POST(req: NextRequest) {
           rows: [new TableRow({ children: cells })],
         })
       );
-      children.push(new Paragraph({ children: [new TextRun({ text: "" })] }));
+      children.push(emptyP());
     }
 
     if (reportEls.length === 0) {
       children.push(p("리포트가 비어 있습니다.", { color: COL.sub, size: 20 }));
     }
 
-    const doc = new Document({ sections: [{ children }] });
+    const doc = new Document({
+      styles: {
+        default: {
+          document: {
+            run: { font: KFONT, size: 20 },
+          },
+        },
+      },
+      sections: [
+        {
+          properties: {
+            page: {
+              margin: { top: 720, bottom: 720, left: 720, right: 720 },
+            },
+          },
+          children,
+        },
+      ],
+    });
     const buffer = await Packer.toBuffer(doc);
-    return new NextResponse(buffer, {
+    return new NextResponse(buffer as any, {
       status: 200,
       headers: {
         "Content-Type":

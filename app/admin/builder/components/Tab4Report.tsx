@@ -24,27 +24,271 @@ interface PaletteItem {
   ctype?: ChartType;
   t: string;
   s: string;
+  use: string;
 }
 
 const PAL: PaletteItem[] = [
-  { kind: "field", t: "기본정보", s: "텍스트 한 줄" },
-  { kind: "fields", t: "기본정보 묶음", s: "여러 변수를 가로로 (성명 홍길동 | 사번 …)" },
-  { kind: "pathlabel", t: "경로 정보", s: "편집 중인 경로 라벨 (고정값)" },
-  { kind: "card", t: "요약 카드", s: "핵심 결과 큰 숫자" },
-  { kind: "compare", t: "판단 근거 비교표", s: "판정부 그대로" },
-  { kind: "calc", t: "산출 근거", s: "계산식 + 결과값" },
-  { kind: "incexc", t: "포함/제외 태그", s: "분류 단계 항목" },
-  { kind: "chart", ctype: "bar", t: "구간 막대 차트", s: "구간표 → 막대" },
-  { kind: "chart", ctype: "step", t: "구간 계단선", s: "연령별 감액률 등" },
-  { kind: "chart", ctype: "donut", t: "포함/제외 도넛", s: "분류 비율" },
-  { kind: "chart", ctype: "gauge", t: "게이지", s: "점수·등급의 위치" },
-  { kind: "chart", ctype: "bullet", t: "불릿 차트", s: "목표 대비 실적" },
-  { kind: "chart", ctype: "stacked", t: "누적 가로 막대", s: "분류 항목 비율" },
-  { kind: "chart", ctype: "comparison", t: "이중 막대", s: "두 값 크기 비교" },
-  { kind: "chart", ctype: "delta", t: "Δ 변화량", s: "전→후 증감 표시" },
-  { kind: "chart", ctype: "ratio", t: "비율 게이지", s: "A / B 달성률" },
-  { kind: "note", t: "안내문", s: "{변수}로 문장" },
+  { kind: "field", t: "기본정보", s: "텍스트 한 줄", use: "성명·사번 같은 단일 변수를 한 줄로 보여줄 때" },
+  { kind: "fields", t: "기본정보 묶음", s: "여러 변수를 가로로 (성명 홍길동 | 사번 …)", use: "헤더에 인적사항 여러 개를 가로로 나열할 때" },
+  { kind: "pathlabel", t: "경로 정보", s: "편집 중인 경로 라벨 (고정값)", use: "어느 분기 경로의 리포트인지 명시할 때" },
+  { kind: "card", t: "요약 카드", s: "핵심 결과 큰 숫자", use: "최종 금액·점수 등 가장 강조할 결과 1개" },
+  { kind: "compare", t: "판단 근거 비교표", s: "판정부 그대로", use: "조건 ↔ 입력값을 표로 보여주며 근거를 설명할 때" },
+  { kind: "calc", t: "산출 근거", s: "계산식 + 결과값", use: "어떤 식으로 결과가 나왔는지 수식으로 보여줄 때" },
+  { kind: "incexc", t: "포함/제외 태그", s: "분류 단계 항목", use: "분류 단계별 포함/제외 항목을 칩으로 나열할 때" },
+  { kind: "chart", ctype: "bar", t: "구간 막대 차트", s: "구간표 → 막대", use: "구간별 값/비율을 직관적으로 비교할 때" },
+  { kind: "chart", ctype: "step", t: "구간 계단선", s: "연령별 감액률 등", use: "연령·기간별 비율이 계단식으로 바뀌는 표현" },
+  { kind: "chart", ctype: "donut", t: "포함/제외 도넛", s: "분류 비율", use: "전체 대비 포함/제외 비율을 한눈에 볼 때" },
+  { kind: "chart", ctype: "gauge", t: "게이지", s: "점수·등급의 위치", use: "점수가 어느 구간(저/중/고)에 있는지" },
+  { kind: "chart", ctype: "bullet", t: "불릿 차트", s: "목표 대비 실적", use: "목표·기준 대비 실적의 달성 정도" },
+  { kind: "chart", ctype: "stacked", t: "누적 가로 막대", s: "분류 항목 비율", use: "여러 항목의 비중을 한 막대로 누적 표현" },
+  { kind: "chart", ctype: "comparison", t: "이중 막대", s: "두 값 크기 비교", use: "두 값(이전/이후, A/B)의 크기를 나란히" },
+  { kind: "chart", ctype: "delta", t: "Δ 변화량", s: "전→후 증감 표시", use: "기준 대비 증감(+/-)을 강조" },
+  { kind: "chart", ctype: "ratio", t: "비율 게이지", s: "A / B 달성률", use: "두 수 사이 달성률을 게이지로" },
+  { kind: "note", t: "안내문", s: "{변수}로 문장", use: "안내 문구·면책 문장 등 자유 텍스트" },
 ];
+
+function PalettePreview({ item }: { item: PaletteItem }) {
+  const k = item.kind + (item.ctype ? "|" + item.ctype : "");
+  const wrap = (children: React.ReactNode) => (
+    <svg viewBox="0 0 220 110" className="w-full h-[110px]">
+      {children}
+    </svg>
+  );
+  switch (k) {
+    case "field":
+      return wrap(
+        <>
+          <text x="12" y="58" fontSize="11" fill="#64748b">성명</text>
+          <text x="50" y="58" fontSize="13" fontWeight="600" fill="#0f172a">홍길동</text>
+        </>
+      );
+    case "fields":
+      return wrap(
+        <>
+          <text x="10" y="40" fontSize="10" fill="#64748b">성명</text>
+          <text x="42" y="40" fontSize="11" fontWeight="600" fill="#0f172a">홍길동</text>
+          <text x="100" y="40" fontSize="10" fill="#64748b">사번</text>
+          <text x="128" y="40" fontSize="11" fontWeight="600" fill="#0f172a">12345</text>
+          <text x="10" y="72" fontSize="10" fill="#64748b">부서</text>
+          <text x="42" y="72" fontSize="11" fontWeight="600" fill="#0f172a">인사팀</text>
+        </>
+      );
+    case "pathlabel":
+      return wrap(
+        <>
+          <rect x="20" y="40" width="180" height="32" rx="6" fill="#eef2ff" stroke="#c7d2fe" />
+          <text x="34" y="60" fontSize="11" fill="#3730a3">경로: 정규직 / 5년 이상 / B형</text>
+        </>
+      );
+    case "card":
+      return wrap(
+        <>
+          <rect x="20" y="20" width="180" height="72" rx="8" fill="#fef3c7" stroke="#fcd34d" />
+          <text x="34" y="48" fontSize="10" fill="#92400e">최종 지급액</text>
+          <text x="34" y="80" fontSize="22" fontWeight="800" fill="#7c2d12">12,450,000원</text>
+        </>
+      );
+    case "compare":
+      return wrap(
+        <>
+          <rect x="10" y="14" width="200" height="20" fill="#f1f5f9" />
+          <text x="20" y="28" fontSize="10" fill="#475569">조건</text>
+          <text x="110" y="28" fontSize="10" fill="#475569">입력</text>
+          <line x1="10" y1="34" x2="210" y2="34" stroke="#e2e8f0" />
+          <text x="20" y="52" fontSize="10" fill="#0f172a">근속 ≥ 5년</text>
+          <text x="110" y="52" fontSize="10" fontWeight="600" fill="#16a34a">7년 ✓</text>
+          <line x1="10" y1="60" x2="210" y2="60" stroke="#e2e8f0" />
+          <text x="20" y="78" fontSize="10" fill="#0f172a">직군 = 정규직</text>
+          <text x="110" y="78" fontSize="10" fontWeight="600" fill="#16a34a">정규직 ✓</text>
+        </>
+      );
+    case "calc":
+      return wrap(
+        <>
+          <text x="14" y="42" fontSize="11" fill="#0f172a">기본급 × 근속 × 0.5</text>
+          <text x="14" y="62" fontSize="10" fill="#64748b">= 3,000,000 × 7 × 0.5</text>
+          <text x="14" y="86" fontSize="14" fontWeight="700" fill="#0369a1">= 10,500,000</text>
+        </>
+      );
+    case "incexc":
+      return wrap(
+        <>
+          <rect x="10" y="20" width="62" height="22" rx="11" fill="#dcfce7" stroke="#86efac" />
+          <text x="22" y="35" fontSize="10" fill="#166534">✓ 정규직</text>
+          <rect x="78" y="20" width="62" height="22" rx="11" fill="#dcfce7" stroke="#86efac" />
+          <text x="90" y="35" fontSize="10" fill="#166534">✓ 5년↑</text>
+          <rect x="10" y="52" width="62" height="22" rx="11" fill="#fee2e2" stroke="#fca5a5" />
+          <text x="22" y="67" fontSize="10" fill="#991b1b">✕ 휴직</text>
+          <rect x="78" y="52" width="62" height="22" rx="11" fill="#fee2e2" stroke="#fca5a5" />
+          <text x="90" y="67" fontSize="10" fill="#991b1b">✕ 징계</text>
+        </>
+      );
+    case "chart|bar":
+      // 점수 구간별 분포 — 강조 바(현재 위치) + 값 라벨
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">점수 구간별 분포</text>
+          <rect x="22" y="58" width="26" height="32" fill="#dbeafe" />
+          <rect x="54" y="44" width="26" height="46" fill="#bfdbfe" />
+          <rect x="86" y="28" width="26" height="62" fill="#3b82f6" />
+          <rect x="118" y="40" width="26" height="50" fill="#bfdbfe" />
+          <rect x="150" y="62" width="26" height="28" fill="#dbeafe" />
+          <text x="90" y="24" fontSize="9" fontWeight="700" fill="#1d4ed8">42명</text>
+          <line x1="18" y1="90" x2="182" y2="90" stroke="#94a3b8" />
+          <text x="24" y="102" fontSize="8" fill="#94a3b8">~60</text>
+          <text x="56" y="102" fontSize="8" fill="#94a3b8">~70</text>
+          <text x="88" y="102" fontSize="8" fill="#1d4ed8" fontWeight="700">~80</text>
+          <text x="120" y="102" fontSize="8" fill="#94a3b8">~90</text>
+          <text x="152" y="102" fontSize="8" fill="#94a3b8">~100</text>
+        </>
+      );
+    case "chart|step":
+      // 연령별 감액률 — 계단 + 현재 위치 마커
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">연령별 감액률</text>
+          <text x="10" y="30" fontSize="8" fill="#94a3b8">30%</text>
+          <text x="10" y="58" fontSize="8" fill="#94a3b8">15%</text>
+          <text x="10" y="86" fontSize="8" fill="#94a3b8">0%</text>
+          <line x1="30" y1="88" x2="200" y2="88" stroke="#cbd5e1" />
+          <polyline points="30,85 70,85 70,62 110,62 110,40 150,40 150,22 200,22" fill="none" stroke="#6366f1" strokeWidth="2.5" />
+          <circle cx="120" cy="40" r="4" fill="#6366f1" />
+          <text x="126" y="36" fontSize="8" fontWeight="700" fill="#4338ca">현재 22%</text>
+          <text x="56" y="102" fontSize="8" fill="#94a3b8">55세</text>
+          <text x="98" y="102" fontSize="8" fill="#94a3b8">58세</text>
+          <text x="140" y="102" fontSize="8" fill="#94a3b8">60세</text>
+          <text x="180" y="102" fontSize="8" fill="#94a3b8">62세</text>
+        </>
+      );
+    case "chart|donut":
+      // 포함/제외 비율 — 중앙에 큰 숫자, 범례
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">포함 / 제외 비율</text>
+          <circle cx="62" cy="62" r="32" fill="none" stroke="#e2e8f0" strokeWidth="14" />
+          <circle cx="62" cy="62" r="32" fill="none" stroke="#6366f1" strokeWidth="14" strokeDasharray="120.6 201" transform="rotate(-90 62 62)" />
+          <text x="50" y="60" fontSize="13" fontWeight="800" fill="#0f172a">60%</text>
+          <text x="44" y="74" fontSize="8" fill="#64748b">포함</text>
+          <rect x="120" y="34" width="10" height="10" rx="2" fill="#6366f1" />
+          <text x="136" y="43" fontSize="10" fill="#0f172a" fontWeight="600">포함</text>
+          <text x="180" y="43" fontSize="10" fill="#475569">12건</text>
+          <rect x="120" y="54" width="10" height="10" rx="2" fill="#e2e8f0" />
+          <text x="136" y="63" fontSize="10" fill="#0f172a" fontWeight="600">제외</text>
+          <text x="180" y="63" fontSize="10" fill="#475569">8건</text>
+          <text x="120" y="84" fontSize="9" fill="#94a3b8">총 20건</text>
+        </>
+      );
+    case "chart|gauge":
+      // 점수 위치 — 구간(저/중/고) + 바늘
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">평가 점수 위치</text>
+          <path d="M 30 88 A 80 80 0 0 1 83.7 27.5" fill="none" stroke="#fca5a5" strokeWidth="12" strokeLinecap="round" />
+          <path d="M 83.7 27.5 A 80 80 0 0 1 136.3 27.5" fill="none" stroke="#fcd34d" strokeWidth="12" />
+          <path d="M 136.3 27.5 A 80 80 0 0 1 190 88" fill="none" stroke="#86efac" strokeWidth="12" strokeLinecap="round" />
+          <line x1="110" y1="88" x2="166.57" y2="31.43" stroke="#0f172a" strokeWidth="2.5" />
+          <circle cx="110" cy="88" r="5" fill="#0f172a" />
+          <text x="34" y="100" fontSize="8" fill="#b91c1c">저</text>
+          <text x="106" y="14" fontSize="8" fill="#a16207">중</text>
+          <text x="180" y="100" fontSize="8" fill="#166534">고</text>
+          <text x="92" y="74" fontSize="13" fontWeight="800" fill="#0f172a">75점</text>
+        </>
+      );
+    case "chart|bullet":
+      // 목표 대비 실적
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">목표 대비 실적</text>
+          <rect x="20" y="34" width="180" height="24" rx="2" fill="#f1f5f9" />
+          <rect x="20" y="34" width="60" height="24" fill="#e2e8f0" />
+          <rect x="80" y="34" width="60" height="24" fill="#cbd5e1" />
+          <rect x="20" y="42" width="120" height="8" fill="#1e293b" />
+          <line x1="150" y1="28" x2="150" y2="64" stroke="#ef4444" strokeWidth="2.5" />
+          <text x="142" y="24" fontSize="8" fontWeight="700" fill="#ef4444">목표 150</text>
+          <text x="20" y="78" fontSize="9" fill="#475569">실적</text>
+          <text x="42" y="78" fontSize="11" fontWeight="700" fill="#0f172a">120</text>
+          <text x="72" y="78" fontSize="9" fill="#94a3b8">(80% 달성)</text>
+        </>
+      );
+    case "chart|stacked":
+      // 분류 항목 비율
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">분류 항목 비율</text>
+          <rect x="20" y="28" width="180" height="26" rx="3" fill="#f1f5f9" />
+          <rect x="20" y="28" width="90" height="26" fill="#6366f1" />
+          <rect x="110" y="28" width="54" height="26" fill="#a5b4fc" />
+          <rect x="164" y="28" width="36" height="26" fill="#e0e7ff" />
+          <text x="55" y="45" fontSize="10" fontWeight="700" fill="#fff">50%</text>
+          <text x="125" y="45" fontSize="10" fontWeight="700" fill="#312e81">30%</text>
+          <text x="170" y="45" fontSize="9" fontWeight="700" fill="#312e81">20%</text>
+          <rect x="20" y="76" width="8" height="8" fill="#6366f1" />
+          <text x="32" y="83" fontSize="9" fill="#334155">정규</text>
+          <rect x="74" y="76" width="8" height="8" fill="#a5b4fc" />
+          <text x="86" y="83" fontSize="9" fill="#334155">계약</text>
+          <rect x="124" y="76" width="8" height="8" fill="#e0e7ff" />
+          <text x="136" y="83" fontSize="9" fill="#334155">파견</text>
+        </>
+      );
+    case "chart|comparison":
+      // 이중 막대 — 전/후 두 값
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">변경 전 / 후 비교</text>
+          <rect x="46" y="50" width="36" height="44" fill="#94a3b8" />
+          <rect x="138" y="28" width="36" height="66" fill="#3b82f6" />
+          <text x="50" y="44" fontSize="10" fontWeight="700" fill="#334155">3.0M</text>
+          <text x="140" y="22" fontSize="10" fontWeight="700" fill="#1d4ed8">4.5M</text>
+          <line x1="20" y1="94" x2="200" y2="94" stroke="#94a3b8" />
+          <text x="52" y="106" fontSize="9" fill="#475569">변경 전</text>
+          <text x="142" y="106" fontSize="9" fill="#1d4ed8" fontWeight="700">변경 후</text>
+        </>
+      );
+    case "chart|delta":
+      // Δ 변화량 — 이전→이후 + 증감 배지
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">전기 대비 변화</text>
+          <rect x="16" y="26" width="74" height="58" rx="6" fill="#f8fafc" stroke="#e2e8f0" />
+          <text x="24" y="44" fontSize="9" fill="#64748b">이전</text>
+          <text x="24" y="68" fontSize="16" fontWeight="800" fill="#0f172a">100</text>
+          <text x="62" y="68" fontSize="9" fill="#94a3b8">만원</text>
+          <text x="100" y="60" fontSize="22" fill="#16a34a">→</text>
+          <rect x="130" y="26" width="74" height="58" rx="6" fill="#f0fdf4" stroke="#86efac" />
+          <text x="138" y="44" fontSize="9" fill="#15803d">이후</text>
+          <text x="138" y="68" fontSize="16" fontWeight="800" fill="#14532d">125</text>
+          <text x="176" y="68" fontSize="9" fill="#86efac">만원</text>
+          <rect x="70" y="90" width="80" height="16" rx="8" fill="#dcfce7" />
+          <text x="86" y="102" fontSize="10" fontWeight="800" fill="#166534">▲ +25 (25%)</text>
+        </>
+      );
+    case "chart|ratio":
+      // 비율 게이지 — A/B 달성률
+      return wrap(
+        <>
+          <text x="10" y="12" fontSize="9" fill="#64748b">납입 / 목표 달성률</text>
+          <text x="10" y="36" fontSize="9" fill="#475569">달성</text>
+          <text x="158" y="36" fontSize="13" fontWeight="800" fill="#0369a1">70%</text>
+          <rect x="20" y="46" width="180" height="16" rx="8" fill="#e2e8f0" />
+          <rect x="20" y="46" width="126" height="16" rx="8" fill="#0ea5e9" />
+          <line x1="146" y1="42" x2="146" y2="66" stroke="#0c4a6e" strokeWidth="2" strokeDasharray="2 2" />
+          <text x="20" y="80" fontSize="9" fill="#475569">7,000만원 / 10,000만원</text>
+          <text x="146" y="100" fontSize="8" fill="#0c4a6e" textAnchor="middle">현재</text>
+        </>
+      );
+    case "note":
+      return wrap(
+        <>
+          <text x="14" y="32" fontSize="11" fill="#334155">※ 본 리포트는 {`{기준일}`} 기준입니다.</text>
+          <line x1="14" y1="40" x2="206" y2="40" stroke="#e2e8f0" />
+          <line x1="14" y1="56" x2="206" y2="56" stroke="#e2e8f0" />
+          <line x1="14" y1="72" x2="160" y2="72" stroke="#e2e8f0" />
+        </>
+      );
+    default:
+      return wrap(<text x="14" y="60" fontSize="11" fill="#94a3b8">미리보기 없음</text>);
+  }
+}
 
 const wDef: Record<ElementKind, Width> = {
   card: "third",
@@ -144,6 +388,12 @@ export default function Tab4Report({ schema, onChange }: Props) {
   const [dragging, setDragging] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  const [hoverPal, setHoverPal] = useState<{
+    item: PaletteItem;
+    accentBar: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const prevRects = useRef<Map<string, DOMRect>>(new Map());
@@ -325,10 +575,39 @@ export default function Tab4Report({ schema, onChange }: Props) {
   }, [displayedList, draggedId]);
 
   const unitsTotal = list.reduce((a, e) => a + wSpanOf(e) * hSpanOf(e), 0);
-  const pages = Math.max(1, Math.ceil(unitsTotal / 12));
+  // A4 1페이지 용량: 6열 × 약 8행 = 48 unit
+  const pages = Math.max(1, Math.ceil(unitsTotal / 48));
   const isActivePath = result.activePathId === slot;
 
   return (
+    <>
+      {/* hoverPal은 space-y-5 밖에 둠 — 첫 자식이 되어 헤더에 margin-top 추가로 페이지 흔드는 문제 방지 */}
+      {hoverPal && (
+        <div
+          className="fixed w-[260px] pointer-events-none"
+          style={{
+            left: Math.min(hoverPal.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 270),
+            top: Math.min(hoverPal.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 220),
+            zIndex: 9999,
+          }}
+        >
+          <div className="rounded-lg border bg-white shadow-2xl p-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className={`inline-block w-1.5 h-3 ${hoverPal.accentBar} rounded`} />
+              <span className="text-xs font-semibold text-gray-800">{hoverPal.item.t}</span>
+            </div>
+            <div className="text-[10px] text-gray-500 mb-2 leading-snug">
+              {hoverPal.item.use}
+            </div>
+            <div className="rounded border bg-gray-50 p-1">
+              <PalettePreview item={hoverPal.item} />
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1.5 leading-snug">
+              형태: {hoverPal.item.s}
+            </div>
+          </div>
+        </div>
+      )}
     <div className="space-y-5">
       <div className="pb-5 border-b border-gray-100">
         <div className="text-xs font-mono uppercase tracking-wider text-blue-700 mb-2">
@@ -340,33 +619,40 @@ export default function Tab4Report({ schema, onChange }: Props) {
         </p>
       </div>
 
-      {/* 경로 선택 바 */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 border p-2">
-        <span className="text-xs font-semibold text-gray-700 px-1.5">
-          편집 중인 경로:
-        </span>
-        {slots.map((s) => {
+      {/* 경로 선택 바 — Tab3 톤앤매너와 통일 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-500">편집 중:</span>
+        {slots.map((s, idx) => {
           const matched = result.activePathId === s.id;
           const on = slot === s.id;
+          const isFb = s.isFallback;
           return (
             <button
               key={s.id}
               onClick={() => setSlot(s.id)}
               className={
-                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition " +
+                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-mono transition " +
                 (on
-                  ? s.isFallback
+                  ? isFb
                     ? "bg-rose-600 text-white"
                     : "bg-blue-600 text-white"
-                  : s.isFallback
-                  ? "bg-white border border-rose-200 text-rose-700 hover:bg-rose-50"
-                  : "bg-white border border-blue-200 text-blue-700 hover:bg-blue-50") +
+                  : isFb
+                  ? "bg-rose-100 text-rose-700 hover:bg-rose-200"
+                  : "bg-blue-100 text-blue-700 hover:bg-blue-200") +
                 (matched ? " ring-2 ring-emerald-400 ring-offset-1" : "")
               }
             >
-              {s.isFallback && "▣ "}
-              {s.label}
-              {matched && <span className="text-[10px] opacity-70">활성</span>}
+              <span className="opacity-70">{isFb ? "▣" : `${idx + 1}.`}</span>
+              <span className="font-medium">{s.label}</span>
+              {matched && (
+                <span
+                  className={
+                    "inline-block w-1.5 h-1.5 rounded-full " +
+                    (on ? "bg-white/80" : "bg-emerald-500")
+                  }
+                  title="현재 활성 경로"
+                />
+              )}
             </button>
           );
         })}
@@ -382,32 +668,158 @@ export default function Tab4Report({ schema, onChange }: Props) {
 
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
         {/* palette */}
-        <div className="rounded border bg-gray-50 p-3 self-start sticky top-2 max-h-[calc(100vh-40px)] overflow-auto">
+        <div className="rounded border bg-gray-50 p-3 self-start sticky top-2">
           <h3 className="text-xs font-semibold tracking-wide text-gray-700 mb-1">
             요소 팔레트
           </h3>
           <div className="text-xs font-mono text-blue-700 bg-blue-50 px-2 py-1 rounded text-center mb-3">
             ↓ 우측 캔버스로 끌어다 놓으세요
           </div>
-          {PAL.map((p) => {
-            const key = p.kind + (p.ctype ? "|" + p.ctype : "");
-            return (
-              <div
-                key={key}
-                draggable
-                onDragStart={(e) => e.dataTransfer.setData("new", key)}
-                onClick={() => addEl(p)}
-                className="rounded border bg-white p-2 mb-1.5 cursor-grab hover:border-blue-600 hover:shadow-sm transition"
-                title="클릭 또는 드래그"
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="text-gray-400 text-[10px]">⋮⋮</span>
-                  <span className="text-xs font-semibold">{p.t}</span>
+          {(() => {
+            const groups: {
+              label: string;
+              sub?: string;
+              icon: string;
+              accent: string;
+              items: PaletteItem[];
+            }[] = [
+              {
+                label: "텍스트 · 정보",
+                icon: "📝",
+                accent: "slate",
+                items: PAL.filter((p) =>
+                  ["field", "fields", "pathlabel", "note"].includes(p.kind)
+                ),
+              },
+              {
+                label: "카드 · 표",
+                icon: "🧮",
+                accent: "amber",
+                items: PAL.filter((p) =>
+                  ["card", "compare", "calc", "incexc"].includes(p.kind)
+                ),
+              },
+              {
+                label: "차트 · 단일 값",
+                sub: "값 1개를 시각화",
+                icon: "📊",
+                accent: "indigo",
+                items: PAL.filter(
+                  (p) =>
+                    p.kind === "chart" &&
+                    ["bar", "step", "donut", "gauge", "stacked"].includes(
+                      p.ctype || ""
+                    )
+                ),
+              },
+              {
+                label: "차트 · 두 값 비교",
+                sub: "값 2개를 나란히 / 비율로",
+                icon: "📈",
+                accent: "violet",
+                items: PAL.filter(
+                  (p) =>
+                    p.kind === "chart" &&
+                    ["bullet", "comparison", "delta", "ratio"].includes(
+                      p.ctype || ""
+                    )
+                ),
+              },
+            ];
+            const accentMap: Record<
+              string,
+              { head: string; chip: string; hover: string; bar: string }
+            > = {
+              slate: {
+                head: "text-slate-700",
+                chip: "bg-slate-100 text-slate-600 border-slate-200",
+                hover: "hover:border-slate-500",
+                bar: "bg-slate-400",
+              },
+              amber: {
+                head: "text-amber-800",
+                chip: "bg-amber-100 text-amber-700 border-amber-200",
+                hover: "hover:border-amber-500",
+                bar: "bg-amber-400",
+              },
+              indigo: {
+                head: "text-indigo-800",
+                chip: "bg-indigo-100 text-indigo-700 border-indigo-200",
+                hover: "hover:border-indigo-500",
+                bar: "bg-indigo-400",
+              },
+              violet: {
+                head: "text-violet-800",
+                chip: "bg-violet-100 text-violet-700 border-violet-200",
+                hover: "hover:border-violet-500",
+                bar: "bg-violet-400",
+              },
+            };
+            return groups.map((g) => {
+              const a = accentMap[g.accent];
+              return (
+                <div key={g.label} className="mb-3">
+                  <div
+                    className={`mb-1.5 pb-1 border-b ${a.head}`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px]">{g.icon}</span>
+                      <span className="text-[11px] font-semibold tracking-wide">
+                        {g.label}
+                      </span>
+                      <span
+                        className={`ml-auto text-[9px] px-1.5 py-px rounded-full border ${a.chip}`}
+                      >
+                        {g.items.length}
+                      </span>
+                    </div>
+                    {g.sub && (
+                      <div className="text-[9px] text-gray-500 ml-4 mt-0.5 font-normal">
+                        {g.sub}
+                      </div>
+                    )}
+                  </div>
+                  {g.items.map((p) => {
+                    const key = p.kind + (p.ctype ? "|" + p.ctype : "");
+                    return (
+                      <div
+                        key={key}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("new", key);
+                          setHoverPal(null);
+                        }}
+                        onClick={() => addEl(p)}
+                        onMouseEnter={(e) => {
+                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setHoverPal({
+                            item: p,
+                            accentBar: a.bar,
+                            x: r.right + 8,
+                            y: r.top,
+                          });
+                        }}
+                        onMouseLeave={() => setHoverPal(null)}
+                        className={`relative rounded border bg-white p-2 mb-1.5 pl-3 cursor-grab ${a.hover} hover:shadow-sm transition`}
+                        title="클릭 또는 드래그"
+                      >
+                        <span
+                          className={`absolute left-0 top-0 bottom-0 w-1 ${a.bar} rounded-l`}
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-gray-400 text-[10px]">⋮⋮</span>
+                          <span className="text-xs font-semibold">{p.t}</span>
+                        </div>
+                        <div className="text-[10px] text-gray-500 ml-4 leading-tight">
+                          {p.use}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="text-[10px] text-gray-500 ml-4">{p.s}</div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
 
         {/* canvas */}
@@ -416,8 +828,21 @@ export default function Tab4Report({ schema, onChange }: Props) {
             <span className="font-semibold">
               📄 {slots.find((s) => s.id === slot)?.label} — 리포트 미리보기
             </span>
-            <span className="text-[10px] font-mono opacity-70">
-              ⇕ 드래그 이동 · 우하단 ⌟ 드래그로 크기 조절 · ✕ 삭제
+            <span className="hidden sm:flex items-center gap-3 text-[11px] opacity-90">
+              <span className="inline-flex items-center gap-1">
+                <kbd className="inline-flex h-4 w-4 items-center justify-center rounded bg-white/20 text-[10px] font-bold">⇕</kbd>
+                요소 클릭한 채 끌어 위치 이동
+              </span>
+              <span className="text-white/40">·</span>
+              <span className="inline-flex items-center gap-1">
+                <kbd className="inline-flex h-4 w-4 items-center justify-center rounded bg-white/20 text-[10px] font-bold">⌟</kbd>
+                우하단 모서리 끌어 크기 조절
+              </span>
+              <span className="text-white/40">·</span>
+              <span className="inline-flex items-center gap-1">
+                <kbd className="inline-flex h-4 w-4 items-center justify-center rounded bg-white/20 text-[10px] font-bold">✕</kbd>
+                요소 삭제
+              </span>
             </span>
           </div>
           <div
@@ -475,7 +900,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
                     const hitRect = dragSnapshot.current.get(hit);
                     if (hitRect) {
                       const rowY = (hitRect.top + hitRect.bottom) / 2;
-                      let leftmostId = hit;
+                      let leftmostId: string = hit;
                       let leftmostX = hitRect.left;
                       dragSnapshot.current.forEach((r, id) => {
                         if (id === draggedId) return;
@@ -734,6 +1159,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
         (1~2페이지 권장)
       </div>
     </div>
+    </>
   );
 }
 

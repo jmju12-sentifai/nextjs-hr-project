@@ -106,7 +106,9 @@ export default function Tab3Logic({ schema, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paths.length, slot]);
 
-  const result = run(schema);
+  // 편집 중인 경로를 강제로 활성화하여 시뮬 — 산식 라이브 검증 시 "미정의" 오작동 방지
+  const forcedPathId = slot === "shared" ? undefined : slot;
+  const result = run(schema, [], [], forcedPathId);
   const { sc, res } = result;
 
   // 변수 풀
@@ -222,38 +224,52 @@ export default function Tab3Logic({ schema, onChange }: Props) {
     <div className="space-y-5">
       <div className="pb-5 border-b border-gray-100">
         <div className="text-xs font-mono uppercase tracking-wider text-blue-700 mb-2">
-          Layer 3 · 판단 흐름
+          로직 · 판정과 산출 정의
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-3">분석 로직 (판정 → 산출)</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-3">분석 로직</h2>
         <p className="text-base text-gray-600 whitespace-nowrap overflow-x-auto">
-          공통 사전 계산 → 경로별 진입 조건 매칭(first-match) → 매칭 경로의 산출 블록 실행.
+          공통 사전 계산을 거쳐 조건에 맞는 경로를 고르고, 그 경로의 산식을 실행해 결과를 만듭니다.
         </p>
       </div>
 
       {/* 마스터-디테일: 좌측 슬롯 리스트 + 우측 편집 */}
       <div className="grid grid-cols-1 md:grid-cols-[240px,1fr] gap-4 items-start">
-        {/* 좌측 사이드바 */}
-        <aside className="rounded-lg border bg-gray-50 p-2 md:sticky md:top-4 self-start">
-          <div className="px-1.5 pt-1 pb-2 text-[11px] font-semibold text-gray-600">
-            경로 슬롯
-            <div className="font-normal text-gray-400 mt-0.5">
-              위→아래 우선순위 (first-match)
+        {/* 좌측 사이드바 — 경로 슬롯 */}
+        <aside className="rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-3 md:sticky md:top-4 self-start shadow-sm">
+          <div className="px-1.5 pt-1 pb-3 border-b border-gray-200/70">
+            <div className="text-xs font-bold text-gray-900">경로 슬롯</div>
+            <div className="text-[10px] text-gray-500 mt-1 leading-snug">
+              조건에 따라 다른 산식·리포트를 적용하는 분기를 정의합니다.
+              위에서 아래 순서대로 검사하며 <b className="text-gray-700">처음 만족하는 경로</b>가 활성화됩니다.
             </div>
           </div>
-          <div className="space-y-1">
+
+          <div className="space-y-1 mt-2">
             <SlotItem
-              label="▤ 공통 사전 계산"
-              hint="모든 경로 진입 전"
+              label="공통 사전 계산"
+              hint="모든 경로에서 공유"
+              detail="조건 분기 전에 미리 계산되는 항목 (만나이 등)"
               on={slot === "shared"}
               onClick={() => setSlot("shared")}
               kind="shared"
+              prefixIcon="▤"
             />
 
-            <div className="h-px bg-gray-200 my-1" />
+            <div className="px-1 my-2 flex items-center gap-2 text-[10px] uppercase tracking-wider text-gray-400 font-semibold">
+              <span className="h-px flex-1 bg-gray-200" />
+              경로 (위→아래 검사)
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
 
             {paths.map((p, idx) => {
               const matched = result.activePathId === p.id;
               const trace = result.pathMatches[idx];
+              const condTip =
+                p.conditions.length === 0
+                  ? "조건 없음 — 항상 통과"
+                  : p.conditions
+                      .map((c) => `${c.a} ${c.op} ${c.b}`)
+                      .join("  ·  ");
               return (
                 <SlotItem
                   key={p.id}
@@ -261,8 +277,11 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                   on={slot === p.id}
                   matched={matched}
                   conditionOk={trace?.ok ?? null}
+                  detail={`조건 ${p.conditions.length}개 · 단계 ${p.steps.length}개`}
+                  tooltip={condTip}
                   onClick={() => setSlot(p.id)}
                   kind="path"
+                  prefixIcon={`${idx + 1}`}
                   onUp={idx > 0 ? () => movePath(p.id, -1) : undefined}
                   onDown={idx < paths.length - 1 ? () => movePath(p.id, 1) : undefined}
                 />
@@ -271,27 +290,36 @@ export default function Tab3Logic({ schema, onChange }: Props) {
 
             <button
               onClick={addPath}
-              className="w-full rounded-md border border-dashed border-blue-300 bg-white px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+              className="mt-1.5 w-full rounded-md border border-dashed border-blue-300 bg-white px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 transition"
             >
               + 경로 추가
             </button>
 
-            <div className="h-px bg-gray-200 my-1" />
+            <div className="px-1 my-2 flex items-center gap-2 text-[10px] uppercase tracking-wider text-gray-400 font-semibold">
+              <span className="h-px flex-1 bg-gray-200" />
+              미적용 시
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
 
             <SlotItem
-              label={`▣ ${fallback.label}`}
-              hint="fallback (조건 없음)"
+              label={fallback.label}
+              hint="모든 경로 미충족 시"
+              detail="기본 안내 — 조건 없이 항상 적용"
               on={slot === "fallback"}
               matched={result.activePathId === fallback.id}
               onClick={() => setSlot("fallback")}
               kind="fallback"
+              prefixIcon="▣"
             />
           </div>
-          <div className="px-1.5 pt-2 mt-2 border-t border-gray-200 text-[11px] text-gray-500">
-            활성:{" "}
-            <b className="text-blue-700 block truncate">
+
+          <div className="px-2 pt-3 mt-3 border-t border-gray-200/70">
+            <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">
+              현재 활성
+            </div>
+            <div className="text-xs font-semibold text-blue-700 truncate">
               {result.activePathLabel}
-            </b>
+            </div>
           </div>
         </aside>
 
@@ -518,13 +546,13 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                     </div>
                     <div className="px-3 py-2.5 space-y-2">
                       {s.type === "branch" && (
-                        <BranchEditor step={s} update={(p) => updS(s.id, p)} av={av} numAv={numAv} sc={sc} />
+                        <BranchEditor step={s} update={(p: any) => updS(s.id, p)} av={av} numAv={numAv} sc={sc} />
                       )}
                       {s.type === "classify" && (
-                        <ClassifyEditor step={s} update={(p) => updS(s.id, p)} av={av} />
+                        <ClassifyEditor step={s} update={(p: any) => updS(s.id, p)} av={av} />
                       )}
                       {s.type === "table" && (
-                        <TableEditor step={s} update={(p) => updS(s.id, p)} av={av} />
+                        <TableEditor step={s} update={(p: any) => updS(s.id, p)} av={av} />
                       )}
                       {s.type === "formula" && (
                         <TokenBuilder
@@ -535,15 +563,15 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                         />
                       )}
                       {s.type === "clamp" && (
-                        <ClampEditor step={s} update={(p) => updS(s.id, p)} av={av} />
+                        <ClampEditor step={s} update={(p: any) => updS(s.id, p)} av={av} />
                       )}
                       {s.type === "date" && (
-                        <DateEditor step={s} update={(p) => updS(s.id, p)} dn={dn} />
+                        <DateEditor step={s} update={(p: any) => updS(s.id, p)} dn={dn} />
                       )}
                       {s.type === "llm" && (
                         <LlmEditor
                           step={s}
-                          update={(p) => updS(s.id, p)}
+                          update={(p: any) => updS(s.id, p)}
                           av={av}
                           disp={result.disp}
                           meta={schema.meta}
@@ -589,6 +617,9 @@ export default function Tab3Logic({ schema, onChange }: Props) {
 function SlotItem({
   label,
   hint,
+  detail,
+  tooltip,
+  prefixIcon,
   on,
   matched,
   conditionOk,
@@ -599,6 +630,9 @@ function SlotItem({
 }: {
   label: string;
   hint?: string;
+  detail?: string;
+  tooltip?: string;
+  prefixIcon?: string;
   on: boolean;
   matched?: boolean;
   conditionOk?: boolean | null;
@@ -620,43 +654,80 @@ function SlotItem({
       ? "bg-blue-600 text-white border-blue-600"
       : "bg-white border-blue-200 text-blue-700 hover:bg-blue-50";
 
+  const iconBg =
+    kind === "shared"
+      ? on
+        ? "bg-white/15 text-white"
+        : "bg-gray-100 text-gray-600"
+      : kind === "fallback"
+      ? on
+        ? "bg-white/15 text-white"
+        : "bg-rose-100 text-rose-700"
+      : on
+      ? "bg-white/15 text-white"
+      : "bg-blue-100 text-blue-700";
+
   const dotColor = on ? "bg-white/80" : "bg-emerald-500";
 
   return (
     <div
       className={
-        "group flex items-stretch rounded-md border overflow-hidden transition " +
+        "group relative flex items-stretch rounded-lg border overflow-visible transition " +
         accent +
         (matched ? " ring-2 ring-emerald-400 ring-offset-1" : "")
       }
     >
       <button
         onClick={onClick}
-        className="flex-1 text-left px-2.5 py-1.5 min-w-0"
+        className="flex-1 text-left px-2 py-2 min-w-0 flex items-start gap-2"
       >
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium truncate">{label}</span>
-          {kind === "path" && conditionOk != null && (
-            <span
-              className={
-                "inline-block w-1.5 h-1.5 rounded-full shrink-0 " +
-                (conditionOk ? dotColor : "bg-gray-300")
-              }
-              title={conditionOk ? "조건 충족" : "조건 미충족"}
-            />
-          )}
-        </div>
-        {hint && (
-          <div
+        {prefixIcon && (
+          <span
             className={
-              "text-[10px] mt-0.5 truncate " +
-              (on ? "text-white/70" : "text-gray-400")
+              "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold font-mono mt-0.5 " +
+              iconBg
             }
           >
-            {hint}
-          </div>
+            {prefixIcon}
+          </span>
         )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold truncate">{label}</span>
+            {kind === "path" && conditionOk != null && (
+              <span
+                className={
+                  "inline-block w-1.5 h-1.5 rounded-full shrink-0 " +
+                  (conditionOk ? dotColor : "bg-gray-300")
+                }
+                title={conditionOk ? "조건 충족" : "조건 미충족"}
+              />
+            )}
+          </div>
+          {(detail || hint) && (
+            <div
+              className={
+                "text-[10px] mt-0.5 leading-snug break-keep " +
+                (on ? "text-white/70" : "text-gray-500")
+              }
+            >
+              {detail || hint}
+            </div>
+          )}
+        </div>
       </button>
+      {tooltip && (
+        <div
+          role="tooltip"
+          className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 z-30 hidden group-hover:block w-[260px] rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 px-3 py-2 text-[11px] text-white shadow-xl ring-1 ring-blue-400/30"
+        >
+          <div className="text-[9px] uppercase tracking-wider text-white/70 mb-1 font-bold">
+            적용 조건
+          </div>
+          <div className="leading-relaxed font-medium">{tooltip}</div>
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rotate-45 bg-blue-600" />
+        </div>
+      )}
       {(onUp || onDown) && (
         <div
           className={
@@ -709,12 +780,14 @@ function OperandPicker({
   onChange: (v: string, m: "var" | "val") => void;
   varNames: string[];
 }) {
-  const isNumLit = mode === "val" && /^-?\d+(\.\d+)?$/.test(value.trim());
+  // AI 파서가 숫자 리터럴을 number 로 넣어버리는 경우가 있어 방어적 String() 변환
+  const v = String(value ?? "");
+  const isNumLit = mode === "val" && /^-?\d+(\.\d+)?$/.test(v.trim());
   return (
     <span className="inline-flex items-center rounded border bg-white overflow-hidden">
       <button
         type="button"
-        onClick={() => onChange(value, mode === "var" ? "val" : "var")}
+        onClick={() => onChange(v, mode === "var" ? "val" : "var")}
         className={
           "text-[10px] px-1.5 py-1 font-mono uppercase tracking-wider border-r " +
           (mode === "var"
@@ -727,7 +800,7 @@ function OperandPicker({
       </button>
       {mode === "var" ? (
         <select
-          value={value}
+          value={v}
           onChange={(e) => onChange(e.target.value, "var")}
           className="px-2 py-1 text-xs min-w-[110px] border-0 focus:outline-none"
         >
@@ -740,23 +813,23 @@ function OperandPicker({
               </option>
             ))
           )}
-          {value && !varNames.includes(value) && (
-            <option value={value}>⚠ {value} (정의 안됨)</option>
+          {v && !varNames.includes(v) && (
+            <option value={v}>⚠ {v} (정의 안됨)</option>
           )}
         </select>
       ) : (
         <span className="inline-flex items-center">
           <input
-            value={value}
+            value={v}
             onChange={(e) => onChange(e.target.value, "val")}
             placeholder='숫자 또는 "텍스트"'
             className="px-2 py-1 text-xs min-w-[110px] border-0 focus:outline-none font-mono"
           />
           <span className="text-[10px] text-gray-400 pr-2 font-mono">
-            {value === ""
+            {v === ""
               ? "—"
               : isNumLit
-              ? `(숫자 ${value})`
+              ? `(숫자 ${v})`
               : "(텍스트)"}
           </span>
         </span>

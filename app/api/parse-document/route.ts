@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseDocument } from "@/lib/ai-parser";
+import { requireActiveSubscription } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireActiveSubscription();
+  if ("error" in auth) return auth.error;
   try {
     const { fileBase64, mimeType, slots } = await req.json();
     if (!fileBase64 || !mimeType || !Array.isArray(slots)) {

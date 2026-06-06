@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 32" width="110" height="32">
+  <style>
+    text { font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; }
+  </style>
+  <!-- 네이버 N 박스 (초록) -->
+  <rect x="0" y="2" width="28" height="28" rx="6" fill="#03C75A"/>
+  <!-- N 글자 (대각선 형태) -->
+  <path d="M 7 24 L 7 8 L 11 8 L 17 18 L 17 8 L 21 8 L 21 24 L 17 24 L 11 14 L 11 24 Z" fill="white"/>
+  <!-- Pay 텍스트 -->
+  <text x="34" y="24" font-size="20" font-weight="800" fill="#03C75A" letter-spacing="-0.3">Pay</text>
+</svg>

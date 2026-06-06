@@ -402,11 +402,12 @@ function ChartView({
     const val = Number(sc[el.bind] || 0);
     let min = 0;
     let max = 100;
-    const tryNum = (s: string | undefined): number | null => {
-      if (!s) return null;
-      const n = parseFloat(s);
-      if (!isNaN(n) && String(n) === s.trim()) return n;
-      const v = sc[s];
+    const tryNum = (s: string | number | undefined): number | null => {
+      if (s == null || s === "") return null;
+      const str = String(s);
+      const n = parseFloat(str);
+      if (!isNaN(n) && String(n) === str.trim()) return n;
+      const v = sc[str];
       return typeof v === "number" ? v : null;
     };
     if (st && st.type === "clamp") {

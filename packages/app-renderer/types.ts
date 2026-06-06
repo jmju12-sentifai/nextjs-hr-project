@@ -197,6 +197,7 @@ export interface Meta {
   security: string;
   effects: string[];
   features: string[];
+  flow: string[]; // 4단계 처리 흐름 (1~4단계 간략 설명)
 }
 
 export interface Path {
@@ -268,6 +269,7 @@ export const EMPTY_SCHEMA: AppSchema = {
     security: "",
     effects: [],
     features: [],
+    flow: ["", "", "", ""],
   },
   vars: [],
   shared: { steps: [] },

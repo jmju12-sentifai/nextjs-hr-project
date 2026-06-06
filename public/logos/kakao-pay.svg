@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 32" width="150" height="32">
+  <style>
+    text { font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; }
+  </style>
+  <!-- 카카오 톡 말풍선 (노란 둥근 사각형 + 꼬리) -->
+  <g transform="translate(0,2)">
+    <path d="M 14 0 C 6.3 0 0 4.9 0 11 C 0 14.9 2.6 18.4 6.6 20.4 L 5.0 26.5 C 4.9 26.9 5.3 27.2 5.7 27 L 12.6 22.4 C 13.0 22.4 13.5 22.5 14 22.5 C 21.7 22.5 28 17.6 28 11 C 28 4.9 21.7 0 14 0 Z" fill="#FEE500"/>
+  </g>
+  <!-- kakao 텍스트 -->
+  <text x="36" y="24" font-size="20" font-weight="700" fill="#181600" letter-spacing="-0.5">kakao</text>
+  <!-- pay (검정) -->
+  <text x="100" y="24" font-size="20" font-weight="700" fill="#181600" letter-spacing="-0.3">pay</text>
+</svg>

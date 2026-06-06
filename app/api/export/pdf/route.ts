@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireActiveSubscription } from "@/lib/api-auth";
 import {
   Document,
   Page,
@@ -166,7 +167,7 @@ function groupRows(els: any[]): any[][] {
   const rows: any[][] = [];
   let cur: any[] = [];
   let curW = 0;
-  const wt = (e: any) => ({ full: 6, half: 3, third: 2 }[e.w || "full"] as number);
+  const wt = (e: any) => (({ full: 6, half: 3, third: 2 } as any)[e.w || "full"] as number);
   for (const el of els) {
     const w = wt(el);
     if (el.w === "full" || curW + w > 6) {
@@ -188,7 +189,7 @@ function groupRows(els: any[]): any[][] {
 }
 
 function flex(el: any) {
-  return ({ full: 6, half: 3, third: 2 }[el.w || "full"] as number) / 6;
+  return (({ full: 6, half: 3, third: 2 } as any)[el.w || "full"] as number) / 6;
 }
 function height(el: any) {
   return Math.max(40, (el.h || 1) * 50);
@@ -708,6 +709,8 @@ function renderEl(schema: AppSchema, el: any, sc: Sc, disp: Disp, jres: JudgeRes
 // ───────────── main ─────────────
 
 export async function POST(req: NextRequest) {
+  const auth = await requireActiveSubscription();
+  if ("error" in auth) return auth.error;
   try {
     ensureKoreanFont();
     const { schema, result } = await req.json();
@@ -767,7 +770,7 @@ export async function POST(req: NextRequest) {
     );
 
     const buffer = await renderToBuffer(doc as any);
-    return new NextResponse(buffer, {
+    return new NextResponse(buffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
