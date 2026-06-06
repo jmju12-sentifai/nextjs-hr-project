@@ -299,15 +299,12 @@ function withIds(schema: any) {
 }
 
 export async function parseAppSpec(fileBase64: string, mimeType: string) {
-  try {
-    const text = await generate(APP_SPEC_PROMPT, fileBase64, mimeType);
-    const parsed = extractJson(text);
-    if (!parsed) return EMPTY_V5;
-    return withIds(parsed);
-  } catch (e) {
-    console.error("parseAppSpec error:", e);
-    return EMPTY_V5;
+  const text = await generate(APP_SPEC_PROMPT, fileBase64, mimeType);
+  const parsed = extractJson(text);
+  if (!parsed) {
+    throw new Error("AI 응답이 비어 있거나 JSON 형식이 아님 (모델 응답 파싱 실패)");
   }
+  return withIds(parsed);
 }
 
 export async function parseDocument(

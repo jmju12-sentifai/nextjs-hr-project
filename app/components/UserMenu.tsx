@@ -22,14 +22,14 @@ export default function UserMenu({ email }: { email: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label="계정 메뉴"
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow-sm transition duration-200 hover:bg-blue-700 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-200"
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-blue-900 ring-1 ring-blue-900 shadow-sm transition duration-200 hover:bg-slate-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-200"
       >
         {initial}
       </button>
       {open && (
         <div className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-[0_8px_24px_-8px_rgba(30,58,138,0.18)]">
           <div className="flex items-center gap-2.5 px-4 py-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-blue-900 ring-1 ring-blue-900">
               {initial}
             </div>
             <p className="min-w-0 truncate text-xs font-medium text-gray-700">

@@ -387,7 +387,7 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen bg-white">
-      <header className="bg-white">
+      <header className="bg-blue-50">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <a href="/" className="flex items-center">
             <Image
@@ -416,7 +416,7 @@ export default async function Home() {
             <div className="flex items-center gap-2">
               <a
                 href="/login"
-                className="rounded-full bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                className="rounded-full bg-blue-900 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-950"
               >
                 로그인
               </a>
@@ -457,7 +457,7 @@ export default async function Home() {
               {["업무 자동화", "업무 표준화", "업무 고도화"].map((tag) => (
                 <span
                   key={tag}
-                  className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm ring-1 ring-blue-100"
+                  className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-900 shadow-sm ring-1 ring-blue-100"
                 >
                   # {tag}
                 </span>
@@ -467,14 +467,14 @@ export default async function Home() {
 
           <div className="flex justify-center">
             <Image
-              src="/hero_image.png"
+              src="/hero-image-back.png"
               alt="HRcoach 앱 스토어"
               width={1200}
               height={1200}
               quality={100}
               priority
               sizes="(max-width: 768px) 90vw, 600px"
-              className="h-auto w-full max-w-md rotate-3"
+              className="h-auto w-full max-w-lg rotate-3"
             />
           </div>
         </div>
@@ -483,7 +483,7 @@ export default async function Home() {
       <section className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="mb-7 flex items-center justify-center gap-3">
           <span className="h-px w-8 bg-blue-200" />
-          <span className="text-[11px] font-bold tracking-[0.25em] text-blue-600">
+          <span className="text-[11px] font-bold tracking-[0.25em] text-blue-900">
             WHY HRCOACH
           </span>
           <span className="h-px w-8 bg-blue-200" />

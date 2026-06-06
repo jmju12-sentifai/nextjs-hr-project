@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
 import type { AppSchema } from "app-renderer";
 import { EMPTY_SCHEMA, run } from "app-renderer";
@@ -30,11 +31,43 @@ type AppRow = {
 };
 
 export default function BuilderPage() {
+  return (
+    <Suspense fallback={null}>
+      <BuilderInner />
+    </Suspense>
+  );
+}
+
+function BuilderInner() {
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState("m0");
   const [schema, setSchema] = useState<AppSchema>(EMPTY_SCHEMA);
   const [appId, setAppId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+
+  // URL ?appId=... 로 진입 시 해당 앱 자동 로드
+  useEffect(() => {
+    const id = searchParams?.get("appId");
+    if (!id || appId === id) return;
+    (async () => {
+      try {
+        const sb = getSupabase();
+        const { data, error } = await sb
+          .from("apps")
+          .select("id, app_schema")
+          .eq("id", id)
+          .single();
+        if (error || !data) throw new Error(error?.message || "앱을 찾을 수 없습니다");
+        setSchema(data.app_schema);
+        setAppId(data.id);
+        setMsg("앱을 불러왔습니다");
+      } catch (e: any) {
+        setMsg("불러오기 실패: " + (e.message || e));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // 앱 리스트 모달
   const [listOpen, setListOpen] = useState(false);
@@ -251,14 +284,17 @@ export default function BuilderPage() {
       const fallbackReport = parsed.fallback?.report?.length || 0;
 
       const vars = parsed.vars || [];
+      const hasFallback = !!parsed.fallback;
       const counts = {
         vReg: vars.filter((v) => v.grp === "규정").length,
         vPer: vars.filter((v) => v.grp === "개인").length,
         v: vars.length,
-        j: (parsed.judge?.length || 0) + pathConditions,
+        // 조건: 각 경로의 conditions 합 + fallback 도 "대상 아님" 조건 1로 카운트
+        j: (parsed.judge?.length || 0) + pathConditions + (hasFallback ? 1 : 0),
         s: (parsed.steps?.length || 0) + sharedSteps + pathSteps + fallbackSteps,
         r: (parsed.report?.length || 0) + pathReport + fallbackReport,
-        p: paths.length,
+        // 경로: paths + fallback 도 1개 경로로 카운트
+        p: paths.length + (hasFallback ? 1 : 0),
       };
 
       // LLM 요약 단계 개수 — 경로별로 type='llm' 단계 카운트
@@ -307,7 +343,20 @@ export default function BuilderPage() {
         runAllLLMSummaries(parsed);
       }
     } catch (e: any) {
-      setMsg("분석 실패: " + (e?.message || e));
+      const m = e?.message || String(e);
+      setMsg("분석 실패: " + m);
+      // 401 (로그인 만료) → 로그인 페이지로 안내
+      if (m.includes("로그인") || m.includes("401")) {
+        if (
+          confirm(
+            "기획서 분석 실패 — 로그인이 필요합니다.\n\n로그인 페이지로 이동할까요?"
+          )
+        ) {
+          window.location.href = "/login?next=/admin/builder";
+        }
+      } else {
+        alert("기획서 분석 실패\n\n" + m);
+      }
     } finally {
       setBusy(false);
     }
@@ -396,13 +445,6 @@ export default function BuilderPage() {
                     }}
                   />
                 </label>
-                <button
-                  onClick={openList}
-                  className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-                  title="저장·발행된 앱 목록 보기"
-                >
-                  📋 앱 리스트 보기
-                </button>
                 <button
                   disabled={busy}
                   onClick={() => save(false)}
@@ -669,13 +711,13 @@ export default function BuilderPage() {
           onClick={() => setParseResultModal(null)}
         >
           <div
-            className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-7 pt-7 pb-5 text-center">
-              <div className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+            <div className="px-7 pt-6 pb-4 text-center border-b border-gray-100">
+              <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600">
                 <svg
-                  className="h-7 w-7"
+                  className="h-6 w-6"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth={2.5}
@@ -685,44 +727,83 @@ export default function BuilderPage() {
                 </svg>
               </div>
               <h3 className="text-lg font-bold text-gray-900">기획서 분석 완료</h3>
-              <div className="mt-3 inline-flex max-w-full items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 ring-1 ring-blue-100">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700">
-                  앱 명
-                </span>
-                <span
-                  className={
-                    "text-xs font-semibold truncate " +
-                    (parseResultModal.appName === "(없음)"
-                      ? "text-gray-400 italic"
-                      : "text-gray-900")
-                  }
-                >
-                  {parseResultModal.appName}
-                </span>
-              </div>
-              <p className="mt-3 text-sm text-gray-600">
-                기획서로부터 다음 항목이 추출되었습니다.
+              <p className="mt-1.5 text-xs text-gray-500">
+                각 탭별로 다음 항목이 추출되었습니다.
               </p>
-              <div className="mt-4 grid grid-cols-4 gap-2 text-center">
-                {[
-                  { k: "규정 변수", v: parseResultModal.counts.vReg },
-                  { k: "개인 변수", v: parseResultModal.counts.vPer },
-                  { k: "경로", v: parseResultModal.counts.p },
-                  { k: "조건", v: parseResultModal.counts.j },
-                ].map((c) => (
-                  <div key={c.k} className="rounded-lg bg-gray-50 px-2 py-2.5 ring-1 ring-gray-200">
-                    <div className="text-lg font-bold text-gray-900 tabular-nums">{c.v}</div>
-                    <div className="text-[10px] text-gray-500 mt-0.5">{c.k}</div>
+            </div>
+
+            <div className="px-6 py-4 overflow-y-auto space-y-2.5 text-left">
+              {/* ⓪ 앱 개요 */}
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <div className="px-3 py-2 bg-blue-50/60 border-b border-blue-100 flex items-center gap-2">
+                  <span className="inline-flex shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white bg-blue-600 px-1.5 py-0.5 font-mono tracking-wider">
+                    0탭
+                  </span>
+                  <span className="text-xs font-bold text-gray-900">앱 개요</span>
+                </div>
+                <div className="px-3 py-2.5 text-xs">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-gray-500 shrink-0">앱 명</span>
+                    <span
+                      className={
+                        "font-semibold truncate " +
+                        (parseResultModal.appName === "(없음)"
+                          ? "text-gray-400 italic"
+                          : "text-gray-900")
+                      }
+                    >
+                      {parseResultModal.appName}
+                    </span>
                   </div>
-                ))}
+                </div>
               </div>
 
-              {parseResultModal.pathBreakdown.length > 0 && (
-                <div className="mt-4 text-left">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">
-                    분석 로직 분기
+              {/* ① 규정 변수 */}
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <div className="px-3 py-2 bg-blue-50/60 border-b border-blue-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white bg-blue-600 px-1.5 py-0.5 font-mono tracking-wider">
+                      1탭
+                    </span>
+                    <span className="text-xs font-bold text-gray-900">규정 변수</span>
                   </div>
-                  <ul className="rounded-lg border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                  <span className="text-[11px] font-mono text-gray-600">
+                    <b className="text-blue-700 tabular-nums">{parseResultModal.counts.vReg}</b>개
+                  </span>
+                </div>
+              </div>
+
+              {/* ② 개인 변수 */}
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <div className="px-3 py-2 bg-blue-50/60 border-b border-blue-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white bg-blue-600 px-1.5 py-0.5 font-mono tracking-wider">
+                      2탭
+                    </span>
+                    <span className="text-xs font-bold text-gray-900">개인 변수</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-gray-600">
+                    <b className="text-blue-700 tabular-nums">{parseResultModal.counts.vPer}</b>개
+                  </span>
+                </div>
+              </div>
+
+              {/* ③ 분석 로직 */}
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <div className="px-3 py-2 bg-blue-50/60 border-b border-blue-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white bg-blue-600 px-1.5 py-0.5 font-mono tracking-wider">
+                      3탭
+                    </span>
+                    <span className="text-xs font-bold text-gray-900">분석 로직</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-gray-600">
+                    총 경로 <b className="text-blue-700 tabular-nums">{parseResultModal.counts.p}</b>개
+                    · 조건 <b className="text-blue-700 tabular-nums">{parseResultModal.counts.j}</b>개
+                  </span>
+                </div>
+                {parseResultModal.pathBreakdown.length > 0 && (
+                  <ul className="divide-y divide-gray-100">
                     {parseResultModal.pathBreakdown.map((p, i) => (
                       <li
                         key={i}
@@ -731,30 +812,66 @@ export default function BuilderPage() {
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <span
                             className={
-                              "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white " +
+                              "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white " +
                               (p.isFallback ? "bg-rose-500" : "bg-blue-500")
                             }
                           >
                             {p.isFallback ? "▣" : i + 1}
                           </span>
-                          <span className="text-xs text-gray-800 truncate">
+                          <span className="text-[11px] text-gray-700 truncate">
+                            {p.label}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* ④ 리포트 */}
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <div className="px-3 py-2 bg-blue-50/60 border-b border-blue-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white bg-blue-600 px-1.5 py-0.5 font-mono tracking-wider">
+                      4탭
+                    </span>
+                    <span className="text-xs font-bold text-gray-900">리포트 구성</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-gray-600">
+                    총 <b className="text-blue-700 tabular-nums">{parseResultModal.counts.r}</b>개
+                  </span>
+                </div>
+                {parseResultModal.pathBreakdown.length > 0 && (
+                  <ul className="divide-y divide-gray-100">
+                    {parseResultModal.pathBreakdown.map((p, i) => (
+                      <li
+                        key={i}
+                        className="flex items-center justify-between gap-2 px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span
+                            className={
+                              "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white " +
+                              (p.isFallback ? "bg-rose-500" : "bg-blue-500")
+                            }
+                          >
+                            {p.isFallback ? "▣" : i + 1}
+                          </span>
+                          <span className="text-[11px] text-gray-700 truncate">
                             {p.label}
                           </span>
                         </div>
                         <span className="text-[11px] font-mono text-gray-600 shrink-0">
-                          리포트{" "}
-                          <b className="text-gray-900 tabular-nums">
-                            {p.reportCount}
-                          </b>
-                          개
+                          <b className="text-gray-900 tabular-nums">{p.reportCount}</b>개
                         </span>
                       </li>
                     ))}
                   </ul>
-                </div>
-              )}
+                )}
+              </div>
+
               {parseResultModal.llmCount > 0 && (
-                <div className="mt-4 rounded-lg border-l-4 border-violet-400 bg-violet-50 px-3 py-2.5 text-left">
+                <div className="rounded-lg border-l-4 border-violet-400 bg-violet-50 px-3 py-2.5">
                   <div className="text-[11px] font-bold text-violet-700 mb-0.5 flex items-center gap-1.5">
                     {parseResultModal.llmRunning ? (
                       <>

@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
+import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import type { AppSchema, Grp, Variable } from "app-renderer";
 import { activePathOf, fmtU, migrateSchema, run, todayStr } from "app-renderer";
 import ElementRenderer from "@/app/admin/builder/components/ElementRenderer";
@@ -70,6 +71,9 @@ export default function AppPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  // f4 진입 시 app_runs 에 1행 기록 (한 세션 1회) — 메타데이터만 저장 (PII 제외)
+  const runLogged = useRef(false);
+
   useEffect(() => {
     (async () => {
       try {
@@ -102,6 +106,50 @@ export default function AppPage() {
   }, [app, filled]);
 
   const result = useMemo(() => (liveSchema ? run(liveSchema) : null), [liveSchema]);
+
+  // f4 첫 진입 시 app_runs 1행 기록 (메타데이터만, PII 제외)
+  useEffect(() => {
+    if (pvtab !== "f4" || runLogged.current || !app || !result) return;
+    runLogged.current = true;
+    const reqVars = (liveSchema?.vars || []).filter((v) => v.req);
+    const filledReq = reqVars.filter(
+      (v) =>
+        v.name in filled &&
+        filled[v.name] !== "" &&
+        filled[v.name] !== null &&
+        filled[v.name] !== undefined
+    );
+    const sb = createBrowserSupabase();
+    void (async () => {
+      try {
+        const {
+          data: { user },
+        } = await sb.auth.getUser();
+        if (!user) return; // 비로그인이면 기록 안 함 (layout 가드 통과한 사용자만 도달 가능)
+        await sb.from("app_runs").insert({
+          app_id: app.id,
+          app_version: app.version,
+          user_id: user.id,
+          status: "viewed_report",
+          user_identifier: user.email ?? user.id,
+          // input_data 와 result 는 PII 보호를 위해 메타데이터만 — 자유 jsonb
+          input_data: {
+            vars_total: liveSchema?.vars.length ?? 0,
+            vars_required_total: reqVars.length,
+            vars_required_filled: filledReq.length,
+          },
+          result: {
+            applied: result.applied,
+            active_path_id: result.activePathId,
+            active_path_label: result.activePathLabel,
+          },
+        });
+      } catch (e) {
+        // fire-and-forget — 실패해도 UX 영향 없음
+        console.warn("app_runs log skipped:", e);
+      }
+    })();
+  }, [pvtab, app, liveSchema, filled, result]);
 
   if (loading) return <main className="p-8">로딩 중...</main>;
   if (err) return <main className="p-8 text-rose-600">에러: {err}</main>;
