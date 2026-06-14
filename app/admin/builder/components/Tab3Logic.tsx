@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import type {
   AppSchema,
   CmpOp,
@@ -23,6 +23,7 @@ const OPS: CmpOp[] = [">=", "<=", ">", "<", "==", "!="];
 
 const STEP_LABEL: Record<StepType, string> = {
   branch: "분기",
+  switch: "다중분기",
   classify: "분류",
   table: "구간표",
   formula: "계산식",
@@ -33,6 +34,7 @@ const STEP_LABEL: Record<StepType, string> = {
 
 const STEP_HINT: Record<StepType, string> = {
   branch: "조건에 따라 값을 가릅니다. 참/거짓에 텍스트 또는 계산식.",
+  switch: "한 변수의 값에 따라 N개 케이스로 분기 (예: 분류별 정책값 선택).",
   classify: "항목 골라 집계 (합계·개수·평균·최대·최소).",
   table: "구간별 단계값.",
   formula: "변수 콤보 + 연산자 버튼으로 식을 쌓습니다.",
@@ -43,6 +45,7 @@ const STEP_HINT: Record<StepType, string> = {
 
 const STEP_BADGE: Record<StepType, string> = {
   branch: "bg-gray-200 text-gray-700",
+  switch: "bg-fuchsia-100 text-fuchsia-700",
   classify: "bg-blue-100 text-blue-700",
   table: "bg-purple-100 text-purple-700",
   formula: "bg-emerald-100 text-emerald-700",
@@ -66,6 +69,16 @@ function newStep(t: StepType, firstVar: string): Step {
       els: "B",
       elsT: "text",
       elsTok: [],
+    };
+  if (t === "switch")
+    return {
+      ...base,
+      type: "switch",
+      ref: "",
+      cases: [],
+      defaultT: "calc",
+      defaultText: "",
+      defaultTokens: [],
     };
   if (t === "classify")
     return { ...base, type: "classify", agg: "sum", items: [{ ref: firstVar, inc: true }] };
@@ -106,10 +119,15 @@ export default function Tab3Logic({ schema, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paths.length, slot]);
 
-  // 편집 중인 경로를 강제로 활성화하여 시뮬 — 산식 라이브 검증 시 "미정의" 오작동 방지
+  // (A) 편집 시뮬레이션 — 편집 중인 경로를 강제로 활성화. 산식 라이브 검증 시 "미정의" 오작동 방지용.
+  //     우측 편집 패널의 값(res, sc) 은 이걸로.
   const forcedPathId = slot === "shared" ? undefined : slot;
   const result = run(schema, [], [], forcedPathId);
   const { sc, res } = result;
+  // (B) 자연 시뮬레이션 — 강제 없이 실제 조건 매칭 결과. "현재 활성" 표시 / 좌측 패널 매칭 표시용.
+  const naturalResult = run(schema, [], []);
+  const naturalActiveId = naturalResult.activePathId;
+  const naturalActiveLabel = naturalResult.activePathLabel;
 
   // 변수 풀
   const allVarNames = () => {
@@ -117,6 +135,47 @@ export default function Tab3Logic({ schema, onChange }: Props) {
     n.push("적용여부");
     for (const s of shared.steps) if (s.name) n.push(s.name);
     return n;
+  };
+  // 변수 메타 맵 — 이름 → {group, subGroup}. 에디터들이 그룹 정렬 옵션 만들 때 사용.
+  const varsMeta: Record<string, { group?: string; subGroup?: string }> = {};
+  for (const v of schema.vars) varsMeta[v.name] = { group: v.group, subGroup: v.subGroup };
+  // 이름들을 group > subGroup 계층으로 묶어 정렬한 옵션 그룹 구조 반환
+  // (schema 의 변수 메타에서 group/subGroup 을 조회. step 이름 등 메타 없는 건 "기타" 로)
+  const buildGroupedOptions = (names: string[]) => {
+    const groups: Record<string, Record<string, string[]>> = {};
+    const seen = new Set<string>();
+    for (const nm of names) {
+      if (seen.has(nm)) continue;
+      seen.add(nm);
+      const v = schema.vars.find((x) => x.name === nm);
+      const g = (v?.group || "").trim() || "_기타";
+      const sg = (v?.subGroup || "").trim() || "_기본";
+      if (!groups[g]) groups[g] = {};
+      if (!groups[g][sg]) groups[g][sg] = [];
+      groups[g][sg].push(nm);
+    }
+    // 그룹/하위 정렬 — _기타 는 맨 뒤
+    return Object.entries(groups)
+      .sort(([a], [b]) => {
+        if (a === "_기타") return 1;
+        if (b === "_기타") return -1;
+        return a.localeCompare(b);
+      })
+      .map(([g, subs]) => ({
+        group: g,
+        groupLabel: g === "_기타" ? "기타" : g,
+        subs: Object.entries(subs)
+          .sort(([a], [b]) => {
+            if (a === "_기본") return -1;
+            if (b === "_기본") return 1;
+            return a.localeCompare(b);
+          })
+          .map(([sg, items]) => ({
+            sub: sg,
+            subLabel: sg === "_기본" ? "" : sg,
+            items: [...items].sort((a, b) => a.localeCompare(b)),
+          })),
+      }));
   };
   const dateNames = () => {
     const n = schema.vars.filter((v) => v.type === "date").map((v) => v.name);
@@ -262,8 +321,9 @@ export default function Tab3Logic({ schema, onChange }: Props) {
             </div>
 
             {paths.map((p, idx) => {
-              const matched = result.activePathId === p.id;
-              const trace = result.pathMatches[idx];
+              // 매칭 여부는 자연 시뮬 기준 — 실제 조건 매칭이 일어난 경로만 활성
+              const matched = naturalActiveId === p.id;
+              const trace = naturalResult.pathMatches[idx];
               const condTip =
                 p.conditions.length === 0
                   ? "조건 없음 — 항상 통과"
@@ -306,7 +366,7 @@ export default function Tab3Logic({ schema, onChange }: Props) {
               hint="모든 경로 미충족 시"
               detail="기본 안내 — 조건 없이 항상 적용"
               on={slot === "fallback"}
-              matched={result.activePathId === fallback.id}
+              matched={naturalActiveId === fallback.id}
               onClick={() => setSlot("fallback")}
               kind="fallback"
               prefixIcon="▣"
@@ -317,9 +377,14 @@ export default function Tab3Logic({ schema, onChange }: Props) {
             <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">
               현재 활성
             </div>
-            <div className="text-xs font-semibold text-blue-700 truncate">
-              {result.activePathLabel}
+            <div className="text-xs font-semibold text-blue-700 truncate" title="실제 조건 매칭 결과 (편집 중인 경로가 아니라 first-match 로 결정됨)">
+              {naturalActiveLabel}
             </div>
+            {slot !== "shared" && slot !== naturalActiveId && (
+              <div className="mt-1 text-[10px] text-amber-700 leading-relaxed">
+                ⚠ 편집 중인 경로는 실제로는 비활성 — 산식 라이브 검증을 위해 임시로 활성화한 상태입니다.
+              </div>
+            )}
           </div>
         </aside>
 
@@ -411,6 +476,7 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                           mode={aMode}
                           onChange={(v, m) => updJ({ a: v, aMode: m })}
                           varNames={allVarNames()}
+                          groupedOpts={buildGroupedOptions(allVarNames())}
                         />
                         <select
                           value={j.op}
@@ -426,6 +492,7 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                           mode={bMode}
                           onChange={(v, m) => updJ({ b: v, bMode: m })}
                           varNames={allVarNames()}
+                          groupedOpts={buildGroupedOptions(allVarNames())}
                         />
                         {cr && (
                           <span
@@ -546,13 +613,16 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                     </div>
                     <div className="px-3 py-2.5 space-y-2">
                       {s.type === "branch" && (
-                        <BranchEditor step={s} update={(p: any) => updS(s.id, p)} av={av} numAv={numAv} sc={sc} />
+                        <BranchEditor step={s} update={(p: any) => updS(s.id, p)} av={av} numAv={numAv} sc={sc} varsMeta={varsMeta} />
+                      )}
+                      {s.type === "switch" && (
+                        <SwitchEditor step={s} update={(p: any) => updS(s.id, p)} av={av} numAv={numAv} sc={sc} varsMeta={varsMeta} />
                       )}
                       {s.type === "classify" && (
-                        <ClassifyEditor step={s} update={(p: any) => updS(s.id, p)} av={av} />
+                        <ClassifyEditor step={s} update={(p: any) => updS(s.id, p)} av={av} varsMeta={varsMeta} />
                       )}
                       {s.type === "table" && (
-                        <TableEditor step={s} update={(p: any) => updS(s.id, p)} av={av} />
+                        <TableEditor step={s} update={(p: any) => updS(s.id, p)} av={av} varsMeta={varsMeta} />
                       )}
                       {s.type === "formula" && (
                         <TokenBuilder
@@ -560,10 +630,11 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                           onChange={(tokens) => updS(s.id, { tokens })}
                           varNames={numAv}
                           sc={sc}
+                          varsMeta={varsMeta}
                         />
                       )}
                       {s.type === "clamp" && (
-                        <ClampEditor step={s} update={(p: any) => updS(s.id, p)} av={av} />
+                        <ClampEditor step={s} update={(p: any) => updS(s.id, p)} av={av} varsMeta={varsMeta} />
                       )}
                       {s.type === "date" && (
                         <DateEditor step={s} update={(p: any) => updS(s.id, p)} dn={dn} />
@@ -591,7 +662,7 @@ export default function Tab3Logic({ schema, onChange }: Props) {
               onChange={(e) => setStepT(e.target.value as StepType)}
               className={selCls + " min-w-[180px]"}
             >
-              {(["formula", "table", "classify", "branch", "clamp", "date", "llm"] as StepType[]).map((t) => (
+              {(["formula", "table", "classify", "branch", "switch", "clamp", "date", "llm"] as StepType[]).map((t) => (
                 <option key={t} value={t}>
                   {STEP_LABEL[t]}
                 </option>
@@ -769,16 +840,148 @@ function SlotItem({
 
 // ────────────── operand picker ──────────────
 
+type GroupedOpts = ReturnType<ReturnType<typeof makeGroupedBuilder>>;
+
+function makeGroupedBuilder() {
+  return (names: string[], varsMeta: Record<string, { group?: string; subGroup?: string }>) => {
+    const groups: Record<string, Record<string, string[]>> = {};
+    const seen = new Set<string>();
+    for (const nm of names) {
+      if (seen.has(nm)) continue;
+      seen.add(nm);
+      const m = varsMeta[nm] || {};
+      const g = (m.group || "").trim() || "_기타";
+      const sg = (m.subGroup || "").trim() || "_기본";
+      if (!groups[g]) groups[g] = {};
+      if (!groups[g][sg]) groups[g][sg] = [];
+      groups[g][sg].push(nm);
+    }
+    return Object.entries(groups)
+      .sort(([a], [b]) => (a === "_기타" ? 1 : b === "_기타" ? -1 : a.localeCompare(b)))
+      .map(([g, subs]) => ({
+        group: g,
+        groupLabel: g === "_기타" ? "기타" : g,
+        subs: Object.entries(subs)
+          .sort(([a], [b]) => (a === "_기본" ? -1 : b === "_기본" ? 1 : a.localeCompare(b)))
+          .map(([sg, items]) => ({
+            sub: sg,
+            subLabel: sg === "_기본" ? "" : sg,
+            items: [...items].sort((a, b) => a.localeCompare(b)),
+          })),
+      }));
+  };
+}
+
+// 이름 배열을 group > subGroup 으로 묶어 정렬된 옵션 그룹 트리로 변환
+function groupNames(
+  names: string[],
+  varsMeta: Record<string, { group?: string; subGroup?: string }> | undefined
+): GroupedOpts {
+  const groups: Record<string, Record<string, string[]>> = {};
+  const seen = new Set<string>();
+  for (const nm of names) {
+    if (seen.has(nm)) continue;
+    seen.add(nm);
+    const m = (varsMeta && varsMeta[nm]) || {};
+    const g = (m.group || "").trim() || "_기타";
+    const sg = (m.subGroup || "").trim() || "_기본";
+    if (!groups[g]) groups[g] = {};
+    if (!groups[g][sg]) groups[g][sg] = [];
+    groups[g][sg].push(nm);
+  }
+  return Object.entries(groups)
+    .sort(([a], [b]) => (a === "_기타" ? 1 : b === "_기타" ? -1 : a.localeCompare(b)))
+    .map(([g, subs]) => ({
+      group: g,
+      groupLabel: g === "_기타" ? "기타" : g,
+      subs: Object.entries(subs)
+        .sort(([a], [b]) => (a === "_기본" ? -1 : b === "_기본" ? 1 : a.localeCompare(b)))
+        .map(([sg, items]) => ({
+          sub: sg,
+          subLabel: sg === "_기본" ? "" : sg,
+          items: [...items].sort((a, b) => a.localeCompare(b)),
+        })),
+    }));
+}
+
+// 편의 helper — av(이름 배열) + varsMeta → optgroup JSX. 그룹 메타가 없으면 평탄 옵션.
+function VarOpts({
+  names,
+  varsMeta,
+  includeValue,
+}: {
+  names: string[];
+  varsMeta?: Record<string, { group?: string; subGroup?: string }>;
+  includeValue?: string;
+}) {
+  const grouped = groupNames(names, varsMeta);
+  const hasRealGroup = grouped.some((g) => g.group !== "_기타");
+  if (!hasRealGroup) {
+    // 그룹 정보 없음 → 평탄 옵션
+    return (
+      <>
+        {names.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+        {includeValue && !names.includes(includeValue) && (
+          <option value={includeValue}>⚠ {includeValue} (정의 안됨)</option>
+        )}
+      </>
+    );
+  }
+  return <GroupedOptions grouped={grouped} includeValue={includeValue} />;
+}
+
+// 그룹 정렬된 옵션 렌더링 — optgroup 으로 묶음 표시
+function GroupedOptions({ grouped, includeValue }: { grouped: GroupedOpts; includeValue?: string }) {
+  // 각 (group, subGroup) 조합을 별도 optgroup 으로. optgroup label 에 묶음 정보 표시.
+  // option text 는 변수명만 — 선택 후 닫힌 select 에는 변수명만 표시됨.
+  const allNames = new Set<string>();
+  for (const g of grouped) for (const s of g.subs) for (const it of s.items) allNames.add(it);
+  const flatGroups: { label: string; items: string[] }[] = [];
+  for (const g of grouped) {
+    for (const s of g.subs) {
+      const label =
+        g.group === "_기타"
+          ? s.subLabel || "기타"
+          : s.subLabel
+          ? `${g.groupLabel} > ${s.subLabel}`
+          : g.groupLabel;
+      flatGroups.push({ label, items: s.items });
+    }
+  }
+  return (
+    <>
+      {flatGroups.map((fg, i) => (
+        <optgroup key={i} label={fg.label}>
+          {fg.items.map((it) => (
+            <option key={it} value={it}>
+              {it}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+      {includeValue && !allNames.has(includeValue) && (
+        <option value={includeValue}>⚠ {includeValue} (정의 안됨)</option>
+      )}
+    </>
+  );
+}
+
 function OperandPicker({
   value,
   mode,
   onChange,
   varNames,
+  groupedOpts,
 }: {
   value: string;
   mode: "var" | "val";
   onChange: (v: string, m: "var" | "val") => void;
   varNames: string[];
+  groupedOpts?: GroupedOpts;
 }) {
   // AI 파서가 숫자 리터럴을 number 로 넣어버리는 경우가 있어 방어적 String() 변환
   const v = String(value ?? "");
@@ -806,15 +1009,17 @@ function OperandPicker({
         >
           {varNames.length === 0 ? (
             <option value="">(없음)</option>
+          ) : groupedOpts && groupedOpts.length > 0 ? (
+            <GroupedOptions grouped={groupedOpts} includeValue={v} />
           ) : (
-            varNames.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))
-          )}
-          {v && !varNames.includes(v) && (
-            <option value={v}>⚠ {v} (정의 안됨)</option>
+            <>
+              {varNames.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+              {v && !varNames.includes(v) && <option value={v}>⚠ {v} (정의 안됨)</option>}
+            </>
           )}
         </select>
       ) : (
@@ -896,67 +1101,130 @@ function SlotPill({
 
 // ────────────── sub editors ──────────────
 
+// 사용자(임직원) 친화 톤으로 통일 — describeStep 과 동일한 문장 구조 + 강조용 <b>.
 function sayStep(s: Step): React.ReactNode {
-  const KOP: Record<string, string> = {
-    ">=": "이상",
-    "<=": "이하",
-    ">": "초과",
-    "<": "미만",
-    "==": "같음",
-    "!=": "다름",
-  };
   if (s.type === "branch") {
-    const side = (txt: string, tks: any, t: any) =>
-      t === "calc" ? `계산식[${tk2disp(tks) || "…"}]` : `"${txt}"`;
+    return <>조건에 따라 적용되는 값이 달라집니다.</>;
+  }
+  if (s.type === "switch") {
     return (
       <>
-        <b>{s.ref || "?"}</b> {KOP[s.op] || s.op} <b>{s.rhs}</b> → 참:{" "}
-        {side(s.then, s.thenTok, s.thenT)}, 거짓: {side(s.els, s.elsTok, s.elsT)}
+        <b>{s.ref || "분류"}</b> 값에 따라 적용되는 값이 달라집니다.
       </>
     );
   }
   if (s.type === "classify") {
-    const i = s.items.filter((x) => x.inc).map((x) => x.ref).join(", ") || "?";
+    const items = s.items.filter((x) => x.inc).map((x) => x.ref);
+    const aggLabel: Record<string, string> = {
+      sum: "합산",
+      count: "건수 집계",
+      avg: "평균",
+      max: "최대값",
+      min: "최소값",
+    };
+    const verb = aggLabel[s.agg || "sum"] || "합산";
+    if (items.length === 0) return <><b>{verb}</b>한 결과입니다.</>;
+    if (items.length <= 3)
+      return (
+        <>
+          <b>{items.join(", ")}</b> 항목을 <b>{verb}</b>한 결과입니다.
+        </>
+      );
     return (
       <>
-        <b>{AGG[s.agg || "sum"]}</b>( {i} )
+        <b>{items.slice(0, 2).join(", ")}</b> 등 {items.length}개 항목을 <b>{verb}</b>한 결과입니다.
       </>
     );
   }
-  if (s.type === "table") return (<><b>{s.ref || "?"}</b> 가 속한 구간의 단계값</>);
-  if (s.type === "formula") return (<>계산식: <b>{tk2disp(s.tokens) || "(비어 있음)"}</b></>);
-  if (s.type === "clamp")
+  if (s.type === "table") {
     return (
       <>
-        <b>{s.ref || "?"}</b> 을 {s.min && (<><b>{s.min}</b> 이상</>)}
-        {s.min && s.max && ", "}
-        {s.max && (<><b>{s.max}</b> 이하</>)}
-        {!s.min && !s.max ? "(미설정)" : "로 보정"}
+        <b>{s.ref || "기준값"}</b> 이 속한 구간에 따라 회사 규정에서 적용된 값입니다.
       </>
     );
+  }
+  if (s.type === "formula") {
+    const vars = (s.tokens || [])
+      .filter((t: any) => t.t === "var" && t.name)
+      .map((t: any) => t.name as string);
+    if (vars.length === 0) return <>산식으로 계산된 값입니다.</>;
+    if (vars.length === 1)
+      return (
+        <>
+          <b>{vars[0]}</b> 을(를) 기반으로 계산된 값입니다.
+        </>
+      );
+    if (vars.length <= 3)
+      return (
+        <>
+          <b>{vars.join(", ")}</b> 을(를) 조합해 계산된 값입니다.
+        </>
+      );
+    return (
+      <>
+        <b>{vars.slice(0, 2).join(", ")}</b> 등 여러 항목을 조합해 계산된 값입니다.
+      </>
+    );
+  }
+  if (s.type === "clamp") {
+    const parts: React.ReactNode[] = [];
+    if (s.min) parts.push(<><b>{s.min}</b> 이상</>);
+    if (s.max) parts.push(<><b>{s.max}</b> 이하</>);
+    if (parts.length === 0) return <><b>{s.ref || "값"}</b> 그대로입니다.</>;
+    return (
+      <>
+        <b>{s.ref || "값"}</b> 을 {parts.map((p, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && ", "}
+            {p}
+          </React.Fragment>
+        ))} 범위로 조정한 값입니다.
+      </>
+    );
+  }
   if (s.type === "llm") {
-    return (<>LLM 3줄 분석 {s.lastResult ? "· 분석됨" : "· 미실행"}</>);
+    return (
+      <>위 산출 결과를 종합해 작성된 안내입니다. {s.lastResult ? <span className="text-emerald-600">· 분석됨</span> : <span className="text-gray-400">· 미실행</span>}</>
+    );
   }
-  if (s.type === "date")
-    return s.mode === "diff" ? (
+  if (s.type === "date") {
+    const u = { year: "년", month: "월", day: "일" }[s.out];
+    if (s.mode === "diff") {
+      const isToday = s.b === "오늘";
+      if (u === "년" && isToday)
+        return (
+          <>
+            <b>{s.a || "기준일"}</b> 기준으로 산정된 만 나이입니다.
+          </>
+        );
+      if (isToday)
+        return (
+          <>
+            <b>{s.a || "기준일"}</b> 부터 오늘까지의 경과 {u}수입니다.
+          </>
+        );
+      return (
+        <>
+          <b>{s.a || "시작일"}</b> 부터 <b>{s.b || "종료일"}</b> 까지의 {u}수입니다.
+        </>
+      );
+    }
+    return (
       <>
-        <b>{s.a || "?"}</b> ↔ <b>{s.b || "?"}</b> 차이({{ year: "년", month: "월", day: "일" }[s.out]})
-      </>
-    ) : (
-      <>
-        <b>{s.a || "?"}</b> 의 {{ year: "연도", month: "월", day: "일" }[s.out]} 추출
+        <b>{s.a || "?"}</b> 의 {u === "년" ? "연도" : u}을(를) 추출한 값입니다.
       </>
     );
+  }
   return null;
 }
 
-function BranchEditor({ step, update, av, numAv, sc }: any) {
+function BranchEditor({ step, update, av, numAv, sc, varsMeta }: any) {
   const inp = "rounded border px-2 py-1 text-xs";
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <select value={step.ref} onChange={(e) => update({ ref: e.target.value })} className={inp + " min-w-[120px]"}>
-          {av.map((n: string) => (<option key={n}>{n}</option>))}
+          <VarOpts names={av} varsMeta={varsMeta} />
         </select>
         <select value={step.op} onChange={(e) => update({ op: e.target.value })} className={inp}>
           {OPS.map((o) => (<option key={o}>{o}</option>))}
@@ -969,13 +1237,13 @@ function BranchEditor({ step, update, av, numAv, sc }: any) {
           className={inp + " w-20 text-right font-mono"}
         />
       </div>
-      <BranchSide label="참 →" textKey="then" tokKey="thenTok" typeKey="thenT" step={step} update={update} numAv={numAv} sc={sc} />
-      <BranchSide label="거짓 →" textKey="els" tokKey="elsTok" typeKey="elsT" step={step} update={update} numAv={numAv} sc={sc} />
+      <BranchSide label="참 →" textKey="then" tokKey="thenTok" typeKey="thenT" step={step} update={update} numAv={numAv} sc={sc} varsMeta={varsMeta} />
+      <BranchSide label="거짓 →" textKey="els" tokKey="elsTok" typeKey="elsT" step={step} update={update} numAv={numAv} sc={sc} varsMeta={varsMeta} />
     </div>
   );
 }
 
-function BranchSide({ label, textKey, tokKey, typeKey, step, update, numAv, sc }: any) {
+function BranchSide({ label, textKey, tokKey, typeKey, step, update, numAv, sc, varsMeta }: any) {
   const isCalc = step[typeKey] === "calc";
   const inp = "rounded border px-2 py-1 text-xs";
   return (
@@ -1009,13 +1277,142 @@ function BranchSide({ label, textKey, tokKey, typeKey, step, update, numAv, sc }
           onChange={(t) => update({ [tokKey]: t })}
           varNames={numAv}
           sc={sc}
+          varsMeta={varsMeta}
         />
       )}
     </div>
   );
 }
 
-function ClassifyEditor({ step, update, av }: any) {
+function SwitchEditor({ step, update, av, numAv, sc, varsMeta }: any) {
+  const inp = "rounded border px-2 py-1 text-xs";
+  const cases = step.cases || [];
+  const updateCase = (i: number, patch: any) => {
+    const next = [...cases];
+    next[i] = { ...next[i], ...patch };
+    update({ cases: next });
+  };
+  const addCase = () =>
+    update({ cases: [...cases, { match: "", t: "calc", text: "", tokens: [] }] });
+  const removeCase = (i: number) =>
+    update({ cases: cases.filter((_: any, j: number) => j !== i) });
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-gray-600 shrink-0">분기 대상</span>
+        <select
+          value={step.ref || ""}
+          onChange={(e) => update({ ref: e.target.value })}
+          className={inp + " min-w-[140px]"}
+        >
+          <option value="">선택</option>
+          <VarOpts names={av} varsMeta={varsMeta} />
+        </select>
+        <span className="text-[10px] text-gray-500">의 값이...</span>
+      </div>
+      <div className="rounded-lg border border-gray-200 bg-gray-50/40 p-2 space-y-1.5">
+        {cases.length === 0 && (
+          <div className="text-[11px] text-gray-500 text-center py-2">
+            아직 케이스 없음 — "+ 케이스" 로 추가
+          </div>
+        )}
+        {cases.map((c: any, i: number) => (
+          <div key={i} className="rounded bg-white border border-gray-100 p-2 space-y-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-mono text-gray-500">case {i + 1}</span>
+              <input
+                value={c.match || ""}
+                onChange={(e) => updateCase(i, { match: e.target.value })}
+                placeholder="값 (예: 본인)"
+                className={inp + " w-32 font-mono"}
+              />
+              <span className="text-[10px] text-gray-400">→</span>
+              <select
+                value={c.t || "calc"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const patch: any = { t: v };
+                  if (v === "calc" && !c.tokens) patch.tokens = [];
+                  updateCase(i, patch);
+                }}
+                className={inp}
+              >
+                <option value="calc">계산식</option>
+                <option value="text">텍스트</option>
+              </select>
+              {c.t !== "calc" && (
+                <input
+                  value={c.text || ""}
+                  onChange={(e) => updateCase(i, { text: e.target.value })}
+                  placeholder="출력 텍스트"
+                  className={inp + " flex-1 min-w-[160px]"}
+                />
+              )}
+              <button
+                onClick={() => removeCase(i)}
+                className="text-[10px] rounded border border-rose-200 bg-rose-50 px-1.5 py-1 text-rose-700 ml-auto"
+              >
+                삭제
+              </button>
+            </div>
+            {c.t === "calc" && (
+              <TokenBuilder
+                tokens={c.tokens || []}
+                onChange={(tokens) => updateCase(i, { tokens })}
+                varNames={numAv}
+                sc={sc}
+                varsMeta={varsMeta}
+              />
+            )}
+          </div>
+        ))}
+        <button
+          onClick={addCase}
+          className="w-full text-[11px] rounded border border-dashed border-violet-300 bg-violet-50/40 px-2 py-1.5 text-violet-700 hover:bg-violet-50"
+        >
+          + 케이스 추가
+        </button>
+      </div>
+      <div className="rounded border border-amber-100 bg-amber-50/40 p-2 space-y-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-mono text-amber-700">기본값 (매칭 없을 때)</span>
+          <select
+            value={step.defaultT || "calc"}
+            onChange={(e) => {
+              const v = e.target.value;
+              const patch: any = { defaultT: v };
+              if (v === "calc" && !step.defaultTokens) patch.defaultTokens = [];
+              update(patch);
+            }}
+            className={inp}
+          >
+            <option value="calc">계산식</option>
+            <option value="text">텍스트</option>
+          </select>
+          {step.defaultT !== "calc" && (
+            <input
+              value={step.defaultText || ""}
+              onChange={(e) => update({ defaultText: e.target.value })}
+              placeholder="기본 출력"
+              className={inp + " flex-1 min-w-[160px]"}
+            />
+          )}
+        </div>
+        {step.defaultT === "calc" && (
+          <TokenBuilder
+            tokens={step.defaultTokens || []}
+            onChange={(defaultTokens) => update({ defaultTokens })}
+            varNames={numAv}
+            sc={sc}
+            varsMeta={varsMeta}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ClassifyEditor({ step, update, av, varsMeta }: any) {
   const inp = "rounded border px-2 py-1 text-xs";
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -1044,7 +1441,7 @@ function ClassifyEditor({ step, update, av }: any) {
             }}
             className={inp}
           >
-            {av.map((n: string) => (<option key={n}>{n}</option>))}
+            <VarOpts names={av} varsMeta={varsMeta} />
           </select>
           <button
             onClick={() => update({ items: step.items.filter((_: any, x: number) => x !== i) })}
@@ -1064,12 +1461,12 @@ function ClassifyEditor({ step, update, av }: any) {
   );
 }
 
-function TableEditor({ step, update, av }: any) {
+function TableEditor({ step, update, av, varsMeta }: any) {
   const inp = "rounded border px-1 py-0.5 text-xs font-mono w-14 text-right";
   return (
     <div className="flex flex-wrap items-center gap-2">
       <select value={step.ref} onChange={(e) => update({ ref: e.target.value })} className="rounded border px-2 py-1 text-xs">
-        {av.map((n: string) => (<option key={n}>{n}</option>))}
+        <VarOpts names={av} varsMeta={varsMeta} />
       </select>
       <span className="text-xs text-gray-500">구간 →</span>
       {step.bands.map((b: any, i: number) => (
@@ -1125,23 +1522,23 @@ function TableEditor({ step, update, av }: any) {
   );
 }
 
-function ClampEditor({ step, update, av }: any) {
+function ClampEditor({ step, update, av, varsMeta }: any) {
   const inp = "rounded border px-2 py-1 text-xs";
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <select value={step.ref} onChange={(e) => update({ ref: e.target.value })} className={inp + " min-w-[120px]"}>
-        {av.map((n: string) => (<option key={n}>{n}</option>))}
+        <VarOpts names={av} varsMeta={varsMeta} />
       </select>
       <span className="text-gray-600">를</span>
       <span>하한</span>
       <select value={step.min} onChange={(e) => update({ min: e.target.value })} className={inp + " min-w-[120px]"}>
         <option value="">(없음)</option>
-        {av.map((n: string) => (<option key={n}>{n}</option>))}
+        <VarOpts names={av} varsMeta={varsMeta} />
       </select>
       <span>상한</span>
       <select value={step.max} onChange={(e) => update({ max: e.target.value })} className={inp + " min-w-[120px]"}>
         <option value="">(없음)</option>
-        {av.map((n: string) => (<option key={n}>{n}</option>))}
+        <VarOpts names={av} varsMeta={varsMeta} />
       </select>
     </div>
   );

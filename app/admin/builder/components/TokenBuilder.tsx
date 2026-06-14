@@ -1,18 +1,86 @@
 "use client";
 import { useState } from "react";
 import type { Token } from "app-renderer";
-import { evstr, fmt, tk2str } from "app-renderer";
+import { evtok, fmt } from "app-renderer";
 
 interface Props {
   tokens: Token[];
   onChange: (t: Token[]) => void;
   varNames: string[];
   sc: Record<string, any>;
+  varsMeta?: Record<string, { group?: string; subGroup?: string }>;
 }
 
 const OPSYM: Record<string, string> = { "+": "+", "-": "−", "*": "×", "/": "÷" };
 
-export default function TokenBuilder({ tokens, onChange, varNames, sc }: Props) {
+// 변수 이름을 group > subGroup 계층으로 묶어 정렬된 optgroup 옵션을 렌더링.
+// 메타 정보 없거나 모두 _기타 면 평탄 옵션으로 fallback.
+function renderGroupedOptions(
+  names: string[],
+  varsMeta?: Record<string, { group?: string; subGroup?: string }>
+) {
+  if (!varsMeta) {
+    return names.map((n) => (
+      <option key={n} value={n}>
+        {n}
+      </option>
+    ));
+  }
+  const groups: Record<string, Record<string, string[]>> = {};
+  const seen = new Set<string>();
+  for (const nm of names) {
+    if (seen.has(nm)) continue;
+    seen.add(nm);
+    const m = varsMeta[nm] || {};
+    const g = (m.group || "").trim() || "_기타";
+    const sg = (m.subGroup || "").trim() || "_기본";
+    if (!groups[g]) groups[g] = {};
+    if (!groups[g][sg]) groups[g][sg] = [];
+    groups[g][sg].push(nm);
+  }
+  const hasReal = Object.keys(groups).some((g) => g !== "_기타");
+  if (!hasReal) {
+    return names.map((n) => (
+      <option key={n} value={n}>
+        {n}
+      </option>
+    ));
+  }
+  const sortedGroups = Object.entries(groups).sort(([a], [b]) =>
+    a === "_기타" ? 1 : b === "_기타" ? -1 : a.localeCompare(b)
+  );
+  // 각 (group, subGroup) 조합을 별도 optgroup 으로 — 묶음 정보는 label 에만, option text 는 변수명만.
+  const out: JSX.Element[] = [];
+  for (const [g, subs] of sortedGroups) {
+    const sortedSubs = Object.entries(subs).sort(([a], [b]) =>
+      a === "_기본" ? -1 : b === "_기본" ? 1 : a.localeCompare(b)
+    );
+    for (const [sg, items] of sortedSubs) {
+      const label =
+        g === "_기타"
+          ? sg === "_기본"
+            ? "기타"
+            : sg
+          : sg === "_기본"
+          ? g
+          : `${g} > ${sg}`;
+      out.push(
+        <optgroup key={`${g}|${sg}`} label={label}>
+          {items
+            .sort((a, b) => a.localeCompare(b))
+            .map((it) => (
+              <option key={it} value={it}>
+                {it}
+              </option>
+            ))}
+        </optgroup>
+      );
+    }
+  }
+  return out;
+}
+
+export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta }: Props) {
   const [picked, setPicked] = useState(varNames[0] || "");
   const [num, setNum] = useState("");
 
@@ -24,7 +92,7 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc }: Props) 
   let liveText = "—";
   let liveBad = false;
   try {
-    if (tokens.length) liveText = fmt(evstr(tk2str(tokens), sc));
+    if (tokens.length) liveText = fmt(evtok(tokens, sc));
   } catch (e: any) {
     liveText = String(e?.message || e);
     liveBad = true;
@@ -88,11 +156,7 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc }: Props) 
             {varNames.length === 0 ? (
               <option disabled>없음</option>
             ) : (
-              varNames.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))
+              renderGroupedOptions(varNames, varsMeta)
             )}
           </select>
           <button

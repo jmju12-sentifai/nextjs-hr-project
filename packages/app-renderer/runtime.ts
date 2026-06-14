@@ -135,17 +135,25 @@ function rpn(ts: Lex[]): RpnTok[] {
   return o;
 }
 
-export function evstr(expr: string, sc: Sc): number {
-  const r = rpn(tok(expr));
+// RPN 평가 — evstr / evtok 공용
+function evalRpn(r: RpnTok[], sc: Sc): number {
   const st: number[] = [];
   for (const x of r) {
     if (x.k === "num") st.push(x.v);
     else if (x.k === "id") {
       if (!(x.v in sc)) throw new Error("미정의: " + x.v);
       const v = sc[x.v];
-      if (typeof v !== "number" || isNaN(v))
-        throw new Error("숫자 아님: " + x.v);
-      st.push(v);
+      // 숫자가 아니면 — 숫자로 변환 시도 (예: "100", "100.5" 같은 숫자 문자열 허용)
+      // 그래도 숫자가 아니면 0 으로 취급 (에러 throw 안 함, 산식 결과만 0이 됨)
+      if (typeof v === "number" && !isNaN(v)) {
+        st.push(v);
+      } else if (typeof v === "string") {
+        const cleaned = v.replace(/,/g, "").trim();
+        const n = Number(cleaned);
+        st.push(isNaN(n) ? 0 : n);
+      } else {
+        st.push(0);
+      }
     } else if (x.k === "u") st.push(-(st.pop() as number));
     else {
       const b = st.pop()!;
@@ -159,9 +167,28 @@ export function evstr(expr: string, sc: Sc): number {
   return st[0];
 }
 
+export function evstr(expr: string, sc: Sc): number {
+  return evalRpn(rpn(tok(expr)), sc);
+}
+
+// 토큰 → Lex 직접 변환 (문자열 왕복 없이).
+// ⚠ tk2str+tok 왕복은 변수/step 이름의 내부 공백("통상임금기준액 산출")을 공백에서 잘라
+//   "미정의" 에러를 냈다. 토큰은 이미 구조화돼 있으므로 직접 Lex 로 변환해 그 문제를 원천 차단.
+function tokensToLex(tks: Token[]): Lex[] {
+  const out: Lex[] = [];
+  for (const t of tks) {
+    if (t.t === "var") out.push({ k: "id", v: t.name });
+    else if (t.t === "num") out.push({ k: "num", v: Number(t.v) });
+    else if (t.t === "op") out.push({ k: t.op });
+    else if (t.t === "lp") out.push({ k: "(" });
+    else if (t.t === "rp") out.push({ k: ")" });
+  }
+  return out;
+}
+
 export function evtok(tks: Token[] | undefined, sc: Sc): number {
   if (!tks || !tks.length) throw new Error("식 비어 있음");
-  return evstr(tk2str(tks), sc);
+  return evalRpn(rpn(tokensToLex(tks)), sc);
 }
 
 // ----- 단위 포맷 -----
@@ -319,12 +346,16 @@ export function run(
   ];
 
   for (const v of allVarList) {
+    const raw = v.test;
+    const isEmpty = raw == null || String(raw).trim() === "";
     if (v.type === "number") {
-      sc[v.name] = Number(v.test || 0);
-      disp[v.name] = fmtU(sc[v.name], v.unit);
+      // sc 는 계산용 — 빈 값이면 0 으로 (산식이 NaN 으로 깨지지 않게).
+      // disp 는 표시용 — 입력 안 한 변수는 "—" 로 표시 (사용자가 "0" 을 명시한 경우와 구분).
+      sc[v.name] = isEmpty ? 0 : Number(raw);
+      disp[v.name] = isEmpty ? "—" : fmtU(sc[v.name], v.unit);
     } else {
-      sc[v.name] = v.test || "";
-      disp[v.name] = v.test || "—";
+      sc[v.name] = isEmpty ? "" : (raw as any);
+      disp[v.name] = isEmpty ? "—" : (raw as any);
     }
   }
 
@@ -352,6 +383,36 @@ export function run(
           ? side(s.then, s.thenTok, s.thenT || "text")
           : side(s.els, s.elsTok, s.elsT || "text");
         d = typeof r === "number" ? fmtU(r, s.unit) : r;
+      } else if (s.type === "switch") {
+        // N-way 분기 — ref 값이 cases 중 어느 match 와 일치하는지 찾아 해당 출력
+        const refVal = rv(s.ref);
+        const matched = (s.cases || []).find(
+          (c) => String(c.match) === String(refVal)
+        );
+        // 단일 var 토큰이면 그 변수값 그대로 (숫자든 문자열든 OK).
+        // 여러 토큰의 산식이면 기존 evtok 사용 (숫자 전용).
+        const evalSide = (
+          typ: string | undefined,
+          tks: Token[] | undefined,
+          txt: string | undefined
+        ): any => {
+          if (typ !== "calc") return txt ?? "";
+          if (!Array.isArray(tks) || tks.length === 0) return "";
+          // 단일 변수 토큰이면 그 변수값을 그대로 반환 (텍스트 변수도 허용).
+          // tokens 스키마 형태: { t: "var", name: "X" }
+          if (tks.length === 1 && (tks[0] as any)?.t === "var") {
+            const name = (tks[0] as any).name as string;
+            return name in sc ? sc[name] : "";
+          }
+          // 그 외 — 숫자 산식 평가
+          return evtok(tks, sc);
+        };
+        if (matched) {
+          r = evalSide(matched.t, matched.tokens as any, matched.text);
+        } else {
+          r = evalSide(s.defaultT, s.defaultTokens as any, s.defaultText);
+        }
+        d = typeof r === "number" ? fmtU(r, s.unit) : String(r ?? "");
       } else if (s.type === "classify") {
         const vals = s.items.filter((it) => it.inc).map((it) => Number(sc[it.ref] || 0));
         const a = s.agg || "sum";
@@ -522,51 +583,85 @@ export function run(
 }
 
 // step 한 줄 설명 (Tab3 sayStep의 plain-text 버전)
-export function describeStep(s: Step): string {
-  const KOP: Record<string, string> = {
-    ">=": "이상",
-    "<=": "이하",
-    ">": "초과",
-    "<": "미만",
-    "==": "같음",
-    "!=": "다름",
-  };
+// describeStep — sc(현재 변수 스코프) 가 있으면 현재 매칭되는 case 만 보여줌.
+// sc 없으면 모든 case 를 보여줌 (디자인 시점 설명).
+// 사용자(임직원) 친화 설명 생성.
+// 빌더 용어(분기·계산식·tokens) 대신 일상어로 표현. 결과 화면에서 "왜 이 값인지" 짧게 안내.
+export function describeStep(s: Step, sc?: Sc): string {
   if (s.type === "branch") {
-    const side = (txt: string, tks: any, t: any) =>
-      t === "calc" ? `계산식[${tk2disp(tks) || "…"}]` : `"${txt}"`;
-    return `${s.ref || "?"} ${KOP[s.op] || s.op} ${s.rhs} → 참: ${side(
-      s.then,
-      s.thenTok,
-      s.thenT
-    )}, 거짓: ${side(s.els, s.elsTok, s.elsT)}`;
+    if (sc && s.ref) {
+      const a = s.ref in sc ? sc[s.ref] : s.ref;
+      const b = typeof s.rhs === "string" && s.rhs in sc ? sc[s.rhs] : s.rhs;
+      const cond = cmp(a, s.op, b);
+      return cond
+        ? "조건에 해당하여 적용된 값입니다."
+        : "조건에 해당하지 않아 다른 값이 적용되었습니다.";
+    }
+    return "조건에 따라 적용되는 값이 달라집니다.";
+  }
+  if (s.type === "switch") {
+    if (sc && s.ref) {
+      const refVal = String((s.ref in sc ? sc[s.ref] : "") ?? "");
+      const matched = (s.cases || []).find((c) => String(c.match) === refVal);
+      if (matched) {
+        return `${s.ref} 가 "${matched.match}" 에 해당하여 적용된 값입니다.`;
+      }
+      return `${s.ref} 가 등록된 분류에 해당하지 않아 기본값이 적용되었습니다.`;
+    }
+    return `${s.ref || "분류"} 값에 따라 적용되는 값이 달라집니다.`;
   }
   if (s.type === "classify") {
-    const items = s.items.filter((x) => x.inc).map((x) => x.ref).join(", ") || "?";
-    return `${AGG[s.agg || "sum"]}( ${items} )`;
+    const items = s.items.filter((x) => x.inc).map((x) => x.ref);
+    const aggLabel: Record<string, string> = {
+      sum: "합산",
+      count: "건수 집계",
+      avg: "평균",
+      max: "최대값",
+      min: "최소값",
+    };
+    const verb = aggLabel[s.agg || "sum"] || "합산";
+    if (items.length === 0) return `${verb} 한 결과입니다.`;
+    if (items.length <= 3) return `${items.join(", ")} 항목을 ${verb}한 결과입니다.`;
+    return `${items.slice(0, 2).join(", ")} 등 ${items.length}개 항목을 ${verb}한 결과입니다.`;
   }
-  if (s.type === "table") return `${s.ref || "?"} 가 속한 구간의 단계값`;
-  if (s.type === "formula") return `계산식: ${tk2disp(s.tokens) || "(비어 있음)"}`;
+  if (s.type === "table") {
+    return `${s.ref || "기준값"} 이 속한 구간에 따라 회사 규정에서 적용된 값입니다.`;
+  }
+  if (s.type === "formula") {
+    const vars = (s.tokens || [])
+      .filter((t: any) => t.t === "var" && t.name)
+      .map((t: any) => t.name as string);
+    if (vars.length === 0) return "산식으로 계산된 값입니다.";
+    if (vars.length === 1) return `${vars[0]} 을(를) 기반으로 계산된 값입니다.`;
+    if (vars.length <= 3)
+      return `${vars.join(", ")} 을(를) 조합해 계산된 값입니다.`;
+    return `${vars.slice(0, 2).join(", ")} 등 여러 항목을 조합해 계산된 값입니다.`;
+  }
   if (s.type === "clamp") {
     const parts: string[] = [];
     if (s.min) parts.push(`${s.min} 이상`);
     if (s.max) parts.push(`${s.max} 이하`);
-    return `${s.ref || "?"} 를 ${parts.length ? parts.join(", ") + "로 보정" : "(범위 미설정)"}`;
+    if (parts.length === 0) return `${s.ref || "값"} 그대로입니다.`;
+    return `${s.ref || "값"} 을 ${parts.join(", ")} 범위로 조정한 값입니다.`;
   }
   if (s.type === "date") {
     const u = { year: "년", month: "월", day: "일" }[s.out];
-    return s.mode === "diff"
-      ? `${s.a || "?"} ↔ ${s.b || "?"} 차이(${u})`
-      : `${s.a || "?"} 의 ${u === "년" ? "연도" : u} 추출`;
+    if (s.mode === "diff") {
+      const isToday = s.b === "오늘";
+      if (u === "년" && isToday) return `${s.a} 기준으로 산정된 만 나이입니다.`;
+      if (isToday) return `${s.a} 부터 오늘까지의 경과 ${u}수입니다.`;
+      return `${s.a} 부터 ${s.b} 까지의 ${u}수입니다.`;
+    }
+    return `${s.a} 의 ${u === "년" ? "연도" : u}을(를) 추출한 값입니다.`;
   }
   if (s.type === "llm") {
-    const items = (s as any).items?.length ? (s as any).items.join(", ") : "(항목 없음)";
-    return `LLM 3줄 분석 · 대상: ${items}`;
+    return "위 산출 결과를 종합해 작성된 안내입니다.";
   }
   return "";
 }
 
-// 이름(변수 or step)에 대한 한 줄 설명
-export function describeName(schema: AppSchema, name: string): string {
+// 이름(변수 or step)에 대한 한 줄 설명. sc 가 있으면 활성 케이스만 표시.
+export function describeName(schema: AppSchema, name: string, sc?: Sc): string {
   if (!name) return "";
   const m = migrateSchema(schema);
   const allSteps: Step[] = [
@@ -575,13 +670,28 @@ export function describeName(schema: AppSchema, name: string): string {
     ...((m.fallback?.steps as Step[]) || []),
   ];
   const st = allSteps.find((s) => s.name === name);
-  if (st) return describeStep(st);
+  if (st) return describeStep(st, sc);
   const v = schema.vars.find((v) => v.name === name);
   if (v) {
-    const unit = v.unit ? ` · ${v.unit}` : "";
-    return `${v.grp} 변수 (${v.type}${unit})`;
+    // 사용자 친화 — "회사 규정 / 본인이 제공한" 형식
+    const owner = v.grp === "규정" ? "회사 규정에 정해진" : "본인이 제공한";
+    const subject =
+      v.type === "date"
+        ? "날짜"
+        : v.type === "text"
+        ? "정보"
+        : v.unit === "원"
+        ? "금액"
+        : v.unit === "%" || v.unit === "배"
+        ? "비율"
+        : v.unit === "년" || v.unit === "월" || v.unit === "일" || v.unit === "시간"
+        ? `기간(${v.unit})`
+        : v.unit === "점" || v.unit === "건" || v.unit === "회" || v.unit === "개" || v.unit === "명"
+        ? `수치(${v.unit})`
+        : "값";
+    return `${owner} ${subject}입니다.`;
   }
-  if (name === "적용여부") return "매칭된 경로 라벨";
+  if (name === "적용여부") return "본인 케이스가 적용된 경로명입니다.";
   return "";
 }
 

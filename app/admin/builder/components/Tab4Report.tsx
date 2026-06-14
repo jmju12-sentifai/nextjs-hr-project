@@ -461,6 +461,9 @@ export default function Tab4Report({ schema, onChange }: Props) {
     for (const s of editing?.steps || []) if (s.name) n.push(s.name);
     return n;
   };
+  // 변수 메타 맵 — 이름 → {group, subGroup}. 그루핑된 옵션 렌더링에 사용.
+  const varsMeta: Record<string, { group?: string; subGroup?: string }> = {};
+  for (const v of schema.vars) varsMeta[v.name] = { group: v.group, subGroup: v.subGroup };
 
   // fields 종류는 항상 리포트 최상단에 고정
   const pinFieldsTop = (arr: ReportElement[]): ReportElement[] => {
@@ -1002,9 +1005,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
                           className="rounded border px-1 py-0.5 text-[11px] max-w-[130px]"
                         >
                           <option value="">(바인딩)</option>
-                          {allNames().map((n) => (
-                            <option key={n}>{n}</option>
-                          ))}
+                          <VarOptions names={allNames()} varsMeta={varsMeta} includeValue={e.bind} />
                         </select>
                       )}
                     {e.kind === "chart" && (
@@ -1054,9 +1055,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
                               : "분모"}
                             )
                           </option>
-                          {allNames().map((n) => (
-                            <option key={n}>{n}</option>
-                          ))}
+                          <VarOptions names={allNames()} varsMeta={varsMeta} includeValue={e.bind2} />
                         </select>
                       )}
                     <span className="font-mono text-[9px] text-gray-500 tabular-nums px-1.5 py-0.5 rounded bg-gray-100">
@@ -1097,6 +1096,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
                         value={e.tpl || ""}
                         onChange={(tpl) => updEl(e.id, { tpl })}
                         names={allNames()}
+                        varsMeta={varsMeta}
                         renderPreview={() => (
                           <ElementRenderer
                             schema={schema}
@@ -1119,6 +1119,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
                         onChange={(binds) => updEl(e.id, { binds })}
                         names={allNames()}
                         disp={disp}
+                        varsMeta={varsMeta}
                       />
                     ) : (
                       <ElementRenderer
@@ -1168,11 +1169,13 @@ function FieldsEdit({
   onChange,
   names,
   disp,
+  varsMeta,
 }: {
   binds: string[];
   onChange: (next: string[]) => void;
   names: string[];
   disp: Record<string, string>;
+  varsMeta?: Record<string, { group?: string; subGroup?: string }>;
 }) {
   const toggle = (n: string) => {
     onChange(binds.includes(n) ? binds.filter((x) => x !== n) : [...binds, n]);
@@ -1204,25 +1207,13 @@ function FieldsEdit({
 
       <div>
         <div className="text-[10px] text-gray-500 mb-1">변수 선택 (클릭으로 추가/제거)</div>
-        <div className="flex flex-wrap gap-1 max-h-20 overflow-auto">
-          {names.map((n) => {
-            const on = binds.includes(n);
-            return (
-              <button
-                key={n}
-                type="button"
-                onClick={() => toggle(n)}
-                className={
-                  "rounded-full px-1.5 py-0.5 text-[10px] border font-mono " +
-                  (on
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-700 border-gray-300 hover:border-blue-400")
-                }
-              >
-                {n}
-              </button>
-            );
-          })}
+        <div className="max-h-40 overflow-auto space-y-1.5">
+          <GroupedVarChips
+            names={names}
+            varsMeta={varsMeta}
+            isSelected={(n) => binds.includes(n)}
+            onClick={toggle}
+          />
         </div>
       </div>
 
@@ -1264,11 +1255,13 @@ function NoteEdit({
   onChange,
   names,
   renderPreview,
+  varsMeta,
 }: {
   value: string;
   onChange: (v: string) => void;
   names: string[];
   renderPreview: () => React.ReactNode;
+  varsMeta?: Record<string, { group?: string; subGroup?: string }>;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -1308,35 +1301,204 @@ function NoteEdit({
         <div className="text-[10px] text-gray-500 mb-1">
           사용 가능한 변수 (클릭하여 삽입)
         </div>
-        <div className="flex flex-wrap gap-1 max-h-16 overflow-auto">
-          {names.length === 0 && (
+        <div className="max-h-32 overflow-auto space-y-1.5">
+          {names.length === 0 ? (
             <span className="text-[10px] text-gray-400">변수가 없습니다.</span>
+          ) : (
+            <GroupedVarChips
+              names={names}
+              varsMeta={varsMeta}
+              isSelected={(n) => used.has(n)}
+              onClick={insert}
+              chipTitle={(n) => `{${n}} 삽입`}
+            />
           )}
-          {names.map((n) => {
-            const on = used.has(n);
-            return (
-              <button
-                key={n}
-                type="button"
-                onClick={() => insert(n)}
-                title={`{${n}} 삽입`}
-                className={
-                  "rounded-full px-1.5 py-0.5 text-[10px] border font-mono " +
-                  (on
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-700 border-gray-300 hover:border-blue-400")
-                }
-              >
-                {n}
-              </button>
-            );
-          })}
         </div>
       </div>
       <div className="text-[10px] text-gray-400 mt-1.5 shrink-0">
         미리보기
       </div>
       <div className="mt-0.5 flex-1 overflow-auto min-h-0">{renderPreview()}</div>
+    </>
+  );
+}
+
+// 변수 옵션을 group > subGroup 계층으로 묶어 정렬해 렌더링.
+// Tab3Logic 의 동작과 동일 — 드롭다운에서는 묶음 보이고, 선택 시엔 변수명만 표시됨.
+function VarOptions({
+  names,
+  varsMeta,
+  includeValue,
+}: {
+  names: string[];
+  varsMeta?: Record<string, { group?: string; subGroup?: string }>;
+  includeValue?: string;
+}) {
+  if (!varsMeta) {
+    return (
+      <>
+        {names.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+        {includeValue && !names.includes(includeValue) && (
+          <option value={includeValue}>⚠ {includeValue} (정의 안됨)</option>
+        )}
+      </>
+    );
+  }
+  const groups: Record<string, Record<string, string[]>> = {};
+  const seen = new Set<string>();
+  for (const nm of names) {
+    if (seen.has(nm)) continue;
+    seen.add(nm);
+    const m = varsMeta[nm] || {};
+    const g = (m.group || "").trim() || "_기타";
+    const sg = (m.subGroup || "").trim() || "_기본";
+    if (!groups[g]) groups[g] = {};
+    if (!groups[g][sg]) groups[g][sg] = [];
+    groups[g][sg].push(nm);
+  }
+  const hasReal = Object.keys(groups).some((g) => g !== "_기타");
+  if (!hasReal) {
+    return (
+      <>
+        {names.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+        {includeValue && !names.includes(includeValue) && (
+          <option value={includeValue}>⚠ {includeValue} (정의 안됨)</option>
+        )}
+      </>
+    );
+  }
+  const sortedGroups = Object.entries(groups).sort(([a], [b]) =>
+    a === "_기타" ? 1 : b === "_기타" ? -1 : a.localeCompare(b)
+  );
+  const out: any[] = [];
+  for (const [g, subs] of sortedGroups) {
+    const sortedSubs = Object.entries(subs).sort(([a], [b]) =>
+      a === "_기본" ? -1 : b === "_기본" ? 1 : a.localeCompare(b)
+    );
+    for (const [sg, items] of sortedSubs) {
+      const label =
+        g === "_기타"
+          ? sg === "_기본"
+            ? "기타"
+            : sg
+          : sg === "_기본"
+          ? g
+          : `${g} > ${sg}`;
+      out.push(
+        <optgroup key={`${g}|${sg}`} label={label}>
+          {items
+            .sort((a, b) => a.localeCompare(b))
+            .map((it) => (
+              <option key={it} value={it}>
+                {it}
+              </option>
+            ))}
+        </optgroup>
+      );
+    }
+  }
+  if (includeValue) {
+    const allNames = new Set<string>();
+    for (const g of sortedGroups) for (const s of Object.values(g[1])) for (const it of s) allNames.add(it);
+    if (!allNames.has(includeValue)) {
+      out.push(
+        <option key={"__custom__"} value={includeValue}>
+          ⚠ {includeValue} (정의 안됨)
+        </option>
+      );
+    }
+  }
+  return <>{out}</>;
+}
+
+export { VarOptions };
+
+// 변수 칩(버튼) 리스트를 group > subGroup 계층으로 묶어 표시.
+// FieldsEdit / NoteEdit 에서 사용.
+function GroupedVarChips({
+  names,
+  varsMeta,
+  isSelected,
+  onClick,
+  chipTitle,
+}: {
+  names: string[];
+  varsMeta?: Record<string, { group?: string; subGroup?: string }>;
+  isSelected: (name: string) => boolean;
+  onClick: (name: string) => void;
+  chipTitle?: (name: string) => string;
+}) {
+  const renderChip = (n: string) => {
+    const on = isSelected(n);
+    return (
+      <button
+        key={n}
+        type="button"
+        onClick={() => onClick(n)}
+        title={chipTitle ? chipTitle(n) : undefined}
+        className={
+          "rounded-full px-1.5 py-0.5 text-[10px] border font-mono " +
+          (on
+            ? "bg-blue-600 text-white border-blue-600"
+            : "bg-white text-gray-700 border-gray-300 hover:border-blue-400")
+        }
+      >
+        {n}
+      </button>
+    );
+  };
+  // 메타 없거나 모두 미분류면 평탄 표시
+  const groups: Record<string, Record<string, string[]>> = {};
+  const seen = new Set<string>();
+  for (const nm of names) {
+    if (seen.has(nm)) continue;
+    seen.add(nm);
+    const m = (varsMeta && varsMeta[nm]) || {};
+    const g = (m.group || "").trim() || "_기타";
+    const sg = (m.subGroup || "").trim() || "_기본";
+    if (!groups[g]) groups[g] = {};
+    if (!groups[g][sg]) groups[g][sg] = [];
+    groups[g][sg].push(nm);
+  }
+  const hasReal = Object.keys(groups).some((g) => g !== "_기타");
+  if (!hasReal) {
+    return <div className="flex flex-wrap gap-1">{names.map(renderChip)}</div>;
+  }
+  const sortedGroups = Object.entries(groups).sort(([a], [b]) =>
+    a === "_기타" ? 1 : b === "_기타" ? -1 : a.localeCompare(b)
+  );
+  return (
+    <>
+      {sortedGroups.map(([g, subs]) => {
+        const sortedSubs = Object.entries(subs).sort(([a], [b]) =>
+          a === "_기본" ? -1 : b === "_기본" ? 1 : a.localeCompare(b)
+        );
+        return (
+          <div key={g} className="space-y-1">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
+              {g === "_기타" ? "기타" : g}
+            </div>
+            {sortedSubs.map(([sg, items]) => (
+              <div key={sg} className="pl-2">
+                {sg !== "_기본" && (
+                  <div className="text-[9px] text-gray-400 mb-0.5">{sg}</div>
+                )}
+                <div className="flex flex-wrap gap-1">
+                  {items.sort((a, b) => a.localeCompare(b)).map(renderChip)}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </>
   );
 }

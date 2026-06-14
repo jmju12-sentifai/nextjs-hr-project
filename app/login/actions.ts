@@ -34,7 +34,10 @@ export async function login(
 
 export async function logout() {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  // scope: "local" — 현재 브라우저·도메인의 세션만 종료.
+  // 기본값(global)은 Supabase 서버에서 해당 사용자의 모든 세션을 revoke 하므로
+  // 같은 Supabase 프로젝트를 쓰는 다른 도메인까지 자동 로그아웃돼버림.
+  await supabase.auth.signOut({ scope: "local" });
   revalidatePath("/", "layout");
   redirect("/");
 }

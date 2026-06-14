@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppSchema, CmpOp, Grp, Unit } from "app-renderer";
 import { UNITS, fmtU, migrateSchema, run, todayStr, activePathOf } from "app-renderer";
 import ElementRenderer from "./ElementRenderer";
@@ -32,10 +32,34 @@ interface Props {
   schema: AppSchema;
 }
 
-export default function Tab5Preview({ schema }: Props) {
+export default function Tab5Preview({ schema: rawSchema }: Props) {
   const [pvtab, setPvtab] = useState<string>("msaas");
   const [extraVars, setExtraVars] = useState<ExtraVar[]>([]);
   const [extraJudge, setExtraJudge] = useState<ExtraJudge[]>([]);
+  // 미리보기에서 사용자 값(=test 값 + extra)으로 실행한 LLM 분석 결과
+  const [llmRuns, setLlmRuns] = useState<Record<string, string>>({});
+  const [llmBusy, setLlmBusy] = useState(false);
+  const llmRunKeyRef = useRef<string>("");
+
+  // 스키마에 LLM 실행 결과를 덧씌움
+  const schema = useMemo<AppSchema>(() => {
+    const overlay = (steps: any[] = []): any[] =>
+      steps.map((s) => {
+        if (s?.type !== "llm") return s;
+        const hit = llmRuns[s.id];
+        return { ...s, lastResult: hit || s.lastResult || "", lastAt: hit ? new Date().toISOString() : s.lastAt };
+      });
+    return {
+      ...rawSchema,
+      shared: rawSchema.shared
+        ? { ...rawSchema.shared, steps: overlay(rawSchema.shared.steps as any[]) }
+        : rawSchema.shared,
+      paths: (rawSchema.paths || []).map((p: any) => ({ ...p, steps: overlay(p.steps as any[]) })),
+      fallback: rawSchema.fallback
+        ? { ...rawSchema.fallback, steps: overlay(rawSchema.fallback.steps as any[]) }
+        : rawSchema.fallback,
+    };
+  }, [rawSchema, llmRuns]);
 
   const result = run(
     schema,
@@ -47,6 +71,57 @@ export default function Tab5Preview({ schema }: Props) {
 
   const m = schema.meta;
   const mig = migrateSchema(schema);
+
+  // 완제품 미리보기에서 f3/f4 진입 시 활성 경로의 LLM 분석을 자동 실행 (테스트 값 + extra 기준)
+  useEffect(() => {
+    if (pvtab !== "f3" && pvtab !== "f4") return;
+    const llmSteps: any[] = [];
+    const collect = (steps: any[] = []) => {
+      for (const s of steps) if (s?.type === "llm") llmSteps.push(s);
+    };
+    collect((schema.shared?.steps as any[]) || []);
+    collect((activePath?.steps as any[]) || []);
+    if (llmSteps.length === 0) return;
+    const valueSnapshot = llmSteps
+      .map((s) => `${s.id}:${(s.items || []).map((n: string) => `${n}=${disp[n] ?? ""}`).join("|")}`)
+      .join("#");
+    const key = `${result.activePathId}::${valueSnapshot}`;
+    if (llmRunKeyRef.current === key) return;
+    llmRunKeyRef.current = key;
+    setLlmBusy(true);
+    void (async () => {
+      try {
+        const runs = await Promise.all(
+          llmSteps.map(async (s) => {
+            try {
+              const context = (s.items || []).map((name: string) => ({
+                name,
+                value: disp?.[name] ?? "—",
+              }));
+              const r = await fetch("/api/llm-summary", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ meta: schema.meta, context, prompt: s.prompt || "" }),
+              });
+              const j = await r.json();
+              if (!r.ok) throw new Error(j.error || "요청 실패");
+              return { id: s.id as string, summary: j.summary as string };
+            } catch (e) {
+              console.warn("preview LLM run failed:", s.id, e);
+              return null;
+            }
+          })
+        );
+        const map: Record<string, string> = {};
+        for (const r of runs) if (r && r.summary) map[r.id] = r.summary;
+        if (Object.keys(map).length) {
+          setLlmRuns((prev) => ({ ...prev, ...map }));
+        }
+      } finally {
+        setLlmBusy(false);
+      }
+    })();
+  }, [pvtab, schema, activePath, result.activePathId, disp]);
 
   return (
     <div className="space-y-5">
@@ -128,23 +203,75 @@ export default function Tab5Preview({ schema }: Props) {
             />
           )}
           {pvtab === "f3" && (
-            <Analyze
-              schema={schema}
-              result={result}
-              activePath={activePath}
-            />
+            <>
+              {llmBusy && <LlmRunningBanner />}
+              <Analyze
+                schema={schema}
+                result={result}
+                activePath={activePath}
+              />
+            </>
           )}
           {pvtab === "f4" && (
-            <ReportView
-              schema={schema}
-              activePath={activePath}
-              result={result}
-              sc={sc}
-              disp={disp}
-              jres={jres}
-            />
+            <>
+              {llmBusy && <LlmRunningBanner />}
+              <ReportView
+                schema={schema}
+                activePath={activePath}
+                result={result}
+                sc={sc}
+                disp={disp}
+                jres={jres}
+              />
+            </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LlmRunningBanner() {
+  return (
+    <div className="mb-4 relative overflow-hidden rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 via-fuchsia-50 to-violet-50 px-4 py-3 shadow-sm">
+      <div
+        aria-hidden
+        className="absolute inset-0 -translate-x-full animate-[shimmer_1.8s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent"
+        style={{ animationName: "shimmer" }}
+      />
+      <style jsx>{`
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        @keyframes bounce-dot {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
+      <div className="relative flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md">
+          <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z" />
+          </svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-bold text-violet-900">LLM 분석 실행 중</span>
+            <span className="flex gap-0.5 ml-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-600" style={{ animation: "bounce-dot 1.2s ease-in-out infinite", animationDelay: "0s" }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-600" style={{ animation: "bounce-dot 1.2s ease-in-out infinite", animationDelay: "0.15s" }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-600" style={{ animation: "bounce-dot 1.2s ease-in-out infinite", animationDelay: "0.3s" }} />
+            </span>
+          </div>
+          <p className="text-[11px] text-violet-700 mt-0.5">
+            미리보기 값으로 분석 리포트를 생성하고 있습니다 — 잠시만 기다려 주세요.
+          </p>
+        </div>
+        <span className="hidden sm:inline-block text-[10px] font-mono text-violet-500 bg-white/70 rounded-full px-2 py-1 ring-1 ring-violet-200">
+          AI · Gemini
+        </span>
       </div>
     </div>
   );
@@ -424,55 +551,7 @@ function ParseFrame({
           {vs.length === 0 ? (
             <div className="text-xs text-gray-500 py-6 text-center">변수 없음</div>
           ) : (
-            <ul className="divide-y divide-gray-100">
-              {vs.map((v) => {
-                const empty = !(v.test && String(v.test).trim());
-                return (
-                  <li
-                    key={v.id}
-                    className="flex items-center gap-3 py-2.5 text-sm first:pt-0 last:pb-0"
-                  >
-                    <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-                      <span className="text-gray-800 truncate">{v.name}</span>
-                      {v.req && (
-                        <span
-                          className={
-                            "text-[9px] rounded px-1.5 py-0.5 font-mono shrink-0 ring-1 " +
-                            (grp === "개인"
-                              ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                              : "bg-gray-100 text-gray-600 ring-gray-200")
-                          }
-                        >
-                          필수
-                        </span>
-                      )}
-                      <span className="text-[10px] font-mono text-gray-400 shrink-0">
-                        {v.type}
-                        {v.unit ? " · " + v.unit : ""}
-                      </span>
-                    </div>
-                    <span
-                      className={
-                        "font-mono font-semibold text-right whitespace-nowrap shrink-0 " +
-                        (empty && v.req
-                          ? "text-rose-600"
-                          : empty
-                          ? "text-gray-400"
-                          : "text-gray-900")
-                      }
-                    >
-                      {empty
-                        ? v.req
-                          ? "누락"
-                          : "—"
-                        : v.type === "number"
-                        ? fmtU(Number(v.test), v.unit)
-                        : v.test}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <GroupedPreviewList vs={vs} grp={grp} />
           )}
         </div>
       </div>
@@ -988,6 +1067,136 @@ function ReportHead({ title }: { title: string }) {
     <div className="bg-blue-600 text-white px-4 py-3 font-serif text-base font-semibold flex justify-between items-center rounded-t">
       <span>{title ? title.replace(/ ?앱$/, "") : "적용 결과"} 안내서</span>
       <span className="font-mono text-[10px] opacity-65">AUTO · {todayStr()}</span>
+    </div>
+  );
+}
+
+// 변수를 group > subGroup 계층으로 묶어 표시 (Tab5Preview 의 ParseFrame 내부에서 사용).
+// 빌더 TabVars 와 라이브 앱 ParseFrame 과 동일한 형태로 일관성 유지.
+function GroupedPreviewList({ vs, grp }: { vs: any[]; grp: Grp }) {
+  const groups: Record<string, Record<string, any[]>> = {};
+  for (const v of vs) {
+    const g = v.group?.trim() || "_미분류";
+    const sg = v.subGroup?.trim() || "_기본";
+    if (!groups[g]) groups[g] = {};
+    if (!groups[g][sg]) groups[g][sg] = [];
+    groups[g][sg].push(v);
+  }
+  const hasHierarchy = vs.some((v) => v.group?.trim());
+
+  const renderRow = (v: any) => {
+    const empty = !(v.test && String(v.test).trim());
+    return (
+      <li
+        key={v.id}
+        className="flex items-center gap-3 py-2.5 text-sm first:pt-0 last:pb-0"
+      >
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+          <span className="text-gray-800 truncate">{v.name}</span>
+          {v.req && (
+            <span
+              className={
+                "text-[9px] rounded px-1.5 py-0.5 font-mono shrink-0 ring-1 " +
+                (grp === "개인"
+                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  : "bg-gray-100 text-gray-600 ring-gray-200")
+              }
+            >
+              필수
+            </span>
+          )}
+          <span className="text-[10px] font-mono text-gray-400 shrink-0">
+            {v.type}
+            {v.unit ? " · " + v.unit : ""}
+          </span>
+        </div>
+        <span
+          className={
+            "font-mono font-semibold text-right whitespace-nowrap shrink-0 " +
+            (empty && v.req
+              ? "text-rose-600"
+              : empty
+              ? "text-gray-400"
+              : "text-gray-900")
+          }
+        >
+          {empty
+            ? v.req
+              ? "누락"
+              : "—"
+            : v.type === "number"
+            ? fmtU(Number(v.test), v.unit)
+            : v.test}
+        </span>
+      </li>
+    );
+  };
+
+  if (!hasHierarchy) {
+    return <ul className="divide-y divide-gray-100">{vs.map(renderRow)}</ul>;
+  }
+
+  const cardTone =
+    grp === "개인"
+      ? "border-emerald-100 from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 text-emerald-900"
+      : "border-blue-100 from-blue-50 to-sky-50 hover:from-blue-100 hover:to-sky-100 text-blue-900";
+  const dotTone = grp === "개인" ? "bg-emerald-500" : "bg-blue-500";
+  const badgeTone = grp === "개인" ? "bg-emerald-600" : "bg-blue-600";
+  const sortedEntries = Object.entries(groups).sort(([a], [b]) => {
+    if (a === "기본정보") return -1;
+    if (b === "기본정보") return 1;
+    if (a === "_미분류") return 1;
+    if (b === "_미분류") return -1;
+    return 0;
+  });
+  return (
+    <div className="space-y-4">
+      {sortedEntries.map(([g, subs]) => (
+        <details
+          key={g}
+          open
+          className={"rounded-xl border bg-white shadow-sm overflow-hidden " + cardTone.split(" ")[0]}
+        >
+          <summary
+            className={
+              "cursor-pointer select-none px-4 py-2.5 text-sm font-bold flex items-center gap-2 bg-gradient-to-r " +
+              cardTone
+            }
+          >
+            <span
+              className={
+                "inline-flex items-center justify-center h-5 px-1.5 rounded text-white text-[10px] font-bold " +
+                badgeTone
+              }
+            >
+              {Object.values(subs).reduce((a, x) => a + x.length, 0)}개
+            </span>
+            <span>{g === "_미분류" ? "기타" : g}</span>
+            <span className="ml-auto text-[10px] font-mono opacity-70">
+              하위 {Object.keys(subs).filter((s) => s !== "_기본").length}개
+            </span>
+          </summary>
+          <div className="p-3 space-y-3">
+            {Object.entries(subs).map(([sg, items]) => (
+              <div
+                key={sg}
+                className="rounded-lg border border-gray-100 bg-gray-50/40 overflow-hidden"
+              >
+                {sg !== "_기본" && (
+                  <div className="px-3 py-1.5 text-[11px] font-bold text-gray-700 bg-gray-100 border-b border-gray-200 flex items-center gap-2">
+                    <span className={"inline-block h-1.5 w-1.5 rounded-full " + dotTone} />
+                    {sg}
+                    <span className="ml-auto text-[10px] font-mono text-gray-500">
+                      {items.length}개
+                    </span>
+                  </div>
+                )}
+                <ul className="divide-y divide-gray-100 px-3">{items.map(renderRow)}</ul>
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
     </div>
   );
 }

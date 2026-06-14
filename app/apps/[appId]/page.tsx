@@ -70,6 +70,25 @@ export default function AppPage() {
   const [uploads, setUploads] = useState<{ [k in Grp]?: { fname: string; ok: boolean } }>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  // 사용자 값으로 실행한 LLM 분석 결과 — stepId 별로 저장.
+  // 빌더의 lastResult (테스트 값 기반 미리보기)는 무시하고 이 값으로 덮어쓴다.
+  const [llmRuns, setLlmRuns] = useState<Record<string, string>>({});
+  const [llmBusy, setLlmBusy] = useState(false);
+  // 같은 (활성 경로 + filled 스냅샷) 에 대해 중복 호출 방지
+  const llmRunKeyRef = useRef<string>("");
+  // "다시 하기" 확인 모달
+  const [resetConfirm, setResetConfirm] = useState(false);
+
+  // 모든 사용자 입력·산출 결과를 초기화하고 처음 화면(앱 설명) 으로 이동
+  const resetAll = () => {
+    setFilled({});
+    setUploads({});
+    setLlmRuns({});
+    llmRunKeyRef.current = "";
+    runLogged.current = false;
+    setPvtab("msaas");
+    setResetConfirm(false);
+  };
 
   // f4 진입 시 app_runs 에 1행 기록 (한 세션 1회) — 메타데이터만 저장 (PII 제외)
   const runLogged = useRef(false);
@@ -94,18 +113,109 @@ export default function AppPage() {
   }, [params.appId]);
 
   // 빌더의 test 값은 사용 안 함 — 사용자가 업로드/수기 입력으로 채운 값만 반영
+  // 빌더의 lastResult(테스트 값 미리보기)는 무시하고, 라이브에서 새로 실행한 llmRuns 만 반영.
   const liveSchema = useMemo<AppSchema | null>(() => {
     if (!app) return null;
+    const overlayLLM = (steps: any[] = []): any[] =>
+      steps.map((s) => {
+        if (s?.type !== "llm") return s;
+        const hit = llmRuns[s.id];
+        // 라이브 실행 결과가 있으면 그것으로, 없으면 빈 값(테스트 미리보기 누설 방지)
+        return { ...s, lastResult: hit || "", lastAt: hit ? new Date().toISOString() : "" };
+      });
     return {
       ...app.app_schema,
       vars: app.app_schema.vars.map((v) => ({
         ...v,
         test: v.name in filled ? String(filled[v.name] ?? "") : "",
       })),
+      shared: app.app_schema.shared
+        ? { ...app.app_schema.shared, steps: overlayLLM(app.app_schema.shared.steps as any[]) }
+        : app.app_schema.shared,
+      paths: (app.app_schema.paths || []).map((p: any) => ({
+        ...p,
+        steps: overlayLLM(p.steps as any[]),
+      })),
+      fallback: app.app_schema.fallback
+        ? { ...app.app_schema.fallback, steps: overlayLLM(app.app_schema.fallback.steps as any[]) }
+        : app.app_schema.fallback,
     };
-  }, [app, filled]);
+  }, [app, filled, llmRuns]);
 
   const result = useMemo(() => (liveSchema ? run(liveSchema) : null), [liveSchema]);
+
+  // 사용자 값으로 LLM 분석 자동 실행
+  // 트리거: f3 진입 시점에 활성 경로의 LLM 단계가 있고, 사용자 입력값으로 산출이 끝났을 때.
+  // 같은 (active path + filled snapshot) 조합에 대해서는 한 번만 실행.
+  useEffect(() => {
+    if (!liveSchema || !result || !app) return;
+    if (pvtab !== "f3" && pvtab !== "f4") return;
+    // 활성 경로의 LLM 단계 수집 (shared + active path)
+    const activePath = activePathOf(liveSchema, result.activePathId);
+    const llmSteps: any[] = [];
+    const collect = (steps: any[] = []) => {
+      for (const s of steps) if (s?.type === "llm") llmSteps.push(s);
+    };
+    collect((liveSchema.shared?.steps as any[]) || []);
+    collect((activePath?.steps as any[]) || []);
+    if (llmSteps.length === 0) return;
+    // 중복 호출 방지 키 — 활성 경로 + 사용된 변수 값들의 스냅샷
+    const disp = result.disp || {};
+    const valueSnapshot = llmSteps
+      .map((s) => `${s.id}:${(s.items || []).map((n: string) => `${n}=${disp[n] ?? ""}`).join("|")}`)
+      .join("#");
+    const key = `${result.activePathId}::${valueSnapshot}`;
+    if (llmRunKeyRef.current === key) return;
+    // 모든 필수 입력이 채워진 상태에서만 실행 (탭 게이트가 이미 강제하지만 안전 가드)
+    const reqVars = liveSchema.vars.filter((v) => v.req);
+    const allFilled = reqVars.every(
+      (v) =>
+        v.name in filled &&
+        filled[v.name] !== "" &&
+        filled[v.name] !== null &&
+        filled[v.name] !== undefined
+    );
+    if (!allFilled) return;
+    llmRunKeyRef.current = key;
+    setLlmBusy(true);
+    void (async () => {
+      try {
+        const runs = await Promise.all(
+          llmSteps.map(async (s) => {
+            try {
+              const context = (s.items || []).map((name: string) => ({
+                name,
+                value: disp?.[name] ?? "—",
+              }));
+              const res = await fetch("/api/llm-summary", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  meta: liveSchema.meta,
+                  context,
+                  prompt: s.prompt || "",
+                }),
+              });
+              if (await handleAuthError(res, window.location.pathname)) return null;
+              const j = await res.json();
+              if (!res.ok) throw new Error(j.error || "요청 실패");
+              return { id: s.id as string, summary: j.summary as string };
+            } catch (e) {
+              console.warn("LLM run failed:", s.id, e);
+              return null;
+            }
+          })
+        );
+        const map: Record<string, string> = {};
+        for (const r of runs) if (r && r.summary) map[r.id] = r.summary;
+        if (Object.keys(map).length) {
+          setLlmRuns((prev) => ({ ...prev, ...map }));
+        }
+      } finally {
+        setLlmBusy(false);
+      }
+    })();
+  }, [pvtab, liveSchema, result, app, filled]);
 
   // f4 첫 진입 시 app_runs 1행 기록 (메타데이터만, PII 제외)
   useEffect(() => {
@@ -196,9 +306,15 @@ export default function AppPage() {
   const nextOf: Record<string, string> = { msaas: "f1", f1: "f2", f2: "f3", f3: "f4" };
   const prevOf: Record<string, string> = { f1: "msaas", f2: "f1", f3: "f2", f4: "f3" };
 
+  // "다시 하기" 표시 조건 — 사용자가 뭐라도 입력했거나 진행했을 때만
+  const hasProgress =
+    Object.keys(filled).length > 0 ||
+    Object.keys(uploads).length > 0 ||
+    pvtab !== "msaas";
+
   return (
     <main className="mx-auto max-w-5xl p-5">
-      <div className="mb-3">
+      <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
         <a
           href="/#tools"
           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 hover:border-gray-300"
@@ -218,6 +334,18 @@ export default function AppPage() {
           </svg>
           다른 앱 사용하기
         </a>
+        {hasProgress && (
+          <button
+            onClick={() => setResetConfirm(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100 hover:border-amber-300"
+            title="모든 입력값과 분석 결과를 초기화하고 처음부터 다시 진행합니다"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            다시 하기
+          </button>
+        )}
       </div>
       <div className="border rounded overflow-hidden bg-white">
         <div className="bg-blue-600 text-white px-5 py-3.5">
@@ -324,16 +452,24 @@ export default function AppPage() {
               setUpload={(u) => setUploads((s) => ({ ...s, 개인: u }))}
             />
           )}
-          {pvtab === "f3" && <Analyze schema={schema} result={result} activePath={activePath} />}
+          {pvtab === "f3" && (
+            <>
+              {llmBusy && <LlmRunningBanner subtext="사용자 입력값으로 분석 리포트를 생성하고 있습니다 — 잠시만 기다려 주세요." />}
+              <Analyze schema={schema} result={result} activePath={activePath} />
+            </>
+          )}
           {pvtab === "f4" && (
-            <ReportView
-              schema={schema}
-              activePath={activePath}
-              result={result}
-              sc={result.sc}
-              disp={result.disp}
-              jres={result.jres}
-            />
+            <>
+              {llmBusy && <LlmRunningBanner subtext="사용자 입력값으로 분석 리포트를 생성하고 있습니다 — 잠시만 기다려 주세요." />}
+              <ReportView
+                schema={schema}
+                activePath={activePath}
+                result={result}
+                sc={result.sc}
+                disp={result.disp}
+                jres={result.jres}
+              />
+            </>
           )}
 
           {(() => {
@@ -371,6 +507,50 @@ export default function AppPage() {
           })()}
         </div>
       </div>
+
+      {/* 다시 하기 확인 모달 */}
+      {resetConfirm && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setResetConfirm(false)}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-7 pt-7 pb-5 text-center">
+              <div className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                <svg className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">처음부터 다시 하시겠어요?</h3>
+              <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+                지금까지 입력하신 모든 값과 분석 결과가 초기화됩니다.
+              </p>
+              <div className="mt-4 rounded-lg bg-amber-50 border-l-4 border-amber-300 px-3 py-2.5 text-left">
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  ⚠ 입력값·업로드 파일·분석 결과 모두 사라집니다. 되돌릴 수 없습니다.
+                </p>
+              </div>
+            </div>
+            <div className="flex border-t border-gray-100">
+              <button
+                onClick={() => setResetConfirm(false)}
+                className="flex-1 py-3.5 text-sm font-medium text-gray-600 hover:bg-gray-50 border-r border-gray-100"
+              >
+                취소
+              </button>
+              <button
+                onClick={resetAll}
+                className="flex-1 py-3.5 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 transition"
+              >
+                다시 하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -378,6 +558,50 @@ export default function AppPage() {
 // ──────────────────────────────────────────────────────────────
 // MSaaS 패널 — 미리보기와 동일
 // ──────────────────────────────────────────────────────────────
+
+function LlmRunningBanner({ subtext }: { subtext: string }) {
+  return (
+    <div className="mb-4 relative overflow-hidden rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 via-fuchsia-50 to-violet-50 px-4 py-3 shadow-sm">
+      <div
+        aria-hidden
+        className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/60 to-transparent"
+        style={{ animation: "llm-shimmer 1.8s ease-in-out infinite" }}
+      />
+      <style jsx>{`
+        @keyframes llm-shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        @keyframes llm-bounce-dot {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
+      <div className="relative flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md">
+          <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z" />
+          </svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-bold text-violet-900">LLM 분석 실행 중</span>
+            <span className="flex gap-0.5 ml-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-600" style={{ animation: "llm-bounce-dot 1.2s ease-in-out infinite" }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-600" style={{ animation: "llm-bounce-dot 1.2s ease-in-out infinite", animationDelay: "0.15s" }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-600" style={{ animation: "llm-bounce-dot 1.2s ease-in-out infinite", animationDelay: "0.3s" }} />
+            </span>
+          </div>
+          <p className="text-[11px] text-violet-700 mt-0.5">{subtext}</p>
+        </div>
+        <span className="hidden sm:inline-block text-[10px] font-mono text-violet-500 bg-white/70 rounded-full px-2 py-1 ring-1 ring-violet-200">
+          AI · Gemini
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function Lab({ children }: { children: React.ReactNode }) {
   return (
@@ -723,66 +947,7 @@ function ParseFrame({
           {vs.length === 0 ? (
             <div className="text-xs text-gray-500 py-6 text-center">변수 없음</div>
           ) : (
-            <ul className="divide-y divide-gray-100">
-              {vs.map((v) => {
-                const val = v.name in filled ? filled[v.name] : "";
-                const has = val !== "" && val !== null && val !== undefined;
-                return (
-                  <li
-                    key={v.id}
-                    className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0 text-sm"
-                  >
-                    <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-                      <span className="text-gray-800 truncate">{v.name}</span>
-                      {v.req && (
-                        <span
-                          className={
-                            "text-[9px] rounded px-1.5 py-0.5 font-mono shrink-0 ring-1 " +
-                            (grp === "개인"
-                              ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                              : "bg-gray-100 text-gray-600 ring-gray-200")
-                          }
-                        >
-                          필수
-                        </span>
-                      )}
-                      <span className="text-[10px] font-mono text-gray-400 shrink-0">
-                        {v.type}
-                        {v.unit ? " · " + v.unit : ""}
-                      </span>
-                    </div>
-                    <input
-                      type={
-                        v.type === "number"
-                          ? "number"
-                          : v.type === "date"
-                          ? "date"
-                          : "text"
-                      }
-                      value={val ?? ""}
-                      onChange={(e) =>
-                        setFilled({
-                          ...filled,
-                          [v.name]:
-                            v.type === "number"
-                              ? e.target.value === ""
-                                ? ""
-                                : Number(e.target.value)
-                              : e.target.value,
-                        })
-                      }
-                      className={
-                        "w-40 rounded-lg border px-2.5 py-1.5 text-xs font-mono text-right shrink-0 " +
-                        (!has && v.req
-                          ? "border-rose-300 bg-rose-50 text-rose-700"
-                          : "border-gray-200 bg-white text-gray-900")
-                      }
-                      placeholder={!has && v.req ? "누락" : "—"}
-                    />
-                  </li>
-                );
-              })}
-            </ul>
+            <GroupedVarsList vs={vs} grp={grp} filled={filled} setFilled={setFilled} />
           )}
         </div>
       </div>
@@ -1137,6 +1302,153 @@ function ReportHead({ title, pathLabel }: { title: string; pathLabel?: string })
         {pathLabel && <span className="text-white/80 text-sm"> — {pathLabel}</span>}
       </span>
       <span className="font-mono text-[10px] opacity-65">AUTO · {todayStr()}</span>
+    </div>
+  );
+}
+
+// 변수를 group > subGroup 계층으로 묶어 표시 — 빌더의 GroupedVarsTable 과 같은 구조.
+function GroupedVarsList({
+  vs,
+  grp,
+  filled,
+  setFilled,
+}: {
+  vs: Variable[];
+  grp: Grp;
+  filled: Record<string, any>;
+  setFilled: (f: Record<string, any>) => void;
+}) {
+  // 계층화 — group → subGroup → [vars]
+  const groups: Record<string, Record<string, Variable[]>> = {};
+  for (const v of vs) {
+    const g = v.group?.trim() || "_미분류";
+    const sg = v.subGroup?.trim() || "_기본";
+    if (!groups[g]) groups[g] = {};
+    if (!groups[g][sg]) groups[g][sg] = [];
+    groups[g][sg].push(v);
+  }
+  const hasHierarchy = vs.some((v) => v.group?.trim());
+
+  const renderRow = (v: Variable) => {
+    const val = v.name in filled ? filled[v.name] : "";
+    const has = val !== "" && val !== null && val !== undefined;
+    return (
+      <li
+        key={v.id}
+        className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0 text-sm"
+      >
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+          <span className="text-gray-800 truncate">{v.name}</span>
+          {v.req && (
+            <span
+              className={
+                "text-[9px] rounded px-1.5 py-0.5 font-mono shrink-0 ring-1 " +
+                (grp === "개인"
+                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  : "bg-gray-100 text-gray-600 ring-gray-200")
+              }
+            >
+              필수
+            </span>
+          )}
+          <span className="text-[10px] font-mono text-gray-400 shrink-0">
+            {v.type}
+            {v.unit ? " · " + v.unit : ""}
+          </span>
+        </div>
+        <input
+          type={v.type === "number" ? "number" : v.type === "date" ? "date" : "text"}
+          value={val ?? ""}
+          onChange={(e) =>
+            setFilled({
+              ...filled,
+              [v.name]:
+                v.type === "number"
+                  ? e.target.value === ""
+                    ? ""
+                    : Number(e.target.value)
+                  : e.target.value,
+            })
+          }
+          className={
+            "w-40 rounded-lg border px-2.5 py-1.5 text-xs font-mono text-right shrink-0 " +
+            (!has && v.req
+              ? "border-rose-300 bg-rose-50 text-rose-700"
+              : "border-gray-200 bg-white text-gray-900")
+          }
+          placeholder={!has && v.req ? "누락" : "—"}
+        />
+      </li>
+    );
+  };
+
+  // 계층 정보 없으면 기존 평탄 리스트
+  if (!hasHierarchy) {
+    return <ul className="divide-y divide-gray-100">{vs.map(renderRow)}</ul>;
+  }
+
+  // 계층 표시 — 상위 > 하위 그루핑 카드
+  const cardTone =
+    grp === "개인"
+      ? "border-emerald-100 from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 text-emerald-900 ring-emerald-100"
+      : "border-blue-100 from-blue-50 to-sky-50 hover:from-blue-100 hover:to-sky-100 text-blue-900 ring-blue-100";
+  const dotTone = grp === "개인" ? "bg-emerald-500" : "bg-blue-500";
+  const badgeTone = grp === "개인" ? "bg-emerald-600" : "bg-blue-600";
+  const sortedEntries = Object.entries(groups).sort(([a], [b]) => {
+    if (a === "기본정보") return -1;
+    if (b === "기본정보") return 1;
+    if (a === "_미분류") return 1;
+    if (b === "_미분류") return -1;
+    return 0;
+  });
+  return (
+    <div className="space-y-4">
+      {sortedEntries.map(([g, subs]) => (
+        <details
+          key={g}
+          open
+          className={"rounded-xl border bg-white shadow-sm overflow-hidden " + cardTone.split(" ")[0]}
+        >
+          <summary
+            className={
+              "cursor-pointer select-none px-4 py-2.5 text-sm font-bold flex items-center gap-2 bg-gradient-to-r " +
+              cardTone
+            }
+          >
+            <span
+              className={
+                "inline-flex items-center justify-center h-5 w-5 rounded text-white text-[10px] font-bold " +
+                badgeTone
+              }
+            >
+              {Object.values(subs).reduce((a, x) => a + x.length, 0)}
+            </span>
+            <span>{g === "_미분류" ? "기타" : g}</span>
+            <span className="ml-auto text-[10px] font-mono opacity-70">
+              {Object.keys(subs).filter((s) => s !== "_기본").length || "—"} 하위
+            </span>
+          </summary>
+          <div className="p-3 space-y-3">
+            {Object.entries(subs).map(([sg, items]) => (
+              <div
+                key={sg}
+                className="rounded-lg border border-gray-100 bg-gray-50/40 overflow-hidden"
+              >
+                {sg !== "_기본" && (
+                  <div className="px-3 py-1.5 text-[11px] font-bold text-gray-700 bg-gray-100 border-b border-gray-200 flex items-center gap-2">
+                    <span className={"inline-block h-1.5 w-1.5 rounded-full " + dotTone} />
+                    {sg}
+                    <span className="ml-auto text-[10px] font-mono text-gray-500">
+                      {items.length}
+                    </span>
+                  </div>
+                )}
+                <ul className="divide-y divide-gray-100 px-3">{items.map(renderRow)}</ul>
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
     </div>
   );
 }

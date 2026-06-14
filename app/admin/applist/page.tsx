@@ -62,8 +62,8 @@ export default function BuilderTempPage() {
     setDeletingId(row.id);
     try {
       const sb = getSupabase();
-      const { error: runsErr } = await sb.from("app_runs").delete().eq("app_id", row.id);
-      if (runsErr) throw runsErr;
+      // DB 의 ON DELETE CASCADE 가 app_runs 도 자동 정리해 줌.
+      // (RLS 정책에 막혀 클라이언트가 app_runs 를 직접 못 지우는 케이스 회피)
       const { error } = await sb.from("apps").delete().eq("id", row.id);
       if (error) throw error;
       setApps((list) => list.filter((a) => a.id !== row.id));

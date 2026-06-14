@@ -43,7 +43,7 @@ function DescText({ name, text }: { name: string; text: string }) {
 
 export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel, pathConditions }: Props) {
   const showDesc = el.showDesc !== false; // 기본 true
-  const desc = showDesc ? describeName(schema, el.bind) : "";
+  const desc = showDesc ? describeName(schema, el.bind, sc) : "";
 
   if (el.kind === "field") {
     return (

@@ -40,6 +40,9 @@ export interface Variable {
   unit?: Unit;
   req?: boolean;
   test?: string;
+  // 계층 분류 — 같은 도메인 묶음(예: "경조사" > "결혼") 표시용. 선택적.
+  group?: string;
+  subGroup?: string;
 }
 
 export type CmpOp = ">=" | "<=" | ">" | "<" | "==" | "!=";
@@ -63,6 +66,7 @@ export type Token =
 
 export type StepType =
   | "branch"
+  | "switch"
   | "classify"
   | "table"
   | "formula"
@@ -131,6 +135,24 @@ export interface DateStep extends StepBase {
   out: "year" | "month" | "day";
 }
 
+// switch — N-way 문자열/숫자 분기 (ref 값에 따라 케이스별 산출)
+// 예: 결혼분류 == "본인" → 본인결혼축의금 / "자녀" → 자녀결혼축의금 / 기본값 → 0
+export interface SwitchCase {
+  match: string; // 비교할 값 (문자열 또는 숫자 문자열)
+  t: "text" | "calc"; // 출력 타입
+  text?: string; // t="text" 일 때 출력 문자열
+  tokens?: Token[]; // t="calc" 일 때 산식 토큰
+}
+export interface SwitchStep extends StepBase {
+  type: "switch";
+  ref: string; // 비교 대상 변수명 (보통 type=text 인 분류 변수)
+  cases: SwitchCase[];
+  // 어느 케이스에도 매칭 안 됐을 때의 출력 (옵션)
+  defaultT?: "text" | "calc";
+  defaultText?: string;
+  defaultTokens?: Token[];
+}
+
 export interface LlmStep extends StepBase {
   type: "llm";
   items: string[]; // 분석에 포함할 변수/산출 이름
@@ -141,6 +163,7 @@ export interface LlmStep extends StepBase {
 
 export type Step =
   | BranchStep
+  | SwitchStep
   | ClassifyStep
   | TableStep
   | FormulaStep

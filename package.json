@@ -20,13 +20,15 @@
     "@tosspayments/tosspayments-sdk": "^2.7.0",
     "app-renderer": "*",
     "docx": "^8.5.0",
+    "mammoth": "^1.12.0",
     "mathjs": "^13.0.0",
     "next": "14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "recharts": "^2.12.7",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
