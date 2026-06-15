@@ -280,6 +280,67 @@ function BuilderInner() {
       r.readAsDataURL(file);
     });
 
+  // 이미지 파일을 캔버스로 다운스케일·JPEG 재인코딩해 base64 크기를 줄인다.
+  // Vercel 서버리스 함수의 4.5MB 요청 본문 제한을 넘지 않도록 (특히 다중 이미지 업로드).
+  // OCR 가독성을 위해 최대 변(2000px)·품질(0.82)은 보수적으로 유지.
+  const IMG_MIMES = new Set([
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "image/bmp",
+  ]);
+  const prepFile = async (
+    file: File
+  ): Promise<{ name: string; mimeType: string; fileBase64: string }> => {
+    const mime = guessMime(file);
+    if (!IMG_MIMES.has(mime)) {
+      // 이미지가 아니면 원본 그대로 (PDF/DOCX/XLSX 등)
+      return { name: file.name, mimeType: mime, fileBase64: await fileToBase64(file) };
+    }
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = reject;
+        im.src = dataUrl;
+      });
+      const MAX = 2000;
+      let width = img.width;
+      let height = img.height;
+      if (width > MAX || height > MAX) {
+        const scale = MAX / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas 미지원");
+      // 투명 PNG → 흰 배경 (JPEG 는 알파 미지원)
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      const jpeg = canvas.toDataURL("image/jpeg", 0.82);
+      const b64 = jpeg.slice(jpeg.indexOf(",") + 1);
+      // 압축본이 원본보다 크면(작은 이미지) 원본 사용
+      const orig = await fileToBase64(file);
+      if (b64.length >= orig.length) {
+        return { name: file.name, mimeType: mime, fileBase64: orig };
+      }
+      return { name: file.name, mimeType: "image/jpeg", fileBase64: b64 };
+    } catch {
+      return { name: file.name, mimeType: mime, fileBase64: await fileToBase64(file) };
+    }
+  };
+
   const guessMime = (file: File): string => {
     if (file.type) return file.type;
     const ext = file.name.split(".").pop()?.toLowerCase();
@@ -304,15 +365,27 @@ function BuilderInner() {
     setBusy(true);
     setMsg(`기획서 분석 중... (${file.name})`);
     try {
-      const fileBase64 = await fileToBase64(file);
+      const prepped = await prepFile(file);
+      if (prepped.fileBase64.length > 4_000_000) {
+        throw new Error(
+          `업로드 용량이 큽니다 (${(prepped.fileBase64.length / 1024 / 1024).toFixed(1)}MB). 더 작은(저해상도) 파일로 시도해 주세요.`
+        );
+      }
       const res = await fetch("/api/parse-spec", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileBase64, mimeType: guessMime(file) }),
+        body: JSON.stringify({ fileBase64: prepped.fileBase64, mimeType: prepped.mimeType }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || "파싱 실패");
+        const err = await res.json().catch(() => ({ error: "" }));
+        const detail =
+          err.error ||
+          (res.status === 413
+            ? "업로드 용량이 너무 큽니다 (서버 한도 초과)"
+            : res.status === 504
+            ? "분석 시간이 초과됐습니다 (서버 타임아웃)"
+            : `서버 오류 (HTTP ${res.status})`);
+        throw new Error(detail);
       }
       const parsed: AppSchema = await res.json();
       setSchema(parsed);
@@ -438,21 +511,29 @@ function BuilderInner() {
     setSpecPreview(null);
     setSpecPreviewTab("summary");
     try {
-      const files = await Promise.all(
-        specFiles.map(async (f) => ({
-          name: f.name,
-          mimeType: guessMime(f),
-          fileBase64: await fileToBase64(f),
-        }))
-      );
+      const files = await Promise.all(specFiles.map((f) => prepFile(f)));
+      // Vercel 서버리스 요청 본문 한도(4.5MB) — base64 합계가 넘으면 서버 도달 전 413 으로 막힌다.
+      const totalB64 = files.reduce((n, f) => n + f.fileBase64.length, 0);
+      if (totalB64 > 4_000_000) {
+        throw new Error(
+          `업로드 용량이 큽니다 (${(totalB64 / 1024 / 1024).toFixed(1)}MB). 문서 수를 줄이거나 더 작은(저해상도) 파일로 시도해 주세요.`
+        );
+      }
       const res = await fetch("/api/spec-preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || "생성 실패");
+        const err = await res.json().catch(() => ({ error: "" }));
+        const detail =
+          err.error ||
+          (res.status === 413
+            ? "업로드 용량이 너무 큽니다 (서버 한도 초과)"
+            : res.status === 504
+            ? "분석 시간이 초과됐습니다 (서버 타임아웃)"
+            : `서버 오류 (HTTP ${res.status})`);
+        throw new Error(detail);
       }
       const preview = await res.json();
       setSpecPreview(preview);

@@ -3,6 +3,7 @@ import { parseDocument } from "@/lib/ai-parser";
 import { requireActiveSubscription } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   const auth = await requireActiveSubscription();

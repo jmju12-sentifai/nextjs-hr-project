@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { requireActiveSubscription } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
