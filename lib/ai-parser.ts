@@ -756,6 +756,29 @@ function withIds(schema: any) {
     };
   }
 
+  // ── 미지원 함수식 제거 — 엔진엔 FORMAT_DATE/CURRENT_DATE/IF 같은 스프레드시트·SQL 함수가 없음 ──
+  //   이런 식이 변수 값·분기/스위치 출력에 들어오면 화면에 "FORMAT_DATE(...)" 가 그대로 떠서 무의미 → 빈값으로.
+  //   (날짜는 date step(diff/part) 으로만, 고정 표시는 일반 텍스트 라벨로 — 프롬프트에서도 금지)
+  const FUNC_EXPR_RE = /\b(FORMAT_?DATE|DATE_?FORMAT|DATEADD|DATEDIFF?|EDATE|DATE|YEAR|MONTH|DAY|TODAY|NOW|CURRENT_?DATE|CURDATE|SYSDATE|CONCAT|TEXTJOIN|TEXT|IFS?|SWITCH|VLOOKUP|XLOOKUP|ROUND)\s*\(/i;
+  const DATE_KW_RE = /\b(CURRENT_?DATE|TODAY|NOW|SYSDATE|CURDATE)\b/i;
+  const isFuncExpr = (s: any) => typeof s === "string" && (FUNC_EXPR_RE.test(s) || DATE_KW_RE.test(s));
+  if (Array.isArray(schema.vars)) {
+    for (const v of schema.vars) if (v && isFuncExpr(v.test)) v.test = "";
+  }
+  const sanitizeStepText = (s: any) => {
+    if (!s) return;
+    if (s.type === "branch") {
+      if (s.thenT !== "calc" && isFuncExpr(s.then)) s.then = "";
+      if (s.elsT !== "calc" && isFuncExpr(s.els)) s.els = "";
+    } else if (s.type === "switch") {
+      for (const c of s.cases || []) if (c && c.t !== "calc" && isFuncExpr(c.text)) c.text = "";
+      if (s.defaultT !== "calc" && isFuncExpr(s.defaultText)) s.defaultText = "";
+    }
+  };
+  for (const s of schema.shared?.steps || []) sanitizeStepText(s);
+  for (const p of schema.paths || []) for (const s of p.steps || []) sanitizeStepText(s);
+  for (const s of schema.fallback?.steps || []) sanitizeStepText(s);
+
   // ── "미정의 변수" 자동 정의 — 참조됐지만 정의 안 된 이름을 vars 에 자동 추가 ──
   // (prefix 정리 후 단계라서 이 시점에 빠진 이름은 진짜 undefined)
   const RESERVED = new Set(["오늘", "적용여부"]);
@@ -2743,6 +2766,11 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   - 생년월일 → 만나이 (date, mode=diff, out=year)
   - 발생일 → 신청경과일 (date, mode=diff, out=day)
   - 입사일 → 근속년수 (date, mode=diff, out=year)
+  - 🚫 **스프레드시트·SQL 함수 절대 금지** — 엔진엔 그런 함수가 없다. 어떤 필드(값·then/els·산식·case)에도
+    \`FORMAT_DATE(...)\`, \`DATE(...)\`, \`YEAR(...)\`, \`MONTH(...)\`, \`TODAY()\`, \`CURRENT_DATE\`, \`IF(...)\`, \`CONCAT(...)\` 같은 걸 쓰지 마라.
+    • 날짜 계산은 오직 date step(diff/part) 으로. 오늘은 "오늘".
+    • "당해 7월 1일" 같은 **고정 표시**는 함수가 아니라 그냥 **텍스트 라벨**("당해 7월 1일") 로 적어라.
+    ❌ \`FORMAT_DATE(CURRENT_DATE, 'YYYY년 07월 01일')\`   ✅ "당해 7월 1일" (텍스트)
 
   ### D. 구간별 차등 → **table**
   - 만나이 56~57 → 0%, 58 → 20% 같은 연속 구간 → table (bands)
@@ -3706,7 +3734,7 @@ function pathReportFromPreview(
   pathSteps: any[] = []
 ): any[] {
   const hit = (preview.report || []).find((r) => r.pathLabel === label);
-  const out: any[] = [];
+  let out: any[] = [];
   if (hit) {
     for (const e of hit.elements || []) {
       const item: any = { id: "auto", kind: e.kind, label: e.label || "" };
@@ -3835,17 +3863,50 @@ function pathReportFromPreview(
     }
   }
 
-  // ── 중복 제거 — "같은 종류(팔레트) + 같은 값" 만 제거 ──
+  // ── 팔레트 적합성 교정 — 값 종류에 안 맞는 팔레트는 card 로 ──
+  // 예: 날짜/단일 숫자 산출(만나이계산)에 막대/도넛 차트는 부적합·미렌더 → card.
+  //   chart 는 classify(도넛)·table/clamp(게이지) 에만, incexc 는 classify, calc 는 formula 에만 의미.
+  {
+    const stepType = new Map<string, string>();
+    for (const s of pathSteps || []) if (s?.name) stepType.set(String(s.name), s.type);
+    out = out.map((e: any) => {
+      const b = e?.bind;
+      if (!b || Array.isArray(e.binds)) return e; // fields/note 등은 그대로
+      const t = stepType.get(b); // step 타입 (변수면 undefined)
+      if (e.kind === "chart") {
+        if (t === "classify") return { ...e, ctype: "donut" };
+        if (t === "table" || t === "clamp") return { ...e, ctype: "gauge" };
+        const { ctype, ...rest } = e; // 부적합 차트 → card
+        return { ...rest, kind: "card" };
+      }
+      if (e.kind === "incexc" && t !== "classify") return { ...e, kind: "card" };
+      if (e.kind === "calc" && t !== "formula") return { ...e, kind: "card" };
+      return e;
+    });
+  }
+
+  // ── 중복 제거 — "같은 요소 팔레트에 같은 변수" 는 한 번만 ──
   // card/calc/incexc/chart 는 같은 step 의 '다른 뷰'(값·식·구성·곡선)이므로 종류가 다르면 공존 OK.
-  // 단, 식별 묶음(fields)에 이미 들어간 변수를 개별 card/field 로 또 보여주진 않는다.
+  // (1) fields 묶음: 묶음 안·묶음 간 같은 변수 중복 제거 (+ 빈 묶음 제거). 묶음에 든 변수 집합 = inFields.
   const inFields = new Set<string>();
-  for (const e of out)
-    if (e.kind === "fields" && Array.isArray((e as any).binds))
-      for (const b of (e as any).binds) inFields.add(b);
+  const pass1: any[] = [];
+  for (const e of out) {
+    if (e.kind === "fields" && Array.isArray((e as any).binds)) {
+      const uniq: string[] = [];
+      for (const b of (e as any).binds) {
+        if (!b || inFields.has(b)) continue; // 묶음 안/묶음 간 중복
+        inFields.add(b);
+        uniq.push(b);
+      }
+      if (uniq.length === 0) continue; // 빈 묶음 제거
+      pass1.push({ ...e, binds: uniq });
+    } else pass1.push(e);
+  }
+  // (2) value 팔레트: 같은 종류+같은 변수 중복 제거 + 묶음에 든 변수는 개별 card/field 로 또 안 보임.
   const VALUE_KINDS = new Set(["card", "field", "calc", "incexc", "chart"]);
   const seen = new Set<string>();
   const deduped: any[] = [];
-  for (const e of out) {
+  for (const e of pass1) {
     const bind = (e as any).bind;
     if (bind) {
       if ((e.kind === "card" || e.kind === "field") && inFields.has(bind)) continue; // 묶음 변수 중복
