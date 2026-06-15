@@ -1296,6 +1296,25 @@ function SwitchEditor({ step, update, av, numAv, sc, varsMeta }: any) {
     update({ cases: [...cases, { match: "", t: "calc", text: "", tokens: [] }] });
   const removeCase = (i: number) =>
     update({ cases: cases.filter((_: any, j: number) => j !== i) });
+  // 출력 모드 — t/tokens 모양에서 파생.
+  //   calc + [단일 var 토큰]  → "var"(텍스트/변수값 출력, 런타임이 값 그대로 반환 — 텍스트도 OK)
+  //   calc + 그 외           → "calc"(숫자 산식)
+  //   text                   → "text"(직접입력 리터럴)
+  const outMode = (o: any): "calc" | "text" | "var" => {
+    if (o?.t !== "calc") return "text";
+    const tk = o.tokens || [];
+    return tk.length === 1 && tk[0]?.t === "var" ? "var" : "calc";
+  };
+  const modePatch = (mode: string, cur: any): any => {
+    if (mode === "text") return { t: "text", text: cur?.text || "", tokens: [] };
+    if (mode === "var") {
+      const keep = (cur?.tokens?.length === 1 && cur.tokens[0]?.t === "var") ? cur.tokens : [{ t: "var", name: "" }];
+      return { t: "calc", tokens: keep, text: "" };
+    }
+    // calc — 단일 var 토큰이면(=var 모드였음) 비우고 새 산식
+    const keep = (cur?.tokens && !(cur.tokens.length === 1 && cur.tokens[0]?.t === "var")) ? cur.tokens : [];
+    return { t: "calc", tokens: keep, text: "" };
+  };
   return (
     <div className="space-y-2.5">
       <div className="flex items-center gap-2 flex-wrap">
@@ -1328,25 +1347,31 @@ function SwitchEditor({ step, update, av, numAv, sc, varsMeta }: any) {
               />
               <span className="text-[10px] text-gray-400">→</span>
               <select
-                value={c.t || "calc"}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  const patch: any = { t: v };
-                  if (v === "calc" && !c.tokens) patch.tokens = [];
-                  updateCase(i, patch);
-                }}
+                value={outMode(c)}
+                onChange={(e) => updateCase(i, modePatch(e.target.value, c))}
                 className={inp}
               >
                 <option value="calc">계산식</option>
-                <option value="text">텍스트</option>
+                <option value="text">텍스트 (직접입력)</option>
+                <option value="var">텍스트 (변수)</option>
               </select>
-              {c.t !== "calc" && (
+              {outMode(c) === "text" && (
                 <input
                   value={c.text || ""}
                   onChange={(e) => updateCase(i, { text: e.target.value })}
                   placeholder="출력 텍스트"
                   className={inp + " flex-1 min-w-[160px]"}
                 />
+              )}
+              {outMode(c) === "var" && (
+                <select
+                  value={c.tokens?.[0]?.name || ""}
+                  onChange={(e) => updateCase(i, { t: "calc", tokens: [{ t: "var", name: e.target.value }], text: "" })}
+                  className={inp + " flex-1 min-w-[160px]"}
+                >
+                  <option value="">변수 선택</option>
+                  <VarOpts names={av} varsMeta={varsMeta} />
+                </select>
               )}
               <button
                 onClick={() => removeCase(i)}
@@ -1355,7 +1380,7 @@ function SwitchEditor({ step, update, av, numAv, sc, varsMeta }: any) {
                 삭제
               </button>
             </div>
-            {c.t === "calc" && (
+            {outMode(c) === "calc" && (
               <TokenBuilder
                 tokens={c.tokens || []}
                 onChange={(tokens) => updateCase(i, { tokens })}
@@ -1376,29 +1401,43 @@ function SwitchEditor({ step, update, av, numAv, sc, varsMeta }: any) {
       <div className="rounded border border-amber-100 bg-amber-50/40 p-2 space-y-1.5">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-mono text-amber-700">기본값 (매칭 없을 때)</span>
-          <select
-            value={step.defaultT || "calc"}
-            onChange={(e) => {
-              const v = e.target.value;
-              const patch: any = { defaultT: v };
-              if (v === "calc" && !step.defaultTokens) patch.defaultTokens = [];
-              update(patch);
-            }}
-            className={inp}
-          >
-            <option value="calc">계산식</option>
-            <option value="text">텍스트</option>
-          </select>
-          {step.defaultT !== "calc" && (
-            <input
-              value={step.defaultText || ""}
-              onChange={(e) => update({ defaultText: e.target.value })}
-              placeholder="기본 출력"
-              className={inp + " flex-1 min-w-[160px]"}
-            />
-          )}
+          {(() => {
+            const dcur = { t: step.defaultT, tokens: step.defaultTokens, text: step.defaultText };
+            const dmode = outMode(dcur);
+            const applyD = (mode: string) => {
+              const p = modePatch(mode, dcur);
+              update({ defaultT: p.t, defaultTokens: p.tokens, defaultText: p.text });
+            };
+            return (
+              <>
+                <select value={dmode} onChange={(e) => applyD(e.target.value)} className={inp}>
+                  <option value="calc">계산식</option>
+                  <option value="text">텍스트 (직접입력)</option>
+                  <option value="var">텍스트 (변수)</option>
+                </select>
+                {dmode === "text" && (
+                  <input
+                    value={step.defaultText || ""}
+                    onChange={(e) => update({ defaultText: e.target.value })}
+                    placeholder="기본 출력"
+                    className={inp + " flex-1 min-w-[160px]"}
+                  />
+                )}
+                {dmode === "var" && (
+                  <select
+                    value={step.defaultTokens?.[0]?.name || ""}
+                    onChange={(e) => update({ defaultT: "calc", defaultTokens: [{ t: "var", name: e.target.value }], defaultText: "" })}
+                    className={inp + " flex-1 min-w-[160px]"}
+                  >
+                    <option value="">변수 선택</option>
+                    <VarOpts names={av} varsMeta={varsMeta} />
+                  </select>
+                )}
+              </>
+            );
+          })()}
         </div>
-        {step.defaultT === "calc" && (
+        {outMode({ t: step.defaultT, tokens: step.defaultTokens }) === "calc" && (
           <TokenBuilder
             tokens={step.defaultTokens || []}
             onChange={(defaultTokens) => update({ defaultTokens })}
