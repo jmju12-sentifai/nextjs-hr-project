@@ -2675,6 +2675,36 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   ✅ then/els 가 꼭 필요하면 실제 정책값·금액·기존 변수만 (예: 출생월 분기 → then=상반기적용일, els=하반기적용일).
      단순히 "대상/비대상" 을 말하려는 거라면 그건 step 이 아니라 **경로 진입조건**으로 표현할 일이다.
 
+  ## 🔗 탭 간 일관성 — 변수(vars)와 분석 로직(steps)을 따로 놀게 하지 말 것 (매우 중요)
+
+  변수(1·2탭에서 입력/규정)와 분석 로직(3탭의 step·조건)은 **하나로 연결된 한 시스템**이다.
+  각 값이 "어디에 속하는지" 를 먼저 판단하고, 로직은 그 변수를 **참조**해야 한다.
+
+  ### (1) 값의 소속 판단 — 변수냐 산출 step 이냐
+  분석 로직이 쓰는 각 값에 대해 다음을 구분하라:
+  - **사용자가 실제로 입력·업로드하는 값** → 개인 변수 (grp=개인)
+  - **회사 규정이 고정한 값** (기준액·률·기준일·정책 라벨 등) → 규정 변수 (grp=규정)
+  - **다른 값에서 계산/도출되는 값** (만나이, 통상임금, 적용후금액 등) → 변수가 아니라 **분석 로직 step**
+    → 도출되는 값을 개인 변수로 만들지 마라 (사용자가 입력할 게 아니다).
+
+  ### (2) 로직은 변수를 "참조" — 같은 값을 리터럴로 복붙 금지
+  step/조건/분기에서 어떤 값을 쓸 때, 그 값이 **이미 변수(또는 앞 step)로 있으면 그 이름을 참조**하라.
+  같은 값을 리터럴(텍스트/숫자)로 다시 적지 마라 — 변수를 고치면 로직도 따라가야 한다.
+
+  ### (3) 중복/유령 변수 금지 — 둘 중 하나만
+  같은 개념을 **(a) 변수로 선언 + (b) 로직에서 리터럴로** 동시에 두지 마라. 둘 중 하나로 통일:
+  - 변수로 뒀으면 → 로직(분기/산식/switch)이 **그 변수를 참조**
+  - 로직 안에서만 쓰는 임시 라벨이면 → **변수로 만들지 마라**
+
+  ### ❌ 실제로 자주 나는 분리 사례 (적용시점)
+  - 규정 변수: \`적용시점_상반기출생\` = "당해 7월 1일"  (변수로 선언해 놓고)
+  - branch "적용시점 결정": then 에 "당해 7월 1일" 을 **텍스트로 또 적음**  → 둘이 따로 놂.
+  ### ✅ 통일된 방법 (둘 중 택1)
+  - ⓐ **변수 유지 + 참조**: 규정 변수 \`적용시점_상반기\`·\`적용시점_하반기\` 를 두고,
+       \`출생반기\`(개인 text, "상반기"/"하반기") 분류로 **switch** → case 출력을 그 변수로 (switch 는 텍스트 변수값도 출력 가능).
+  - ⓑ **변수 없이 라벨만**: 별도 변수 만들지 말고 branch then/els 에 텍스트 라벨만. (단순 안내용)
+  → 절대 "변수도 만들고 분기엔 리터럴로 복붙" 하지 마라.
+
   ## 표준 패턴 — "이벤트유형으로 경로 분기 + 경로 안에서 분류축으로 다중분기"
 
   이벤트 기반 도메인(경조사·복리후생 신청·휴가 신청·보상 신청 등) 은 보통:
@@ -3027,12 +3057,34 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
         const ref = cond ? resolveName(cond.a) || cond.a : resolveName(s.ref) || "";
         const op = cond?.op || ">=";
         const rhs = cond ? (cond.bMode === "val" ? cond.b : resolveName(cond.b) || cond.b) : 0;
-        const thenV = sa.trueVar ?? sa.trueText ?? sa.then ?? "";
-        const elsV = sa.falseVar ?? sa.falseText ?? sa.els ?? "";
+        // 일관성: then/els 가 정의된 '숫자' 변수·step 이면 그 값을 참조(calc)해서 변수와 연결.
+        //   (branch calc 은 숫자 전용 — 텍스트 변수는 참조 불가하므로 라벨 텍스트로 둔다.)
+        const sideOf = (varName: any, textVal: any) => {
+          const primary = typeof varName === "string" ? varName.trim() : "";
+          if (primary) {
+            const r = resolveName(primary);
+            const v = allPreviewVars.find((x) => x.name === r);
+            if (allStepNames.has(r) || (v && v.type === "number")) {
+              // 숫자 변수·step → 값 참조(calc)로 연결
+              return { t: "calc", tok: [{ t: "var", name: r }], text: "" };
+            }
+            if (v) {
+              // 텍스트/날짜 변수 → branch calc 불가(숫자 전용). 변수의 '값'을 라벨로 출력.
+              //   ⚠ 변수 '이름' 을 텍스트로 넣으면 repairSteps 가 calc 로 승격해 깨지므로, 이름 대신 값을 쓴다.
+              const lit = typeof textVal === "string" && textVal.trim() ? textVal.trim() : (v.value || "");
+              return { t: "text", tok: [], text: lit };
+            }
+          }
+          // 변수 아님 → 라벨 텍스트 (LLM 이 준 텍스트 우선)
+          const txt = typeof textVal === "string" && textVal.trim() ? textVal.trim() : primary;
+          return { t: "text", tok: [], text: txt };
+        };
+        const th = sideOf(sa.trueVar, sa.trueText ?? sa.then);
+        const el = sideOf(sa.falseVar, sa.falseText ?? sa.els);
         return {
           ...base, type: "branch", ref, op, rhs,
-          then: String(thenV), thenT: "text", thenTok: [],
-          els: String(elsV), elsT: "text", elsTok: [],
+          then: th.text, thenT: th.t, thenTok: th.tok,
+          els: el.text, elsT: el.t, elsTok: el.tok,
         };
       }
       case "switch": {
