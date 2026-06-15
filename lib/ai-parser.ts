@@ -3149,6 +3149,62 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
       report: pathReportFromPreview(preview, p.label),
     };
   });
+  // ── 조건이 참조하는 선행 계산 step 을 공통 사전계산(shared)으로 승격 ──
+  // 진입조건은 경로 step 실행 *전에* 평가되므로, 조건이 참조하는 step 은 경로 안에 두면
+  // ① 조건 평가 시점에 미계산 → 매칭 실패 ② 빌더에서 변수로 인식 안 됨("값"으로 떨어짐).
+  // ⚠ 조건이 실제로 참조하는 step + 그 step 이 의존하는 step 만 옮긴다.
+  //    산출·리포트 전용 step(의미상 공통 아님)은 경로에 그대로 둔다.
+  const hoistedSharedSteps: any[] = (() => {
+    // 1) 모든 경로 조건이 참조하는 이름 (리터럴 b 제외; a 는 항상 참조 취급)
+    const condRefs = new Set<string>();
+    for (const p of draftPaths) {
+      for (const c of p.conditions || []) {
+        if (!c || typeof c !== "object") continue;
+        if (typeof c.a === "string" && c.a.trim()) condRefs.add(c.a.trim());
+        if (c.bMode !== "val" && typeof c.b === "string" && c.b.trim()) condRefs.add(c.b.trim());
+      }
+    }
+    if (condRefs.size === 0) return [];
+    // 2) 경로 step 이름 → step (조건이 가리키는 게 변수가 아니라 step 일 때만 승격 대상)
+    const stepByName = new Map<string, any>();
+    for (const p of draftPaths) for (const s of p.steps || []) if (s?.name) stepByName.set(s.name, s);
+    // step 이 참조하는 다른 이름들 (전이 의존 계산용)
+    const refsOfStep = (s: any): string[] => {
+      const out: string[] = [];
+      const add = (n: any) => { if (typeof n === "string" && n.trim()) out.push(n.trim()); };
+      if (s.type === "date") { add(s.a); add(s.b); }
+      else if (s.type === "classify") for (const it of s.items || []) add(it?.ref);
+      else if (s.type === "table") add(s.ref);
+      else if (s.type === "clamp") { add(s.ref); add(s.min); add(s.max); }
+      else if (s.type === "formula") for (const t of s.tokens || []) if (t?.t === "var") add(t.name);
+      else if (s.type === "branch") { add(s.ref); if (typeof s.rhs === "string") add(s.rhs); }
+      else if (s.type === "switch") { add(s.ref); for (const c of s.cases || []) for (const t of c.tokens || []) if (t?.t === "var") add(t.name); }
+      return out;
+    };
+    // 3) 전이 폐포: 조건 참조 step + 그 step 이 (경로 안에서) 의존하는 step 들
+    const need = new Set<string>();
+    const visit = (name: string) => {
+      if (need.has(name) || !stepByName.has(name)) return; // 변수/미존재면 무시 (step 만 승격)
+      need.add(name);
+      for (const r of refsOfStep(stepByName.get(name))) visit(r);
+    };
+    for (const n of condRefs) visit(n);
+    if (need.size === 0) return [];
+    // 4) 경로에서 해당 step 제거 + 원래 순서(의존 순서) 유지하며 shared 로 모음 (이름 중복 제거)
+    const hoisted: any[] = [];
+    const seen = new Set<string>();
+    for (const p of draftPaths) {
+      const remain: any[] = [];
+      for (const s of p.steps || []) {
+        if (s?.name && need.has(s.name)) {
+          if (!seen.has(s.name)) { hoisted.push(s); seen.add(s.name); }
+        } else remain.push(s);
+      }
+      p.steps = remain;
+    }
+    return hoisted;
+  })();
+
   const fallbackReport = pathReportFromPreview(preview, preview.fallback?.label || "미적용");
   // 최종 schema
   const draftSchema = {
@@ -3166,7 +3222,7 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
         : ["기준 지식화", "개인 정보 파싱", "적용 여부 판단·분석", "산출 및 안내"],
     },
     vars: draftVars,
-    shared: { steps: [] },
+    shared: { steps: hoistedSharedSteps },
     paths: draftPaths,
     fallback: {
       id: "fallback",
