@@ -197,6 +197,10 @@ function BuilderInner() {
   // 탭별 프리뷰 (구조화된 응답)
   const [specPreview, setSpecPreview] = useState<any | null>(null);
   const [specPreviewTab, setSpecPreviewTab] = useState<"0" | "1" | "2" | "3" | "4" | "summary">("summary");
+  const [specGenSec, setSpecGenSec] = useState<number | null>(null); // 직전 분석 소요 시간(초)
+  // 단계별(요청 분할) 분석 진행 상태 — 0단계 완료 / 1단계 완료 …
+  const [specStageDone, setSpecStageDone] = useState<string[]>([]);
+  const [specRunningStage, setSpecRunningStage] = useState<string | null>(null);
 
   const [publishedModal, setPublishedModal] = useState<{
     id: string;
@@ -500,6 +504,19 @@ function BuilderInner() {
   const removeSpecFile = (idx: number) =>
     setSpecFiles((prev) => prev.filter((_, i) => i !== idx));
 
+  // 단계별(요청 분할) 분석 — digest → meta → vars → paths → report.
+  // 각 단계가 별도 요청이라 Hobby 60초 캡에 안 걸림(총합이 길어도 OK). 탭 간 컨텍스트는 digest+이전결과로 유지.
+  // 빌더 탭(⓪앱 개요 ①규정 변수 ②개인 변수 ③분석 로직 ④리포트 구성)과 1:1로 맞춘 단계.
+  // digest 는 탭이 아닌 사전 "문서 읽기" 준비 단계.
+  const SPEC_STAGES: { key: string; label: string }[] = [
+    { key: "digest", label: "문서 읽기" },
+    { key: "meta", label: "⓪ 앱 개요" },
+    { key: "varsReg", label: "① 규정 변수" },
+    { key: "varsPer", label: "② 개인 변수" },
+    { key: "paths", label: "③ 분석 로직" },
+    { key: "report", label: "④ 리포트 구성" },
+  ];
+
   const generateSpec = async () => {
     if (specFiles.length === 0) {
       setSpecGenErr("참고 문서를 1개 이상 추가해 주세요");
@@ -510,19 +527,17 @@ function BuilderInner() {
     setSpecMarkdown("");
     setSpecPreview(null);
     setSpecPreviewTab("summary");
-    try {
-      const files = await Promise.all(specFiles.map((f) => prepFile(f)));
-      // Vercel 서버리스 요청 본문 한도(4.5MB) — base64 합계가 넘으면 서버 도달 전 413 으로 막힌다.
-      const totalB64 = files.reduce((n, f) => n + f.fileBase64.length, 0);
-      if (totalB64 > 4_000_000) {
-        throw new Error(
-          `업로드 용량이 큽니다 (${(totalB64 / 1024 / 1024).toFixed(1)}MB). 문서 수를 줄이거나 더 작은(저해상도) 파일로 시도해 주세요.`
-        );
-      }
-      const res = await fetch("/api/spec-preview", {
+    setSpecGenSec(null);
+    setSpecStageDone([]);
+    setSpecRunningStage(null);
+    const t0 = Date.now();
+    let curStage = "";
+
+    const callStage = async (stage: string, payload: Record<string, any>) => {
+      const res = await fetch("/api/spec-stage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files }),
+        body: JSON.stringify({ stage, ...payload }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "" }));
@@ -535,11 +550,68 @@ function BuilderInner() {
             : `서버 오류 (HTTP ${res.status})`);
         throw new Error(detail);
       }
-      const preview = await res.json();
-      setSpecPreview(preview);
+      return res.json();
+    };
+    const run = async (stage: string, payload: Record<string, any>) => {
+      curStage = stage;
+      setSpecRunningStage(stage);
+      const out = await callStage(stage, payload);
+      setSpecStageDone((d) => [...d, stage]);
+      return out;
+    };
+
+    try {
+      const files = await Promise.all(specFiles.map((f) => prepFile(f)));
+      // Vercel 서버리스 요청 본문 한도(4.5MB) — base64 합계가 넘으면 서버 도달 전 413 으로 막힌다.
+      const totalB64 = files.reduce((n, f) => n + f.fileBase64.length, 0);
+      if (totalB64 > 4_000_000) {
+        throw new Error(
+          `업로드 용량이 큽니다 (${(totalB64 / 1024 / 1024).toFixed(1)}MB). 문서 수를 줄이거나 더 작은(저해상도) 파일로 시도해 주세요.`
+        );
+      }
+
+      // 0단계 — 문서 읽기·정리(digest)
+      const { digest } = await run("digest", { files });
+
+      // 1단계 — meta. 빈 골격으로 프리뷰 시작(탭이 채워지는 게 보이도록)
+      const { meta } = await run("meta", { digest });
+      setSpecPreview({
+        meta,
+        vars: [],
+        paths: [],
+        fallback: { label: "미적용", reason: "" },
+        report: [],
+        rationale: { overall: "", perDocument: [], others: [] },
+      });
+
+      // ① 규정 변수
+      const { vars: varsReg } = await run("varsReg", { digest, meta });
+      setSpecPreview((p: any) => ({ ...(p || {}), vars: varsReg }));
+
+      // ② 개인 변수
+      const { vars: varsPer } = await run("varsPer", { digest, meta });
+      // grp 중복 제거 — 같은 이름이 규정·개인 양쪽에 잡히면 개인(입력값) 우선, 규정 중복 제거
+      const perNames = new Set((varsPer || []).map((v: any) => v.name));
+      const regClean = (varsReg || []).filter((v: any) => !perNames.has(v.name));
+      const vars = [...regClean, ...(varsPer || [])];
+      setSpecPreview((p: any) => ({ ...(p || {}), vars }));
+
+      // ③ 분석 로직 (paths) — 공통 사전 계산(shared) 포함
+      const { shared, paths, fallback } = await run("paths", { digest, meta, vars });
+      setSpecPreview((p: any) => ({ ...(p || {}), shared, paths, fallback }));
+
+      // 4단계 — report
+      const { report, rationale } = await run("report", { digest, meta, vars, paths });
+      setSpecPreview((p: any) => ({ ...(p || {}), report, rationale }));
+
+      setSpecRunningStage(null);
+      setSpecGenSec((Date.now() - t0) / 1000);
     } catch (e: any) {
       const m = e?.message || String(e);
-      setSpecGenErr(m);
+      const stageLabel =
+        SPEC_STAGES.find((s) => s.key === curStage)?.label || curStage;
+      setSpecGenErr((stageLabel ? `[${stageLabel} 단계] ` : "") + m);
+      setSpecRunningStage(null);
       if (m.includes("로그인") || m.includes("401")) {
         if (
           confirm(
@@ -678,6 +750,14 @@ function BuilderInner() {
                 >
                   ✍️ 참고 문서 분석
                 </button>
+                <a
+                  href="/samples/template.docx"
+                  download="기획서_템플릿.docx"
+                  className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100"
+                  title="기획서 작성용 템플릿(Word)을 내려받아 채운 뒤 '참고 문서 분석'에 올리세요"
+                >
+                  ⬇ 기획서 다운로드
+                </a>
                 <button
                   disabled={busy}
                   onClick={() => save(false)}
@@ -1042,23 +1122,50 @@ function BuilderInner() {
                   tab={specPreviewTab}
                   setTab={setSpecPreviewTab}
                   onUpdate={(next) => setSpecPreview(next)}
+                  stageDone={specStageDone}
+                  busy={specGenBusy}
                 />
               )}
             </div>
 
             <div className="px-6 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between gap-2 flex-wrap">
-              <div className="text-[11px] text-gray-500">
-                {specGenBusy
-                  ? "AI가 참고 문서를 분석해 탭별 프리뷰를 작성 중입니다…"
-                  : specPreview
-                  ? "탭별 프리뷰를 검토한 뒤 빌더에 자동으로 채울 수 있습니다."
-                  : `참고 문서 ${specFiles.length}개`}
+              <div className="text-[11px] text-gray-500 flex-1 min-w-0">
+                {specGenBusy || specStageDone.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {SPEC_STAGES.map((s) => {
+                      const done = specStageDone.includes(s.key);
+                      const running = specRunningStage === s.key;
+                      return (
+                        <span
+                          key={s.key}
+                          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${
+                            done
+                              ? "bg-emerald-50 text-emerald-700"
+                              : running
+                              ? "bg-violet-100 text-violet-700 animate-pulse"
+                              : "bg-gray-100 text-gray-400"
+                          }`}
+                        >
+                          {done ? "✓" : running ? "⏳" : "○"} {s.label}
+                          {done ? " 완료" : running ? " 진행중…" : ""}
+                        </span>
+                      );
+                    })}
+                    {specGenSec != null && (
+                      <span className="ml-1 font-medium text-emerald-600">
+                        ⏱ 총 {specGenSec.toFixed(1)}초
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  `참고 문서 ${specFiles.length}개`
+                )}
               </div>
               <div className="flex items-center gap-2">
-                {specPreview && (
+                {specPreview && !specGenBusy && (
                   <button
                     onClick={fillBuilderFromSpec}
-                    disabled={specGenBusy || busy}
+                    disabled={busy}
                     className="rounded-lg bg-emerald-600 text-white px-3.5 py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
                   >
                     이 구성으로 빌더 자동 채우기 →
@@ -1423,12 +1530,28 @@ function SpecPreviewPanel({
   tab,
   setTab,
   onUpdate,
+  stageDone = [],
+  busy = false,
 }: {
   preview: any;
   tab: string;
   setTab: (t: any) => void;
   onUpdate: (next: any) => void;
+  stageDone?: string[];
+  busy?: boolean;
 }) {
+  // 각 탭이 어떤 분석 단계에 대응하는지 (summary 는 단계 없음 → 항상 활성)
+  const STAGE_OF: Record<string, string> = {
+    '0': 'meta',
+    '1': 'varsReg',
+    '2': 'varsPer',
+    '3': 'paths',
+    '4': 'report',
+  };
+  const isDone = (key: string) => {
+    const st = STAGE_OF[key];
+    return !st || stageDone.includes(st);
+  };
   const TABS: { key: string; label: string }[] = [
     { key: 'summary', label: '핵심 요약' },
     { key: '0', label: '⓪ 앱 개요' },
@@ -1456,12 +1579,22 @@ function SpecPreviewPanel({
         ))}
       </div>
       <div className="p-5 max-h-[68vh] overflow-auto">
-        {tab === 'summary' && <PreviewSummary preview={preview} />}
-        {tab === '0' && <PreviewMeta preview={preview} onUpdate={onUpdate} />}
-        {tab === '1' && <PreviewVars preview={preview} grp="규정" onUpdate={onUpdate} />}
-        {tab === '2' && <PreviewVars preview={preview} grp="개인" onUpdate={onUpdate} />}
-        {tab === '3' && <PreviewPaths preview={preview} onUpdate={onUpdate} />}
-        {tab === '4' && <PreviewReport preview={preview} />}
+        {busy && !isDone(tab) ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+            <span className="text-2xl animate-pulse">⏳</span>
+            <div className="text-sm font-medium text-violet-700">이 탭을 분석 중입니다…</div>
+            <div className="text-xs text-gray-400">잠시만 기다려 주세요. 분석이 끝나면 자동으로 채워집니다.</div>
+          </div>
+        ) : (
+          <>
+            {tab === 'summary' && <PreviewSummary preview={preview} />}
+            {tab === '0' && <PreviewMeta preview={preview} onUpdate={onUpdate} />}
+            {tab === '1' && <PreviewVars preview={preview} grp="규정" onUpdate={onUpdate} />}
+            {tab === '2' && <PreviewVars preview={preview} grp="개인" onUpdate={onUpdate} />}
+            {tab === '3' && <PreviewPaths preview={preview} onUpdate={onUpdate} />}
+            {tab === '4' && <PreviewReport preview={preview} />}
+          </>
+        )}
       </div>
     </div>
   );
@@ -2013,8 +2146,30 @@ function PreviewPaths({ preview, onUpdate }: { preview: any; onUpdate: (next: an
   const addPath = () => onUpdate({ ...preview, paths: [...paths, { label: "새 경로", conditions: [], steps: [], reason: "", source: "수기 추가" }] });
   const setFallback = (patch: any) => onUpdate({ ...preview, fallback: { ...fb, ...patch } });
   const inp = "rounded border border-gray-200 px-2 py-1 text-xs focus:border-violet-400 focus:outline-none";
+  const sharedSteps = preview.shared?.steps || [];
   return (
     <div className="space-y-4 text-sm">
+      {sharedSteps.length > 0 && (
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50/30 p-3.5 border-l-[3px] border-l-emerald-300">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-1.5">
+            공통 사전 계산 (모든 경로 진입 전 1회)
+          </div>
+          <ul className="text-gray-700 space-y-1 bg-white rounded p-2 border border-gray-100 text-xs">
+            {sharedSteps.map((s: any, j: number) => (
+              <li key={j} className="flex items-start gap-2">
+                <span className="text-[10px] font-mono bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 rounded px-1.5 py-0.5 shrink-0">
+                  {s.type}
+                </span>
+                <span>
+                  <b className="text-gray-900">{s.name}</b>{" "}
+                  <span className="text-gray-400">·</span>{" "}
+                  <span className="font-mono text-gray-600">{s.expression}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {paths.map((p: any, i: number) => (
         <div key={i} className="rounded-lg border border-indigo-100 bg-white p-3.5 space-y-2 border-l-[3px] border-l-indigo-300">
           <div className="flex items-center gap-2">
@@ -2139,9 +2294,25 @@ const KIND_LABEL: Record<string, string> = {
   chart: "차트",
   note: "안내문",
 };
+// 차트 세부종류 → 빌더 표시 이름 (Tab4Report 와 동일)
+const CTYPE_LABEL: Record<string, string> = {
+  bar: "구간 막대",
+  step: "구간 계단선",
+  donut: "포함/제외 도넛",
+  gauge: "게이지",
+  bullet: "불릿 차트",
+  stacked: "누적 가로 막대",
+  comparison: "이중 막대",
+  delta: "Δ 변화량",
+  ratio: "비율 게이지",
+};
 
 function ReportElementRow({ el, index }: { el: any; index: number }) {
-  const label = KIND_LABEL[el.kind] || el.kind || "요소";
+  let label = KIND_LABEL[el.kind] || el.kind || "요소";
+  // 차트면 세부종류(이중 막대/게이지 등)까지 보여줘서 '어떤 차트'인지 알 수 있게
+  if (el.kind === "chart" && el.ctype) {
+    label = `차트 · ${CTYPE_LABEL[el.ctype] || el.ctype}`;
+  }
   const binds = Array.isArray(el.bind)
     ? el.bind
     : typeof el.bind === "string" && el.bind.includes(",")
@@ -2149,6 +2320,8 @@ function ReportElementRow({ el, index }: { el: any; index: number }) {
     : el.bind
     ? [el.bind]
     : [];
+  // 비교형 차트의 두 번째 값(bind2)도 연결 칩으로 표시
+  if (el.bind2 && !binds.includes(el.bind2)) binds.push(el.bind2);
   return (
     <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-2.5">
       <div className="flex items-start gap-2.5">

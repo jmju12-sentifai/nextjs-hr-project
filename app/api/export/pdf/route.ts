@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireActiveSubscription } from "@/lib/api-auth";
+import { requireUser } from "@/lib/api-auth";
 import {
   Document,
   Page,
@@ -709,7 +709,7 @@ function renderEl(schema: AppSchema, el: any, sc: Sc, disp: Disp, jres: JudgeRes
 // ───────────── main ─────────────
 
 export async function POST(req: NextRequest) {
-  const auth = await requireActiveSubscription();
+  const auth = await requireUser();
   if ("error" in auth) return auth.error;
   try {
     ensureKoreanFont();

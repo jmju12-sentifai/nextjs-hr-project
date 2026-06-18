@@ -1149,9 +1149,17 @@ function GroupedPreviewList({ vs, grp }: { vs: any[]; grp: Grp }) {
     if (b === "_미분류") return -1;
     return 0;
   });
+  // 묶음 없는 변수("_미분류")는 "기타" 카드로 감싸지 않고 평탄 목록으로 그대로 표시.
+  const namedEntries = sortedEntries.filter(([g]) => g !== "_미분류");
+  const ungroupedVars = groups["_미분류"]
+    ? Object.values(groups["_미분류"]).flat()
+    : [];
   return (
     <div className="space-y-4">
-      {sortedEntries.map(([g, subs]) => (
+      {ungroupedVars.length > 0 && (
+        <ul className="divide-y divide-gray-100">{ungroupedVars.map(renderRow)}</ul>
+      )}
+      {namedEntries.map(([g, subs]) => (
         <details
           key={g}
           open

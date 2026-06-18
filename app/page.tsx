@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { isAdminEmail } from "@/lib/admin";
 import AIToolList from "./components/AIToolList";
 import UserMenu from "./components/UserMenu";
 
@@ -358,6 +359,7 @@ export default async function Home() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const admin = isAdminEmail(user?.email);
 
   // 관리자가 발행한 앱 — 홈 "인사AI 앱 세트"에 동적으로 추가
   const { data: publishedApps } = await supabase
@@ -411,7 +413,17 @@ export default async function Home() {
             ))}
           </nav>
           {user ? (
-            <UserMenu email={user.email ?? ""} />
+            <div className="flex items-center gap-3">
+              {admin && (
+                <a
+                  href="/admin/applist"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                >
+                  <span aria-hidden>+</span> 앱 만들러 가기
+                </a>
+              )}
+              <UserMenu email={user.email ?? ""} />
+            </div>
           ) : (
             <div className="flex items-center gap-2">
               <a

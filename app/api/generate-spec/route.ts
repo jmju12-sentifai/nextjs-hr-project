@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateAppSpecDoc, type SpecRefFile } from "@/lib/ai-parser";
-import { requireUser } from "@/lib/api-auth";
+import { requireAdmin } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 // 참고 문서 여러 개를 LLM 으로 종합하므로 시간이 걸릴 수 있음
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const auth = await requireUser();
+  const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   try {
     const { files } = await req.json();

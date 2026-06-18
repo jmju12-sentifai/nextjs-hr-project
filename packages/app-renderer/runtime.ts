@@ -396,7 +396,15 @@ export function run(
           tks: Token[] | undefined,
           txt: string | undefined
         ): any => {
-          if (typ !== "calc") return txt ?? "";
+          if (typ !== "calc") {
+            // 텍스트 출력 — {변수명} 을 현재 값으로 치환 (변수 선택 + 직접입력 혼용 지원)
+            return String(txt ?? "").replace(/\{([^}]+)\}/g, (_, n) => {
+              const k = String(n).trim();
+              if (!(k in sc)) return "{" + n + "}";
+              const v = sc[k];
+              return typeof v === "number" ? fmt(v) : String(v ?? "");
+            });
+          }
           if (!Array.isArray(tks) || tks.length === 0) return "";
           // 단일 변수 토큰이면 그 변수값을 그대로 반환 (텍스트 변수도 허용).
           // tokens 스키마 형태: { t: "var", name: "X" }

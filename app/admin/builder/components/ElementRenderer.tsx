@@ -712,7 +712,7 @@ function ChartView({
   return (
     <svg
       viewBox={`0 0 ${W} ${H + 4}`}
-      preserveAspectRatio="none"
+      preserveAspectRatio="xMidYMid meet"
       style={{ display: "block", width: "100%", maxHeight: "100%" }}
     >
       <path d={path} stroke="#2563eb" strokeWidth="2" fill="none" />

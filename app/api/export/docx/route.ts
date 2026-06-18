@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireActiveSubscription } from "@/lib/api-auth";
+import { requireUser } from "@/lib/api-auth";
 import {
   Document,
   Packer,
@@ -743,7 +743,7 @@ function groupRows(els: any[]): any[][] {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireActiveSubscription();
+  const auth = await requireUser();
   if ("error" in auth) return auth.error;
   try {
     const { schema, result } = await req.json();

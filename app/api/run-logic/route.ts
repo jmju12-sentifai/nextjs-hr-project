@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { run } from "app-renderer";
-import { requireActiveSubscription } from "@/lib/api-auth";
+import { requireUser } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const auth = await requireActiveSubscription();
+  const auth = await requireUser();
   if ("error" in auth) return auth.error;
   try {
     const { schema } = await req.json();

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { requireActiveSubscription } from "@/lib/api-auth";
+import { requireUser } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -8,7 +8,7 @@ export const maxDuration = 120;
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 export async function POST(req: NextRequest) {
-  const auth = await requireActiveSubscription();
+  const auth = await requireUser();
   if ("error" in auth) return auth.error;
   try {
     const { meta, context, prompt } = await req.json();
@@ -64,7 +64,12 @@ ${ctxText}
 ${prompt ? `[추가 지시]\n${prompt}\n` : ""}위 [본인 산출 값] 을 임직원 본인에게 풀어 설명하는 3줄 (산출 값을 직접 인용; 산출 값이 없으면 "분석할 산출 값이 아직 없습니다." 한 줄):`;
 
     const client = new GoogleGenerativeAI(key);
-    const model = client.getGenerativeModel({ model: MODEL, systemInstruction: system });
+    const model = client.getGenerativeModel({
+      model: MODEL,
+      systemInstruction: system,
+      // thinking off — 서버리스 타임아웃 방지 (gemini-2.5-flash 기본 thinking 으로 지연)
+      generationConfig: { thinkingConfig: { thinkingBudget: 0 } } as any,
+    });
     const r = await model.generateContent(user);
     const raw = (r.response.text() || "").trim();
     const outLines = raw

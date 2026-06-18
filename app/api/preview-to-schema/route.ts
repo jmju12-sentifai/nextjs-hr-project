@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { previewToAppSchema } from "@/lib/ai-parser";
-import { requireUser } from "@/lib/api-auth";
+import { requireAdmin } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 
 // 프리뷰(JSON) → AppSchema 즉시 변환. LLM 호출 없음 — 빠름.
 export async function POST(req: NextRequest) {
-  const auth = await requireUser();
+  const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   try {
     const { preview } = await req.json();

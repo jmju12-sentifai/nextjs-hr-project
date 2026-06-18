@@ -81,7 +81,7 @@ function renderGroupedOptions(
 }
 
 export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta }: Props) {
-  const [picked, setPicked] = useState(varNames[0] || "");
+  const [picked, setPicked] = useState("");
   const [num, setNum] = useState("");
 
   const push = (t: Token) => onChange([...tokens, t]);
@@ -97,6 +97,21 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
     liveText = String(e?.message || e);
     liveBad = true;
   }
+
+  // 계산식에 쓰인 변수 중 값이 숫자가 아닌 것 — 식 오류 원인 안내 (텍스트 변수를 산식에 넣은 경우)
+  const isNumeric = (v: any) =>
+    typeof v === "number"
+      ? !isNaN(v)
+      : typeof v === "string"
+      ? v.trim() !== "" && !isNaN(Number(v.replace(/,/g, "")))
+      : false;
+  const nonNumericVars = Array.from(
+    new Set(
+      tokens.filter((t: any) => t.t === "var" && t.name).map((t: any) => t.name as string)
+    )
+  )
+    .filter((name) => name in sc && !isNumeric((sc as any)[name]))
+    .map((name) => ({ name, value: (sc as any)[name] }));
 
   const chipCls = (t: Token) =>
     t.t === "var"
@@ -153,6 +168,7 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
             onChange={(e) => setPicked(e.target.value)}
             className="rounded border px-1.5 py-0.5 text-xs"
           >
+            <option value="">(변수 선택)</option>
             {varNames.length === 0 ? (
               <option disabled>없음</option>
             ) : (
@@ -161,7 +177,8 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
           </select>
           <button
             onClick={() => picked && push({ t: "var", name: picked })}
-            className="rounded border px-2 py-0.5 hover:bg-gray-100"
+            disabled={!picked}
+            className="rounded border px-2 py-0.5 hover:bg-gray-100 disabled:opacity-40"
           >
             + 변수
           </button>
@@ -238,6 +255,24 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
           {liveText}
         </span>
       </div>
+      {nonNumericVars.length > 0 && (
+        <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700 space-y-0.5">
+          <div className="font-bold">▲ 식 오류 — 숫자가 아닌 변수를 계산식에 사용했습니다</div>
+          {nonNumericVars.map((b) => (
+            <div key={b.name} className="font-mono">
+              “{b.name}” 값:{" "}
+              <b>
+                "
+                {b.value === undefined || b.value === null || b.value === ""
+                  ? "(빈 값)"
+                  : String(b.value)}
+                "
+              </b>{" "}
+              — 텍스트라서 계산에 쓸 수 없습니다 (0 으로 처리됨).
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

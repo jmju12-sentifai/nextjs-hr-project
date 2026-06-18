@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Grp, Unit, VarType, Variable } from "app-renderer";
 import { UNITS } from "app-renderer";
 
@@ -21,11 +21,54 @@ export default function TabVars({ grp, vars, onChange }: Props) {
   const [ty, setTy] = useState<VarType>("number");
   const [un, setUn] = useState<Unit>("");
   const [req, setReq] = useState(false);
+  // 변수명 검증 실패 안내 — 브라우저 기본 alert 대신 커스텀 팝업
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const update = (id: string, patch: Partial<Variable>) => {
     onChange(vars.map((v) => (v.id === id ? { ...v, ...patch } : v)));
   };
+
+  // 변수명 검증 — 빈값/공백/중복(전체 변수 기준, 규정·개인 통틀어) 차단.
+  // 유효하면 정리된 이름을 반환, 무효면 null. 공백/중복은 알림, 빈값은 호출부에서 분기.
+  const validateName = (raw: string, selfId?: string): string | null => {
+    const name = raw.trim();
+    if (!name) return null;
+    if (/\s/.test(name)) {
+      setNameError("변수명에 공백을 사용할 수 없습니다.");
+      return null;
+    }
+    if (vars.some((v) => v.id !== selfId && (v.name || "").trim() === name)) {
+      setNameError(`이미 "${name}" 변수가 있습니다.\n다른 이름을 사용해 주세요.`);
+      return null;
+    }
+    return name;
+  };
+  // 인라인 표에서 이름 수정 시 커밋. 성공 여부 반환(무효면 입력칸 원복용).
+  // 빈 이름은 허용(지울 수 있게) — 빨간 테두리로 플래그만. 공백 포함·중복만 차단.
+  const commitName = (id: string, raw: string): boolean => {
+    if (!raw.trim()) {
+      update(id, { name: "" });
+      return true;
+    }
+    const name = validateName(raw, id);
+    if (!name) return false; // 공백/중복 — validateName 이 알림, 입력칸 원복
+    update(id, { name });
+    return true;
+  };
+  // 입력칸 라이브 검증(빨간 테두리)용 — 공백포함/중복이면 true. 커밋과 무관(부수효과 없음).
+  // 빈값은 추가 직후 자연스러운 상태라 빨간 표시 안 함.
+  const nameInvalid = (raw: string, selfId: string): boolean => {
+    const n = raw.trim();
+    if (!n) return false;
+    if (/\s/.test(n)) return true;
+    return vars.some((v) => v.id !== selfId && (v.name || "").trim() === n);
+  };
   const remove = (id: string) => onChange(vars.filter((v) => v.id !== id));
+  // 여러 변수를 한 번의 onChange 로 일괄 삭제 (그룹/하위묶음 통째 삭제용 — 낱개 remove 반복은 stale state 로 1개만 지워짐)
+  const removeMany = (ids: string[]) => {
+    const set = new Set(ids);
+    onChange(vars.filter((v) => !set.has(v.id)));
+  };
   // 새 묶음 추가 — placeholder 변수 1개를 group 만 채워 추가 (빈 그룹은 표시 불가)
   const addInGroup = (group: string, subGroup: string = "") => {
     onChange([
@@ -33,7 +76,7 @@ export default function TabVars({ grp, vars, onChange }: Props) {
       {
         id: uid(),
         grp,
-        name: `새변수_${Math.random().toString(36).slice(2, 5)}`,
+        name: "",
         type: "number",
         unit: "",
         req: false,
@@ -45,19 +88,17 @@ export default function TabVars({ grp, vars, onChange }: Props) {
   };
   const add = () => {
     if (!nm.trim()) {
-      alert("변수명을 입력해 주세요.");
+      setNameError("변수명을 입력해 주세요.");
       return;
     }
-    if (/\s/.test(nm)) {
-      alert("변수명에 공백을 사용할 수 없습니다.");
-      return;
-    }
+    const name = validateName(nm);
+    if (!name) return; // 공백/중복 — validateName 이 알림 처리
     onChange([
       ...vars,
       {
         id: uid(),
         grp,
-        name: nm.trim(),
+        name,
         type: ty,
         unit: ty === "number" ? un : "",
         req,
@@ -87,27 +128,33 @@ export default function TabVars({ grp, vars, onChange }: Props) {
         </p>
       </div>
 
-      {list.length === 0 ? (
-        <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500 font-mono">
-          {grp} 변수가 없습니다.
-        </div>
-      ) : (
-        <GroupedVarsTable
-          list={list}
-          update={update}
-          remove={remove}
-          addInGroup={addInGroup}
-          inpCls={inpCls}
-          selCls={selCls}
-        />
-      )}
+      <div className="flex items-start gap-1.5 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-[11px] leading-relaxed text-blue-800">
+        <span className="shrink-0">💡</span>
+        <span>
+          <b>테스트값</b>은 빌더에서 로직·리포트가 올바른지 확인할 때 쓰는 미리보기용 샘플값입니다.
+          발행된 완제품에서는 사용자가 입력한 실제 값으로 대체됩니다.
+        </span>
+      </div>
+
+      <GroupedVarsTable
+        grp={grp}
+        list={list}
+        update={update}
+        remove={remove}
+        removeMany={removeMany}
+        addInGroup={addInGroup}
+        commitName={commitName}
+        nameInvalid={nameInvalid}
+        inpCls={inpCls}
+        selCls={selCls}
+      />
 
       <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
         <span className="text-xs font-mono text-gray-500">+ {grp} 변수</span>
         <input
           value={nm}
           onChange={(e) => setNm(e.target.value)}
-          placeholder="변수명 (공백 없이)"
+          placeholder="변수명"
           className={inpCls + " w-40"}
         />
         <select
@@ -148,26 +195,121 @@ export default function TabVars({ grp, vars, onChange }: Props) {
           추가
         </button>
       </div>
+
+      {nameError && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setNameError(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2.5 mb-2">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+              </span>
+              <div className="text-base font-bold text-gray-900">변수명 확인</div>
+            </div>
+            <p className="text-sm leading-relaxed text-gray-600 mb-5 whitespace-pre-line">
+              {nameError}
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setNameError(null)}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+// 인라인 변수명 입력 — 로컬 draft 로 편집하다 blur/Enter 시 커밋.
+// 중복/공백이면 커밋만 거부(스키마 미반영)하고 입력한 값은 그대로 유지 → 이어서 고쳐 쓸 수 있음.
+// 빨간 테두리로 무효 상태를 라이브 표시. Esc 로 직전 이름으로 취소 가능.
+function VarNameInput({
+  value,
+  invalidOf,
+  onCommit,
+  cls,
+}: {
+  value: string;
+  invalidOf: (raw: string) => boolean;
+  onCommit: (raw: string) => boolean;
+  cls: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  // 외부에서 value 가 실제로 바뀌었을 때만 draft 동기화 (커밋 성공/앱 로드 등).
+  // 중복 거부로 value 가 그대로면 draft 를 덮어쓰지 않아 사용자가 친 값이 보존된다.
+  const lastValue = useRef(value);
+  useEffect(() => {
+    if (value !== lastValue.current) {
+      lastValue.current = value;
+      setDraft(value);
+    }
+  }, [value]);
+  const commit = () => {
+    if (draft.trim() === (value || "").trim()) {
+      setDraft(value);
+      return;
+    }
+    onCommit(draft); // 성공 시 부모가 value 갱신 → 위 effect 로 동기화. 실패 시 draft 유지.
+  };
+  const invalid = invalidOf(draft);
+  return (
+    <input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setDraft(value);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      placeholder="변수명"
+      title={invalid ? "빈 이름이거나 중복된 이름입니다 — 다른 이름을 입력하세요" : undefined}
+      className={cls + (invalid ? " border-rose-400 bg-rose-50" : "")}
+    />
   );
 }
 
 // 변수를 group > subGroup 계층으로 묶어서 표시. 모든 변수가 group 비어 있으면 평탄 표시.
 function GroupedVarsTable({
+  grp,
   list,
   update,
   remove,
+  removeMany,
   addInGroup,
+  commitName,
+  nameInvalid,
   inpCls,
   selCls,
 }: {
+  grp: Grp;
   list: Variable[];
   update: (id: string, patch: Partial<Variable>) => void;
   remove: (id: string) => void;
+  removeMany: (ids: string[]) => void;
   addInGroup: (group: string, subGroup?: string) => void;
+  commitName: (id: string, raw: string) => boolean;
+  nameInvalid: (raw: string, selfId: string) => boolean;
   inpCls: string;
   selCls: string;
 }) {
+  // 묶음/하위묶음 삭제 확인 모달 상태 (브라우저 confirm 대신 커스텀 삭제창)
+  const [pendingDelete, setPendingDelete] = useState<
+    { ids: string[]; label: string; count: number } | null
+  >(null);
   // 계층화 — group → subGroup → [vars]
   // group 이 없는 변수는 "_미분류" 묶음.
   const groups: Record<string, Record<string, Variable[]>> = {};
@@ -182,10 +324,11 @@ function GroupedVarsTable({
   const renderRow = (v: Variable) => (
     <tr key={v.id} className="border-b border-gray-100">
       <td className="py-1.5 px-2">
-        <input
+        <VarNameInput
           value={v.name}
-          onChange={(e) => update(v.id, { name: e.target.value })}
-          className={inpCls + " w-full"}
+          invalidOf={(raw) => nameInvalid(raw, v.id)}
+          onCommit={(raw) => commitName(v.id, raw)}
+          cls={inpCls + " w-full"}
         />
       </td>
       <td className="py-1.5 px-2">
@@ -252,13 +395,35 @@ function GroupedVarsTable({
       </tr>
     </thead>
   );
-  // 계층 정보 없으면 기존 평탄 표
+  // 묶음(상위) 추가 — 참고 문서 분석 결과와 동일한 group/subGroup 구조를 수동으로도 만들 수 있게.
+  const addGroupHandler = (name: string) => {
+    const safe = name.trim();
+    if (!safe || groups[safe]) return;
+    addInGroup(safe);
+  };
+
+  // 변수가 아예 없을 때 — 묶음부터 만들 수 있도록 안내 + 추가 버튼
+  if (list.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500 font-mono">
+          {grp} 변수가 없습니다. 아래 “+ 새 묶음 추가”로 상위/하위 구조를 만들거나, 맨 아래에서 변수를 바로 추가하세요.
+        </div>
+        <NewGroupAdder onAddGroup={addGroupHandler} />
+      </div>
+    );
+  }
+
+  // 계층 정보가 없으면 평탄 표 + “묶음 추가”(수동으로 상위/하위 구조 시작 가능)
   if (!hasHierarchy) {
     return (
-      <table className="w-full text-sm">
-        {header}
-        <tbody>{list.map(renderRow)}</tbody>
-      </table>
+      <div className="space-y-4">
+        <table className="w-full text-sm">
+          {header}
+          <tbody>{list.map(renderRow)}</tbody>
+        </table>
+        <NewGroupAdder onAddGroup={addGroupHandler} />
+      </div>
     );
   }
   // 그룹 헬퍼들
@@ -284,8 +449,11 @@ function GroupedVarsTable({
   const deleteGroup = (gName: string) => {
     const inGroup = list.filter((v) => (v.group?.trim() || "_미분류") === gName);
     if (inGroup.length === 0) return;
-    if (!confirm(`"${gName === "_미분류" ? "기타" : gName}" 묶음 안의 변수 ${inGroup.length}개를 모두 삭제할까요?`)) return;
-    inGroup.forEach((v) => remove(v.id));
+    setPendingDelete({
+      ids: inGroup.map((v) => v.id),
+      label: `“${gName === "_미분류" ? "기타" : gName}” 묶음`,
+      count: inGroup.length,
+    });
   };
   const deleteSubGroup = (gName: string, sgName: string) => {
     const items = list.filter(
@@ -294,8 +462,11 @@ function GroupedVarsTable({
         (v.subGroup?.trim() || "_기본") === sgName
     );
     if (items.length === 0) return;
-    if (!confirm(`"${sgName}" 하위 묶음 안의 변수 ${items.length}개를 모두 삭제할까요?`)) return;
-    items.forEach((v) => remove(v.id));
+    setPendingDelete({
+      ids: items.map((v) => v.id),
+      label: `“${sgName}” 하위 묶음`,
+      count: items.length,
+    });
   };
 
   // 정렬 우선순위 — "기본정보" 항상 맨 위, "_미분류" 항상 맨 아래, 그 외는 입력 순
@@ -307,10 +478,23 @@ function GroupedVarsTable({
     return 0;
   });
 
-  // 계층 표시 — 상위 > 하위 그루핑 카드
+  // 묶음에 속하지 않은 변수("_미분류")는 "기타" 카드로 감싸지 않고 평탄 표로 그대로 표시.
+  // (수동으로 그냥 추가한 기존 변수 — 묶음이 생겨도 강제로 기타 분류하지 않음)
+  const namedEntries = sortedEntries.filter(([g]) => g !== "_미분류");
+  const ungroupedVars = groups["_미분류"]
+    ? Object.values(groups["_미분류"]).flat()
+    : [];
+
+  // 계층 표시 — 묶음 없는 변수(평탄) + 상위>하위 그루핑 카드
   return (
     <div className="space-y-5">
-      {sortedEntries.map(([g, subs]) => (
+      {ungroupedVars.length > 0 && (
+        <table className="w-full text-sm">
+          {header}
+          <tbody>{ungroupedVars.map(renderRow)}</tbody>
+        </table>
+      )}
+      {namedEntries.map(([g, subs]) => (
         <GroupCard
           key={g}
           gName={g}
@@ -321,21 +505,49 @@ function GroupedVarsTable({
           onDelete={() => deleteGroup(g)}
           onRenameSub={(oldSub, newSub) => renameSubGroup(g, oldSub, newSub)}
           onDeleteSub={(sgName) => deleteSubGroup(g, sgName)}
-          onAddSub={(subName) => addInGroup(g === "_미분류" ? "" : g, subName)}
-          onAddVarInGroup={() => addInGroup(g === "_미분류" ? "" : g)}
-          onAddVarInSub={(sgName) =>
-            addInGroup(g === "_미분류" ? "" : g, sgName === "_기본" ? "" : sgName)
-          }
+          onAddSub={(subName) => addInGroup(g, subName)}
+          onAddVarInGroup={() => addInGroup(g)}
+          onAddVarInSub={(sgName) => addInGroup(g, sgName === "_기본" ? "" : sgName)}
         />
       ))}
-      <NewGroupAdder
-        onAddGroup={(name) => {
-          const safe = name.trim();
-          if (!safe || groups[safe]) return;
-          // 새 그룹을 표시하려면 변수 1개 이상이 필요 — placeholder 변수 자동 추가.
-          addInGroup(safe);
-        }}
-      />
+      <NewGroupAdder onAddGroup={addGroupHandler} />
+
+      {pendingDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setPendingDelete(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-base font-bold text-gray-900 mb-1.5">묶음 삭제</div>
+            <p className="text-sm leading-relaxed text-gray-600 mb-5">
+              {pendingDelete.label} 안의 변수{" "}
+              <b className="text-rose-600">{pendingDelete.count}개</b>를 모두 삭제할까요?
+              <br />
+              <span className="text-xs text-gray-400">이 작업은 되돌릴 수 없습니다.</span>
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPendingDelete(null)}
+                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  removeMany(pendingDelete.ids);
+                  setPendingDelete(null);
+                }}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
