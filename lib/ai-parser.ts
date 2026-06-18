@@ -6,9 +6,10 @@ interface Slot {
   unit?: string;
 }
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-// gemini-2.5-flash 는 thinking(추론)이 기본 ON 이라 생성이 30~55s 걸려 서버리스 타임아웃(Vercel Hobby 60s)에 걸린다.
-// thinking 을 끄면 ~7s 로 떨어진다. 필요하면 env 로 예산(토큰) 재설정 가능.
+// 기본 모델 — 환경변수(GEMINI_MODEL) 없으면 gemini-3.5-flash 사용 (빠르고 파싱 정확).
+//   다른 모델로 바꾸려면 GEMINI_MODEL 환경변수로 오버라이드.
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+// thinking(추론)을 끄면 생성 시간이 크게 줄어 서버리스 타임아웃을 피한다. 필요하면 env 로 예산(토큰) 재설정 가능.
 const THINKING_BUDGET = Number(process.env.GEMINI_THINKING_BUDGET ?? 0);
 const THINKING_CFG = { thinkingConfig: { thinkingBudget: THINKING_BUDGET } };
 
