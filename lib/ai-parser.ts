@@ -350,12 +350,18 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     //    { "type": "table", "name": "감액률", "unit": "%", "ref": "만나이",
     //      "bands": [{ "from": 56, "to": 57, "v": 0 }, { "from": 58, "to": 58, "v": 0.2 }] }
     //    (단위가 % 면 0.2 ↔ 20% 로 표시됨)
-    // 4) formula — 토큰 기반 수식. 변수/숫자/연산자/괄호로 구성
+    // 4) formula — 토큰 기반 수식. 변수/숫자/연산자/괄호/함수로 구성
     //    { "type": "formula", "name": "피크임금", "unit": "원",
     //      "tokens": [ {"t":"var","name":"통상임금"}, {"t":"op","op":"*"},
     //                  {"t":"lp"}, {"t":"num","v":1}, {"t":"op","op":"-"},
     //                  {"t":"var","name":"감액률"}, {"t":"rp"} ] }
-    //    토큰 t ∈ var|num|op|lp|rp,  op ∈ +|-|*|/
+    //    토큰 t ∈ var|num|op|fn|lp|rp,  op ∈ +|-|*|/|%|//  (% 나머지, // 몫=내림나눗셈)
+    //    fn ∈ floor|ceil|round (단항 함수, 반드시 lp 가 뒤따름: fn lp ... rp)
+    //    예) floor((근속연수-1)/가산연차주기):
+    //      [ {"t":"fn","fn":"floor"}, {"t":"lp"}, {"t":"lp"}, {"t":"var","name":"근속연수"},
+    //        {"t":"op","op":"-"}, {"t":"num","v":1}, {"t":"rp"}, {"t":"op","op":"/"},
+    //        {"t":"var","name":"가산연차주기"}, {"t":"rp"} ]
+    //    ⚠ floor/ceil/round 외 함수 금지. 상·하한은 clamp, 합계는 classify, 조건은 branch/switch.
     // 5) clamp   — 상·하한 보정
     //    { "type": "clamp", "name": "최종금액", "unit": "원", "ref": "피크임금",
     //      "min": "최저임금", "max": "" }   // 변수명 또는 '' (없음)
@@ -547,6 +553,9 @@ function fixHangulSpacing(s: any): any {
   // 양쪽 공백 정리
   return out.trim();
 }
+
+// formula 에서 허용하는 단항 함수 — runtime 엔진(evalRpn)이 지원하는 것과 일치해야 한다.
+const FN_NAMES = new Set(["floor", "ceil", "round"]);
 
 function withIds(schema: any) {
   const uid = () =>
@@ -813,8 +822,8 @@ function withIds(schema: any) {
     if (RESERVED.has(trimmed)) return;
     if (isNumericLiteral(trimmed)) return; // 숫자 리터럴
     if (isQuotedLiteral(trimmed)) return; // 텍스트 리터럴
-    // 깨진 수식 조각(따옴표·%·연산자·괄호 포함, 또는 따옴표만)은 변수로 만들지 않음 — "세 구간" 같은 쓰레기 변수 방지
-    if (/["'“”‘’%()*/+]/.test(trimmed)) return;
+    // 깨진 수식 조각(따옴표·%·연산자·괄호·콤마 포함, 또는 따옴표만)은 변수로 만들지 않음 — "세 구간"·"A,B" 같은 쓰레기 변수 방지
+    if (/["'“”‘’%()*/+,]/.test(trimmed)) return;
     if (allDefined.has(trimmed)) return; // 이미 정의됨
     // 이미 발견된 ref면 더 구체적인 타입 힌트가 들어왔을 때만 갱신
     const prev = undefRefs.get(trimmed);
@@ -927,13 +936,15 @@ function withIds(schema: any) {
         if (promote) numberPromote.add(t.name.trim());
       } else if (t.t === "num" && (typeof t.v === "number" || /^-?\d+(\.\d+)?$/.test(String(t.v)))) {
         valid.push({ t: "num", v: Number(t.v) });
-      } else if (t.t === "op" && ["+", "-", "*", "/"].includes(t.op)) {
+      } else if (t.t === "op" && ["+", "-", "*", "/", "%", "//"].includes(t.op)) {
         valid.push({ t: "op", op: t.op });
+      } else if (t.t === "fn" && FN_NAMES.has(t.fn)) {
+        valid.push({ t: "fn", fn: t.fn });
       } else if (t.t === "lp" || t.t === "rp") {
         valid.push({ t: t.t });
       }
     }
-    // 2) 시작 op 제거 (단항 - 는 num 으로 변환 못 하니 그냥 버림)
+    // 2) 시작 op 제거 (단항 - 는 num 으로 변환 못 하니 그냥 버림). fn 은 시작 가능(floor(...)) 이라 보존.
     while (valid.length > 0 && valid[0].t === "op") valid.shift();
     // 3) 끝 op 제거
     while (valid.length > 0 && valid[valid.length - 1].t === "op") valid.pop();
@@ -2768,13 +2779,23 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   - "본인지원금 + 가산금" → formula
   - "통상임금 × 0.7" → formula
   - 산식의 모든 변수를 vars 배열에 명시
+  - **사용 가능한 연산**: 사칙(+ - * /), 나머지 \`%\`, 몫 \`//\`(내림나눗셈), 괄호,
+    그리고 단항 함수 **floor(내림)·ceil(올림)·round(반올림)** — 이게 전부다.
+    • 내림 가산연차: \`floor((근속연수 - 1) / 가산연차주기)\`
+    • 원단위 절사: \`floor(보상금 / 1000) * 1000\`
+    • 일할계산: \`월급여 * 근무일수 // 총일수\`  (또는 \`월급여 * 근무일수 / 총일수\`)
+    • 퍼센트는 \`70%\` 처럼 적어도 되고 \`0.7\` 로 적어도 된다 (둘 다 같은 값으로 처리).
+    ⚠ floor/ceil/round **외의 함수는 절대 금지** (min/max/if/sum/날짜함수 등 — 아래 참고).
+    ⚠ 상·하한(min/max 캡)은 formula 가 아니라 **clamp**, 합계는 **classify(sum)**, 조건은 **branch/switch** 로.
 
   ### C. 날짜·기간 → **date**
   - 생년월일 → 만나이 (date, mode=diff, out=year)
   - 발생일 → 신청경과일 (date, mode=diff, out=day)
   - 입사일 → 근속년수 (date, mode=diff, out=year)
   - 🚫 **스프레드시트·SQL 함수 절대 금지** — 엔진엔 그런 함수가 없다. 어떤 필드(값·then/els·산식·case)에도
-    \`FORMAT_DATE(...)\`, \`DATE(...)\`, \`YEAR(...)\`, \`MONTH(...)\`, \`TODAY()\`, \`CURRENT_DATE\`, \`IF(...)\`, \`CONCAT(...)\` 같은 걸 쓰지 마라.
+    \`FORMAT_DATE(...)\`, \`DATE(...)\`, \`YEAR(...)\`, \`MONTH(...)\`, \`TODAY()\`, \`CURRENT_DATE\`, \`IF(...)\`, \`CONCAT(...)\`,
+    \`MIN(...)\`, \`MAX(...)\`, \`SUM(...)\`, \`VLOOKUP(...)\` 같은 걸 쓰지 마라.
+    ✅ 단, **formula 산식 안에서만** 수학 함수 \`floor()\`·\`ceil()\`·\`round()\` 와 \`%\`(나머지)·\`//\`(몫) 은 사용 가능 (B 참고).
     • 날짜 계산은 오직 date step(diff/part) 으로. 오늘은 "오늘".
     • "당해 7월 1일" 같은 **고정 표시**는 함수가 아니라 그냥 **텍스트 라벨**("당해 7월 1일") 로 적어라.
     ❌ \`FORMAT_DATE(CURRENT_DATE, 'YYYY년 07월 01일')\`   ✅ "당해 7월 1일" (텍스트)
@@ -3455,6 +3476,23 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
     //   토큰화하면 "세 구간"·"%"·따옴표가 쓰레기 var 토큰이 되고 미정의 변수까지 생기므로,
     //   아예 토큰화하지 않는다(→ 빈 토큰 → isUsableStep 에서 그 산식 step 제거). 라벨은 LLM 안내문이 담당.
     if (/["'“”‘’]/.test(s)) return [];
+    // ── 엔진 미지원 수식 차단 (매우 중요) ──
+    //   계산 엔진(evalRpn)이 아는 것: 사칙(+ - * /)·나머지(%)·몫(//)·괄호·변수·숫자,
+    //   그리고 단항 함수 floor/ceil/round 뿐. 그 외 함수(IF/MIN/SUM/FORMAT_DATE…)·비교·기타 연산자는 못 푼다.
+    //   AI 가 이를 어기고 emit 하면 토큰화 시 쓰레기 var 토큰이 되어 런타임 "식 오류"·오답이 난다.
+    //   → 미지원 식은 통째로 버린다(빈 토큰 → isUsableStep 이 step 제거). 안내는 LLM 안내문이 담당.
+    // (1) `숫자%` 가 (연산자·)·끝) 앞이면 퍼센트 → (숫자/100). (변수 % 숫자 형태의 나머지(modulo)와 구분)
+    s = s.replace(/(\d+(?:\.\d+)?)\s*%(?=\s*([)+\-*/]|$))/g, "($1/100)");
+    // (2) 함수 호출: `이름(` 의 이름이 허용 함수(floor/ceil/round)가 아니면 미지원 함수 → 버림
+    const fnCallRe = /([A-Za-z가-힣ㄱ-힣_][\wㄱ-힣_]*)\s*\(/g;
+    let fm: RegExpExecArray | null;
+    while ((fm = fnCallRe.exec(s))) {
+      if (!FN_NAMES.has(fm[1].toLowerCase())) return [];
+    }
+    // (3) `숫자(` 또는 `)(` = 암묵적 곱(엔진 미지원) → 버림
+    if (/[0-9)]\s*\(/.test(s)) return [];
+    // (4) 남은 미지원 기호: 콤마(함수 인자)·^·비교/논리 연산자  (%·// 는 허용)
+    if (/[,^<>=!&|]/.test(s)) return [];
     const toks: any[] = [];
     let i = 0;
     while (i < s.length) {
@@ -3462,7 +3500,8 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
       if (c === " " || c === "\t") { i++; continue; }
       if (c === "(") { toks.push({ t: "lp" }); i++; continue; }
       if (c === ")") { toks.push({ t: "rp" }); i++; continue; }
-      if ("+-*/".includes(c)) { toks.push({ t: "op", op: c }); i++; continue; }
+      if (c === "/" && s[i + 1] === "/") { toks.push({ t: "op", op: "//" }); i += 2; continue; }
+      if ("+-*/%".includes(c)) { toks.push({ t: "op", op: c }); i++; continue; }
       if (/[0-9.]/.test(c)) {
         let j = i;
         while (j < s.length && /[0-9.]/.test(s[j])) j++;
@@ -3470,13 +3509,15 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
         i = j;
         continue;
       }
-      // 식별자 런 — 연산자/괄호 전까지 (내부 공백·한글·영숫자·_ 포함). 끝 공백 trim.
+      // 식별자 런 — 연산자/괄호/% 전까지 (내부 공백·한글·영숫자·_ 포함). 끝 공백 trim.
       let j = i;
-      while (j < s.length && !"+-*/()".includes(s[j])) j++;
+      while (j < s.length && !"+-*/()%".includes(s[j])) j++;
       const name = s.slice(i, j).trim();
       i = j;
-      // % 등 비식별자 기호가 섞인 토큰은 무시 (쓰레기 변수 방지)
-      if (name && !/[%]/.test(name)) toks.push({ t: "var", name: resolveName(name) });
+      if (!name) continue;
+      // floor/ceil/round → 함수 토큰, 그 외 → 변수
+      if (FN_NAMES.has(name.toLowerCase())) toks.push({ t: "fn", fn: name.toLowerCase() });
+      else toks.push({ t: "var", name: resolveName(name) });
     }
     return toks;
   };

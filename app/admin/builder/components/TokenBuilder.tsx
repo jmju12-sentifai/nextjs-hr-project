@@ -11,7 +11,8 @@ interface Props {
   varsMeta?: Record<string, { group?: string; subGroup?: string }>;
 }
 
-const OPSYM: Record<string, string> = { "+": "+", "-": "−", "*": "×", "/": "÷" };
+const OPSYM: Record<string, string> = { "+": "+", "-": "−", "*": "×", "/": "÷", "%": "%", "//": "몫" };
+const FN_LABEL: Record<string, string> = { floor: "floor 내림", ceil: "ceil 올림", round: "round 반올림" };
 
 // 변수 이름을 group > subGroup 계층으로 묶어 정렬된 optgroup 옵션을 렌더링.
 // 메타 정보 없거나 모두 _기타 면 평탄 옵션으로 fallback.
@@ -120,6 +121,8 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
       ? "bg-blue-100 text-blue-700"
       : t.t === "op"
       ? "bg-gray-200 text-gray-700"
+      : t.t === "fn"
+      ? "bg-amber-100 text-amber-700"
       : "bg-blue-100 text-blue-700";
 
   const chipLabel = (t: Token) =>
@@ -129,6 +132,8 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
       ? String(t.v)
       : t.t === "op"
       ? OPSYM[t.op]
+      : t.t === "fn"
+      ? t.fn
       : t.t === "lp"
       ? "("
       : ")";
@@ -207,13 +212,27 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
         </div>
         <div className="flex items-center gap-1 border-r pr-2">
           <span className="text-[10px] text-gray-500">연산</span>
-          {(["+", "-", "*", "/"] as const).map((o) => (
+          {(["+", "-", "*", "/", "%", "//"] as const).map((o) => (
             <button
               key={o}
               onClick={() => push({ t: "op", op: o })}
+              title={o === "%" ? "나머지" : o === "//" ? "몫(내림나눗셈)" : undefined}
               className="rounded border px-2 py-0.5 font-bold hover:bg-gray-100"
             >
               {OPSYM[o]}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 border-r pr-2">
+          <span className="text-[10px] text-gray-500">함수</span>
+          {(["floor", "ceil", "round"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => onChange([...tokens, { t: "fn", fn: f }, { t: "lp" }])}
+              title={FN_LABEL[f]}
+              className="rounded border px-2 py-0.5 font-mono text-amber-700 hover:bg-amber-50"
+            >
+              {f}(
             </button>
           ))}
         </div>

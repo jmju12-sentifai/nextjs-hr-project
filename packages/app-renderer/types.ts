@@ -57,10 +57,14 @@ export interface Judge {
 }
 
 // 토큰 — 수식 빌더
+//   op: 사칙(+ - * /) + 나머지(%) + 몫(// = 내림나눗셈)
+//   fn: 단항 함수 — floor(내림)·ceil(올림)·round(반올림). 항상 lp 가 뒤따른다: fn lp ... rp
+export type FnName = "floor" | "ceil" | "round";
 export type Token =
   | { t: "var"; name: string }
   | { t: "num"; v: number }
-  | { t: "op"; op: "+" | "-" | "*" | "/" }
+  | { t: "op"; op: "+" | "-" | "*" | "/" | "%" | "//" }
+  | { t: "fn"; fn: FnName }
   | { t: "lp" }
   | { t: "rp" };
 

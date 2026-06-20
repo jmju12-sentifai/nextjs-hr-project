@@ -16,7 +16,14 @@ import type {
 } from "./types";
 
 // ----- token <-> string -----
-const OPSYM: Record<string, string> = { "*": "×", "/": "÷", "+": "+", "-": "−" };
+const OPSYM: Record<string, string> = {
+  "*": "×",
+  "/": "÷",
+  "+": "+",
+  "-": "−",
+  "%": "%", // 나머지(modulo)
+  "//": "몫", // 내림나눗셈(floor division)
+};
 
 export function tk2str(tks: Token[] | undefined): string {
   if (!tks) return "";
@@ -28,6 +35,8 @@ export function tk2str(tks: Token[] | undefined): string {
         ? String(t.v)
         : t.t === "op"
         ? t.op
+        : t.t === "fn"
+        ? t.fn
         : t.t === "lp"
         ? "("
         : ")"
@@ -45,6 +54,8 @@ export function tk2disp(tks: Token[] | undefined): string {
         ? String(t.v)
         : t.t === "op"
         ? OPSYM[t.op]
+        : t.t === "fn"
+        ? t.fn
         : t.t === "lp"
         ? "("
         : ")"
@@ -56,7 +67,11 @@ export function tk2disp(tks: Token[] | undefined): string {
 type Lex =
   | { k: "num"; v: number }
   | { k: "id"; v: string }
-  | { k: "+" | "-" | "*" | "/" | "(" | ")"; v?: undefined };
+  | { k: "fn"; v: string }
+  | { k: "+" | "-" | "*" | "/" | "%" | "//" | "(" | ")"; v?: undefined };
+
+// 단항 함수 화이트리스트 — 이외의 함수 호출은 파서/토크나이저에서 거부.
+const FN_NAMES = new Set(["floor", "ceil", "round"]);
 
 function tok(s: string): Lex[] {
   const t: Lex[] = [];
@@ -67,7 +82,13 @@ function tok(s: string): Lex[] {
       i++;
       continue;
     }
-    if ("+-*/()".includes(c)) {
+    if (c === "/" && s[i + 1] === "/") {
+      // 몫(내림나눗셈) — 단일 / 보다 먼저 검사
+      t.push({ k: "//" });
+      i += 2;
+      continue;
+    }
+    if ("+-*/()%".includes(c)) {
       t.push({ k: c as any });
       i++;
       continue;
@@ -80,8 +101,10 @@ function tok(s: string): Lex[] {
       continue;
     }
     let j = i;
-    while (j < s.length && !"+-*/() \t".includes(s[j])) j++;
-    t.push({ k: "id", v: s.slice(i, j) });
+    while (j < s.length && !"+-*/()% \t".includes(s[j])) j++;
+    const id = s.slice(i, j);
+    // floor/ceil/round 는 함수 토큰으로 (그 외는 변수). 대소문자 무시.
+    t.push(FN_NAMES.has(id.toLowerCase()) ? { k: "fn", v: id.toLowerCase() } : { k: "id", v: id });
     i = j;
   }
   return t;
@@ -92,27 +115,37 @@ type RpnTok =
   | { k: "num"; v: number }
   | { k: "id"; v: string }
   | { k: "u" }
-  | { k: "+" | "-" | "*" | "/" | "(" };
+  | { k: "fn"; v: string }
+  | { k: "+" | "-" | "*" | "/" | "%" | "//" | "(" };
 
 function rpn(ts: Lex[]): RpnTok[] {
   const o: RpnTok[] = [];
   const op: RpnTok[] = [];
-  const P: Record<string, number> = { "+": 1, "-": 1, "*": 2, "/": 2, u: 3 };
+  const P: Record<string, number> = { "+": 1, "-": 1, "*": 2, "/": 2, "%": 2, "//": 2, u: 3 };
   let pv: Lex | null = null;
   for (const x of ts) {
     if (x.k === "num" || x.k === "id") {
       o.push(x as any);
+    } else if (x.k === "fn") {
+      // 단항 함수 — 연산자 스택에 올려두고, 짝 ) 를 만나면 출력으로 보낸다.
+      op.push({ k: "fn", v: x.v });
     } else if (x.k === "(") {
       op.push({ k: "(" });
     } else if (x.k === ")") {
       while (op.length && op[op.length - 1].k !== "(") o.push(op.pop()!);
       if (!op.length) throw new Error("괄호");
-      op.pop();
+      op.pop(); // ( 버림
+      // 바로 아래가 함수면 함수 적용을 출력으로
+      if (op.length && op[op.length - 1].k === "fn") o.push(op.pop()!);
     } else {
       let k = x.k as string;
       if (
         k === "-" &&
-        (pv === null || pv.k === "(" || "+-*/".includes(pv.k as string))
+        (pv === null ||
+          pv.k === "(" ||
+          pv.k === "fn" ||
+          pv.k === "//" ||
+          "+-*/%".includes(pv.k as string))
       ) {
         k = "u";
       }
@@ -155,11 +188,24 @@ function evalRpn(r: RpnTok[], sc: Sc): number {
         st.push(0);
       }
     } else if (x.k === "u") st.push(-(st.pop() as number));
-    else {
+    else if (x.k === "fn") {
+      const a = st.pop() as number;
+      st.push(x.v === "floor" ? Math.floor(a) : x.v === "ceil" ? Math.ceil(a) : Math.round(a));
+    } else {
       const b = st.pop()!;
       const a = st.pop()!;
       st.push(
-        x.k === "+" ? a + b : x.k === "-" ? a - b : x.k === "*" ? a * b : a / b
+        x.k === "+"
+          ? a + b
+          : x.k === "-"
+          ? a - b
+          : x.k === "*"
+          ? a * b
+          : x.k === "/"
+          ? a / b
+          : x.k === "%"
+          ? a % b // 나머지(modulo)
+          : Math.floor(a / b) // 몫(내림나눗셈) //
       );
     }
   }
@@ -180,6 +226,7 @@ function tokensToLex(tks: Token[]): Lex[] {
     if (t.t === "var") out.push({ k: "id", v: t.name });
     else if (t.t === "num") out.push({ k: "num", v: Number(t.v) });
     else if (t.t === "op") out.push({ k: t.op });
+    else if (t.t === "fn") out.push({ k: "fn", v: t.fn });
     else if (t.t === "lp") out.push({ k: "(" });
     else if (t.t === "rp") out.push({ k: ")" });
   }
@@ -192,7 +239,10 @@ export function evtok(tks: Token[] | undefined, sc: Sc): number {
 }
 
 // ----- 단위 포맷 -----
-const num0 = (n: number) => Math.round(n).toLocaleString("ko-KR");
+// 정수는 그대로, 소수는 최대 2자리까지 표시(끝 0 자동 제거, 부동소수 오차도 정리).
+//   ⚠ 계산값을 반올림하지 않는다 — 화면 표시만. 예: 6.6 → "6.6", 1234567 → "1,234,567".
+const num0 = (n: number) =>
+  n.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
 
 export function fmtU(n: any, unit: Unit | string | undefined): string {
   if (typeof n !== "number" || isNaN(n)) return "—";
