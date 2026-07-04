@@ -1368,48 +1368,176 @@ function withIds(schema: any) {
     };
   }
 
-  // ── dangling 참조 안전망 — 드롭된 step 을 참조하던 곳이 런타임 "미정의" 로 깨지지 않게 ──
-  // (필터링으로 어떤 step 이 제거됐는데 살아남은 step·조건이 그 이름을 참조하면, 그 이름을 변수로 자동 정의)
+  // ── 스코프 무결성 안전망 — 참조는 "vars + shared + 자기 경로 step" 안에서만 유효 ──
+  // ⚠ 전역(모든 경로 합집합) 검사는 금물: 런타임은 매칭된 경로의 step 만 실행하므로,
+  //   다른 경로에만 정의된 이름을 참조하면 그 경로에서 "미정의" 에러 → NaN 연쇄가 난다.
+  //   (실제 사례: 경로마다 같은 이름의 산출(기본급제안액)이 있는데 한 경로 것만 isUsableStep 에서
+  //    drop 되자, 전역 검사가 "정의됨" 으로 통과시켜 그 경로만 런타임에서 깨졌음.)
+  // 수리 규칙 — "부족해도 편집 가능" 은 허용, "에러로 깨짐" 은 차단:
+  //   (1) 진입 조건이 자기 경로 step 을 참조 → 그 step(+경로 내 의존 step)을 shared 로 승격
+  //       (조건은 step 실행 전에 평가되므로 경로 안에 두면 항상 미계산).
+  //   (2) 경로 step 참조가 스코프 밖인데 다른 경로에 같은 이름의 step 존재 → 이 경로에
+  //       스텁 산출(계산식 0) 삽입. 관리자가 빌더에서 산식만 채우면 됨 (에러 없음).
+  //   (3) 어디에도 없는 이름 → 개인 변수 자동 정의 (기존 동작).
+  //   (4) 리포트 bind 가 그 경로 스코프 밖 → 요소 제거 (항상 빈 값인 카드 차단).
   {
-    const defined = new Set<string>();
-    for (const v of schema.vars || []) if (v?.name) defined.add(v.name);
-    for (const s of schema.shared?.steps || []) if (s?.name) defined.add(s.name);
-    for (const p of schema.paths || []) for (const s of p.steps || []) if (s?.name) defined.add(s.name);
-    for (const s of schema.fallback?.steps || []) if (s?.name) defined.add(s.name);
-    const missing = new Set<string>();
-    const noteRef = (nm: any) => {
-      if (typeof nm !== "string") return;
+    const varNames = new Set<string>();
+    for (const v of schema.vars || []) if (v?.name) varNames.add(v.name);
+    const sharedNames = new Set<string>();
+    for (const s of schema.shared?.steps || []) if (s?.name) sharedNames.add(s.name);
+
+    // 참조로 취급 가능한 이름인지 (리터럴·예약어·깨진 수식 조각 제외)
+    const asRefName = (nm: any): string | null => {
+      if (typeof nm !== "string") return null;
       const n = nm.trim();
-      if (!n || defined.has(n) || missing.has(n)) return;
-      if (RESERVED.has(n) || isNumericLiteral(n) || isQuotedLiteral(n)) return;
-      if (/["'“”‘’%()*/+]/.test(n)) return; // 깨진 조각 제외
-      missing.add(n);
+      if (!n || RESERVED.has(n) || isNumericLiteral(n) || isQuotedLiteral(n)) return null;
+      if (/["'“”‘’%()*/+]/.test(n)) return null;
+      return n;
     };
-    const scanRefs = (s: any) => {
-      if (!s) return;
-      if (s.type === "classify") for (const it of s.items || []) noteRef(it?.ref);
-      else if (s.type === "table") noteRef(s.ref);
-      else if (s.type === "clamp") { noteRef(s.ref); noteRef(s.min); noteRef(s.max); }
-      else if (s.type === "formula") for (const t of s.tokens || []) if (t?.t === "var") noteRef(t.name);
+    // step 이 참조하는 이름들 (llm items 는 런타임이 안전 처리하므로 제외)
+    const refsOfStep = (s: any): string[] => {
+      const out: string[] = [];
+      const add = (nm: any) => { const n = asRefName(nm); if (n) out.push(n); };
+      if (!s || typeof s !== "object") return out;
+      if (s.type === "date") { add(s.a); if (s.mode === "diff") add(s.b); }
+      else if (s.type === "classify") for (const it of s.items || []) add(it?.ref);
+      else if (s.type === "table") add(s.ref);
+      else if (s.type === "clamp") { add(s.ref); add(s.min); add(s.max); }
+      else if (s.type === "formula") for (const t of s.tokens || []) { if (t?.t === "var") add(t.name); }
       else if (s.type === "branch") {
-        noteRef(s.ref);
-        if (s.thenT === "calc") for (const t of s.thenTok || []) if (t?.t === "var") noteRef(t.name);
-        if (s.elsT === "calc") for (const t of s.elsTok || []) if (t?.t === "var") noteRef(t.name);
+        add(s.ref);
+        if (typeof s.rhs === "string") add(s.rhs);
+        if (s.thenT === "calc") for (const t of s.thenTok || []) { if (t?.t === "var") add(t.name); }
+        if (s.elsT === "calc") for (const t of s.elsTok || []) { if (t?.t === "var") add(t.name); }
       } else if (s.type === "switch") {
-        noteRef(s.ref);
-        for (const c of s.cases || []) if (c?.t === "calc") for (const t of c.tokens || []) if (t?.t === "var") noteRef(t.name);
+        add(s.ref);
+        for (const c of s.cases || []) if (c?.t === "calc") for (const t of c.tokens || []) { if (t?.t === "var") add(t.name); }
+        for (const t of s.defaultTokens || []) { if (t?.t === "var") add(t.name); }
       }
+      return out;
     };
-    for (const s of schema.shared?.steps || []) scanRefs(s);
+
+    // (1) 조건 → 자기 경로 step 참조 시 shared 승격 (경로 내 의존 step 전이 포함)
     for (const p of schema.paths || []) {
-      for (const c of p.conditions || []) { if (c?.aMode !== "val") noteRef(c?.a); if (c?.bMode !== "val") noteRef(c?.b); }
-      for (const s of p.steps || []) scanRefs(s);
+      const ownStepByName = new Map<string, any>();
+      for (const s of p.steps || []) if (s?.name) ownStepByName.set(s.name, s);
+      const need = new Set<string>();
+      const visit = (n: string) => {
+        if (need.has(n) || !ownStepByName.has(n)) return;
+        need.add(n);
+        for (const r of refsOfStep(ownStepByName.get(n))) visit(r);
+      };
+      for (const c of p.conditions || []) {
+        if (!c || typeof c !== "object") continue;
+        for (const raw of [c.aMode !== "val" ? c.a : null, c.bMode !== "val" ? c.b : null]) {
+          const n = asRefName(raw);
+          if (n && !varNames.has(n) && !sharedNames.has(n) && ownStepByName.has(n)) visit(n);
+        }
+      }
+      if (need.size > 0) {
+        const moved: any[] = [];
+        p.steps = (p.steps || []).filter((s: any) => {
+          if (s?.name && need.has(s.name)) { moved.push(s); return false; }
+          return true;
+        });
+        if (!schema.shared) schema.shared = { steps: [] };
+        if (!Array.isArray(schema.shared.steps)) schema.shared.steps = [];
+        for (const s of moved) {
+          if (!sharedNames.has(s.name)) { schema.shared.steps.push(s); sharedNames.add(s.name); }
+        }
+      }
     }
-    for (const s of schema.fallback?.steps || []) scanRefs(s);
-    if (missing.size > 0) {
+
+    // 승격 반영 후 — 경로별 step 이름 인벤토리 (스텁 생성 시 단위 참고용)
+    const stepAnywhere = new Map<string, any>();
+    for (const p of schema.paths || [])
+      for (const s of p.steps || []) if (s?.name && !stepAnywhere.has(s.name)) stepAnywhere.set(s.name, s);
+    for (const s of schema.fallback?.steps || []) if (s?.name && !stepAnywhere.has(s.name)) stepAnywhere.set(s.name, s);
+
+    // (3) 어디에도 없는 이름 수집 → 마지막에 개인 변수로 일괄 추가
+    const autoVarHints = new Map<string, TypeHint>();
+    const noteAutoVar = (n: string, hint: TypeHint) => {
+      if (varNames.has(n)) return;
+      const prev = autoVarHints.get(n);
+      if (!prev || (prev.type === "number" && hint.type !== "number")) autoVarHints.set(n, hint);
+    };
+    const hintFor = (s: any, refName: string): TypeHint => {
+      if (s?.type === "date") return { type: "date" };
+      if (s?.type === "switch" && s.ref === refName) return { type: "text" };
+      return { type: "number" };
+    };
+
+    // (2)+(3) step 참조 스코프 검사 — shared / 각 경로 / fallback
+    for (const s of schema.shared?.steps || []) {
+      for (const n of refsOfStep(s)) {
+        // shared 는 경로 step 을 참조할 수 없음 (경로 실행 전) — 변수로만 보강 가능
+        if (!varNames.has(n) && !sharedNames.has(n)) noteAutoVar(n, hintFor(s, n));
+      }
+    }
+    const repairScopedSteps = (steps: any[], scope: Set<string>): any[] => {
+      const out: any[] = [];
+      for (const s of steps) {
+        for (const n of refsOfStep(s)) {
+          if (scope.has(n) || autoVarHints.has(n)) continue;
+          const other = stepAnywhere.get(n);
+          if (other) {
+            // 다른 경로에 같은 이름의 산출 존재 → 이 경로용 스텁 삽입 (관리자가 산식을 채움)
+            out.push({ id: "auto", name: n, unit: other.unit || "", type: "formula", tokens: [{ t: "num", v: 0 }] });
+            scope.add(n);
+          } else {
+            noteAutoVar(n, hintFor(s, n));
+          }
+        }
+        out.push(s);
+      }
+      return out;
+    };
+    const scopeOf = (steps: any[] = []): Set<string> => {
+      const scope = new Set<string>([...varNames, ...sharedNames]);
+      for (const s of steps) if (s?.name) scope.add(s.name);
+      return scope;
+    };
+    const NEEDS_BIND = new Set(["card", "calc", "incexc", "chart", "field"]);
+    const cleanScopedReport = (report: any[] = [], scope: Set<string>): any[] =>
+      report.filter((e: any) => {
+        if (!e || typeof e !== "object") return false;
+        if (!NEEDS_BIND.has(e.kind)) return true;
+        const inScope = (nm: any) => {
+          const n = typeof nm === "string" ? nm.trim() : "";
+          return !n || scope.has(n) || autoVarHints.has(n);
+        };
+        return inScope(e.bind) && inScope(e.bind2);
+      });
+    for (const p of schema.paths || []) {
+      const scope = scopeOf(p.steps);
+      p.steps = repairScopedSteps(p.steps || [], scope);
+      // 조건 참조 — 자기 경로 step 은 위에서 이미 shared 승격됨. 남은 미해석 이름은 변수로.
+      for (const c of p.conditions || []) {
+        if (!c || typeof c !== "object") continue;
+        for (const raw of [c.aMode !== "val" ? c.a : null, c.bMode !== "val" ? c.b : null]) {
+          const n = asRefName(raw);
+          if (n && !varNames.has(n) && !sharedNames.has(n)) noteAutoVar(n, { type: "number" });
+        }
+      }
+      p.report = cleanScopedReport(p.report, scope);
+    }
+    if (schema.fallback) {
+      const scope = scopeOf(schema.fallback.steps);
+      schema.fallback.steps = repairScopedSteps(schema.fallback.steps || [], scope);
+      schema.fallback.report = cleanScopedReport(schema.fallback.report, scope);
+    }
+    if (autoVarHints.size > 0) {
       if (!Array.isArray(schema.vars)) schema.vars = [];
-      for (const name of missing) {
-        schema.vars.push({ id: "auto", grp: "개인", name, type: "number", unit: "원", req: false, test: "" });
+      for (const [name, hint] of autoVarHints) {
+        schema.vars.push({
+          id: "auto",
+          grp: "개인",
+          name,
+          type: hint.type,
+          unit: hint.unit || (hint.type === "number" ? "원" : ""),
+          req: false,
+          test: "",
+        });
       }
     }
   }
@@ -2717,6 +2845,10 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   • 통계·사후 분석용 메타데이터
   → 너무 광범위한 핵심보다 **핵심은 적고 정확하게, 기타는 자유롭게** 가 사용자 선호.
 - paths 는 first-match. 좁은 조건부터.
+- **각 경로는 자족적 (매우 중요)** — 경로의 step·conditions 가 참조할 수 있는 이름은
+  선언된 변수, shared.steps, **같은 경로의 선행 step** 뿐이다. **다른 경로의 step 참조 절대 금지**
+  (런타임엔 매칭된 경로 하나만 실행되므로 다른 경로의 산출은 항상 미정의). 여러 경로가 같은 이름의
+  산출(예: 기본급제안액)을 쓰면 **경로마다 각자 정의**하거나 공통 산식이면 shared 로 옮겨라.
 - **paths[].conditions 작성법**:
   • 변수 vs 변수: \`"만나이 >= 최초적용연령"\`
   • 변수 vs 숫자: \`"만나이 >= 56"\`
@@ -3307,6 +3439,8 @@ async function generateSpecPaths(
     `\n\n# ⚠ 이번 호출 = [paths — 분석 로직] 단계. **오직 \`shared\`·\`paths\`·\`fallback\` 키만**.
 - **공통 사전 계산**(여러 경로가 함께 쓰는 산출 — 예: 만나이·경과일수·기준 평균값 등 도메인 공통 산출)은 \`shared.steps\` 에 **한 번만** 두세요. 경로마다 똑같은 산식을 복제하지 말 것. shared 의 step.name 은 각 경로 step·조건에서 참조 가능.
 - **그 경로에서만 쓰는 산출**(분류별 가산·전용 금액 등)만 \`path.steps\` 에 두세요.
+- **각 경로는 자족적** — 경로의 step·conditions 가 참조할 수 있는 이름은 확정 변수, shared.steps, **같은 경로의 선행 step** 뿐. **다른 경로의 step 참조 절대 금지** (런타임엔 매칭된 경로만 실행되므로 항상 미정의 에러). 여러 경로가 같은 이름의 산출(예: 기본급제안액)을 쓰면 **경로마다 각자 정의**하거나 shared 로 옮겨라.
+- **산식(formula)의 expression 은 사칙연산·괄호·floor/ceil/round 만** — "표에서 조회", IF, 함수 호출 같은 문구를 넣으면 그 step 은 통째로 버려진다. 표 대응값 조회는 **table(구간표) step 으로 bands 를 구체화**해 표현하고(참고 문서의 실제 값 사용), 구간표로도 표현 불가능하면 스스로 판단해 근사 산식(예: 기준값 * 비율)으로 채워라. 참조가 끊긴 이름을 남기지 말 것.
 - 분기축(분류 변수)의 **모든 분류값마다 path 1개씩 빠짐없이** 생성. 하나만 만들고 나머지를 fallback 으로 떠넘기지 말 것.
 출력: { "shared": { "steps": [...] }, "paths": [...], "fallback": {...} }`
   );
