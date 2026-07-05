@@ -789,7 +789,13 @@ function ParseFrame({
         body: JSON.stringify({
           fileBase64,
           mimeType: file.type,
-          slots: vs.map((s) => ({ name: s.name, type: s.type, unit: s.unit })),
+          slots: vs.map((s) => ({
+            name: s.name,
+            type: s.type,
+            unit: s.unit,
+            desc: s.desc || undefined,
+            options: s.type === "select" && s.options?.length ? s.options : undefined,
+          })),
         }),
       });
       if (await handleAuthError(res, window.location.pathname)) return;
@@ -1332,52 +1338,89 @@ function GroupedVarsList({
   const renderRow = (v: Variable) => {
     const val = v.name in filled ? filled[v.name] : "";
     const has = val !== "" && val !== null && val !== undefined;
+    const isSelect = v.type === "select" && Array.isArray(v.options) && v.options.length > 0;
+    const inputCls =
+      "w-40 rounded-lg border px-2.5 py-1.5 text-xs font-mono shrink-0 " +
+      (!has && v.req
+        ? "border-rose-300 bg-rose-50 text-rose-700"
+        : "border-gray-200 bg-white text-gray-900");
+    // 예시값 — 관리자가 빌더에 넣어둔 테스트값을 placeholder 로 노출
+    const example = typeof v.test === "string" && v.test.trim() ? v.test.trim() : "";
     return (
       <li
         key={v.id}
         className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0 text-sm"
       >
-        <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-          <span className="text-gray-800 truncate">{v.name}</span>
-          {v.req && (
-            <span
-              className={
-                "text-[9px] rounded px-1.5 py-0.5 font-mono shrink-0 ring-1 " +
-                (grp === "개인"
-                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                  : "bg-gray-100 text-gray-600 ring-gray-200")
-              }
-            >
-              필수
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-gray-800 truncate">{v.name}</span>
+            {v.req && (
+              <span
+                className={
+                  "text-[9px] rounded px-1.5 py-0.5 font-mono shrink-0 ring-1 " +
+                  (grp === "개인"
+                    ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                    : "bg-gray-100 text-gray-600 ring-gray-200")
+                }
+              >
+                필수
+              </span>
+            )}
+            <span className="text-[10px] font-mono text-gray-400 shrink-0">
+              {isSelect ? "선택" : v.type}
+              {v.unit ? " · " + v.unit : ""}
             </span>
+          </div>
+          {v.desc?.trim() && (
+            <div className="text-[11px] text-gray-400 mt-0.5 truncate" title={v.desc}>
+              {v.desc}
+            </div>
           )}
-          <span className="text-[10px] font-mono text-gray-400 shrink-0">
-            {v.type}
-            {v.unit ? " · " + v.unit : ""}
-          </span>
         </div>
-        <input
-          type={v.type === "number" ? "number" : v.type === "date" ? "date" : "text"}
-          value={val ?? ""}
-          onChange={(e) =>
-            setFilled({
-              ...filled,
-              [v.name]:
-                v.type === "number"
-                  ? e.target.value === ""
-                    ? ""
-                    : Number(e.target.value)
-                  : e.target.value,
-            })
-          }
-          className={
-            "w-40 rounded-lg border px-2.5 py-1.5 text-xs font-mono text-right shrink-0 " +
-            (!has && v.req
-              ? "border-rose-300 bg-rose-50 text-rose-700"
-              : "border-gray-200 bg-white text-gray-900")
-          }
-          placeholder={!has && v.req ? "누락" : "—"}
-        />
+        {isSelect ? (
+          <select
+            value={has ? String(val) : ""}
+            onChange={(e) => setFilled({ ...filled, [v.name]: e.target.value })}
+            className={inputCls + " text-right"}
+          >
+            <option value="">{v.req ? "선택 (누락)" : "선택 안 함"}</option>
+            {v.options!.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+            {/* 파싱이 목록 밖 값을 채운 예외 — 값 유실 없이 표시 */}
+            {has && !v.options!.includes(String(val)) && (
+              <option value={String(val)}>{String(val)}</option>
+            )}
+          </select>
+        ) : (
+          <input
+            type={v.type === "number" ? "number" : v.type === "date" ? "date" : "text"}
+            value={val ?? ""}
+            onChange={(e) =>
+              setFilled({
+                ...filled,
+                [v.name]:
+                  v.type === "number"
+                    ? e.target.value === ""
+                      ? ""
+                      : Number(e.target.value)
+                    : e.target.value,
+              })
+            }
+            className={inputCls + " text-right"}
+            placeholder={
+              !has && v.req
+                ? example
+                  ? `누락 · 예: ${example}`
+                  : "누락"
+                : example
+                ? `예: ${example}`
+                : "—"
+            }
+          />
+        )}
       </li>
     );
   };

@@ -736,7 +736,7 @@ export function describeName(schema: AppSchema, name: string, sc?: Sc): string {
     const subject =
       v.type === "date"
         ? "날짜"
-        : v.type === "text"
+        : v.type === "text" || v.type === "select"
         ? "정보"
         : v.unit === "원"
         ? "금액"

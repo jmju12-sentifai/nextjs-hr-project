@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Grp, Unit, VarType, Variable } from "app-renderer";
 import { UNITS } from "app-renderer";
 
@@ -11,7 +11,9 @@ interface Props {
   onChange: (vars: Variable[]) => void;
 }
 
-const TYPES: VarType[] = ["number", "text", "date"];
+const TYPES: VarType[] = ["number", "text", "date", "select"];
+// 타입 표시명 — select 는 "선택형" 으로 (정해진 옵션 중에서만 값을 고르는 변수)
+const typeLabel = (t: VarType) => (t === "select" ? "선택형" : t);
 
 export default function TabVars({ grp, vars, onChange }: Props) {
   const list = vars.filter((v) => v.grp === grp);
@@ -103,6 +105,7 @@ export default function TabVars({ grp, vars, onChange }: Props) {
         unit: ty === "number" ? un : "",
         req,
         test: "",
+        ...(ty === "select" ? { options: [] } : {}),
       },
     ]);
     setNm("");
@@ -164,7 +167,7 @@ export default function TabVars({ grp, vars, onChange }: Props) {
         >
           {TYPES.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {typeLabel(t)}
             </option>
           ))}
         </select>
@@ -226,6 +229,68 @@ export default function TabVars({ grp, vars, onChange }: Props) {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// 선택형(select) 변수의 허용값 편집 — 칩 목록 + 추가/삭제.
+// 사용자 화면에서는 이 목록이 콤보박스 선택지가 되고, 문서 파싱도 이 안에서만 값이 정해진다.
+function OptionsEditor({
+  options,
+  onChange,
+}: {
+  options: string[];
+  onChange: (options: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const s = draft.trim();
+    setDraft("");
+    if (!s || options.includes(s)) return;
+    onChange([...options, s]);
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[11px] font-mono text-gray-500 shrink-0 w-12">허용값</span>
+      {options.map((o) => (
+        <span
+          key={o}
+          className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs"
+        >
+          {o}
+          <button
+            onClick={() => onChange(options.filter((x) => x !== o))}
+            className="text-gray-400 hover:text-rose-600"
+            title="옵션 삭제"
+            aria-label={`옵션 ${o} 삭제`}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            add();
+          }
+        }}
+        placeholder="+ 옵션 추가"
+        className="w-28 rounded border px-2 py-0.5 text-xs font-mono"
+      />
+      <button
+        onClick={add}
+        className="rounded border bg-white px-2 py-0.5 text-xs hover:bg-gray-50"
+      >
+        추가
+      </button>
+      {options.length < 2 && (
+        <span className="text-[11px] text-amber-600">
+          옵션을 2개 이상 넣어야 사용자 화면에서 콤보박스로 표시됩니다
+        </span>
       )}
     </div>
   );
@@ -310,6 +375,15 @@ function GroupedVarsTable({
   const [pendingDelete, setPendingDelete] = useState<
     { ids: string[]; label: string; count: number } | null
   >(null);
+  // 상세(설명) 편집이 펼쳐진 변수들 — select 타입·설명이 이미 있는 변수는 항상 펼침
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // 계층화 — group → subGroup → [vars]
   // group 이 없는 변수는 "_미분류" 묶음.
   const groups: Record<string, Record<string, Variable[]>> = {};
@@ -321,68 +395,143 @@ function GroupedVarsTable({
     groups[g][sg].push(v);
   }
   const hasHierarchy = list.some((v) => v.group?.trim());
-  const renderRow = (v: Variable) => (
-    <tr key={v.id} className="border-b border-gray-100">
-      <td className="py-1.5 px-2">
-        <VarNameInput
-          value={v.name}
-          invalidOf={(raw) => nameInvalid(raw, v.id)}
-          onCommit={(raw) => commitName(v.id, raw)}
-          cls={inpCls + " w-full"}
-        />
-      </td>
-      <td className="py-1.5 px-2">
-        <select
-          value={v.type}
-          onChange={(e) => update(v.id, { type: e.target.value as VarType })}
-          className={selCls + " w-full"}
-        >
-          {TYPES.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-      </td>
-      <td className="py-1.5 px-2">
-        <select
-          value={v.unit || ""}
-          disabled={v.type !== "number"}
-          onChange={(e) => update(v.id, { unit: e.target.value as Unit })}
-          className={selCls + " w-full"}
-        >
-          {UNITS.map((u) => (
-            <option key={u} value={u}>{u || "(단위없음)"}</option>
-          ))}
-        </select>
-      </td>
-      <td className="py-1.5 px-2">
-        <input
-          value={v.test || ""}
-          onChange={(e) => update(v.id, { test: e.target.value })}
-          className={inpCls + " w-full"}
-          placeholder={v.type === "date" ? "YYYY-MM-DD" : ""}
-        />
-      </td>
-      <td className="py-1.5 px-2 text-center">
-        <input
-          type="checkbox"
-          checked={!!v.req}
-          onChange={(e) => update(v.id, { req: e.target.checked })}
-        />
-      </td>
-      <td className="py-1.5 px-2 whitespace-nowrap w-px">
-        <button
-          onClick={() => remove(v.id)}
-          className="inline-flex items-center justify-center h-6 w-6 rounded-md border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:border-rose-300 transition"
-          title="변수 삭제"
-          aria-label="변수 삭제"
-        >
-          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </td>
-    </tr>
-  );
+  const renderRow = (v: Variable) => {
+    const isSelect = v.type === "select";
+    // 상세행(설명·허용값 편집) — 선택형이거나, 설명이 이미 있거나, 사용자가 펼친 경우 표시
+    const showDetail = isSelect || !!v.desc?.trim() || expandedIds.has(v.id);
+    return (
+      <Fragment key={v.id}>
+        <tr className={"border-gray-100 " + (showDetail ? "" : "border-b")}>
+          <td className="py-1.5 px-2">
+            <VarNameInput
+              value={v.name}
+              invalidOf={(raw) => nameInvalid(raw, v.id)}
+              onCommit={(raw) => commitName(v.id, raw)}
+              cls={inpCls + " w-full"}
+            />
+          </td>
+          <td className="py-1.5 px-2">
+            <select
+              value={v.type}
+              onChange={(e) => {
+                const type = e.target.value as VarType;
+                const patch: Partial<Variable> = { type };
+                if (type === "select") {
+                  patch.unit = "";
+                  // 옵션이 없으면 기존 테스트값을 첫 옵션으로 시드 (백지에서 시작 가능)
+                  if (!v.options?.length && v.test?.trim()) patch.options = [v.test.trim()];
+                  else if (!v.options) patch.options = [];
+                }
+                update(v.id, patch);
+              }}
+              className={selCls + " w-full"}
+            >
+              {TYPES.map((t) => (
+                <option key={t} value={t}>{typeLabel(t)}</option>
+              ))}
+            </select>
+          </td>
+          <td className="py-1.5 px-2">
+            <select
+              value={v.unit || ""}
+              disabled={v.type !== "number"}
+              onChange={(e) => update(v.id, { unit: e.target.value as Unit })}
+              className={selCls + " w-full"}
+            >
+              {UNITS.map((u) => (
+                <option key={u} value={u}>{u || "(단위없음)"}</option>
+              ))}
+            </select>
+          </td>
+          <td className="py-1.5 px-2">
+            {isSelect ? (
+              <select
+                value={v.test || ""}
+                onChange={(e) => update(v.id, { test: e.target.value })}
+                className={selCls + " w-full"}
+              >
+                <option value="">(선택)</option>
+                {(v.options || []).map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={v.test || ""}
+                onChange={(e) => update(v.id, { test: e.target.value })}
+                className={inpCls + " w-full"}
+                placeholder={v.type === "date" ? "YYYY-MM-DD" : ""}
+              />
+            )}
+          </td>
+          <td className="py-1.5 px-2 text-center">
+            <input
+              type="checkbox"
+              checked={!!v.req}
+              onChange={(e) => update(v.id, { req: e.target.checked })}
+            />
+          </td>
+          <td className="py-1.5 px-2 whitespace-nowrap w-px">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => toggleExpand(v.id)}
+                className={
+                  "inline-flex items-center justify-center h-6 w-6 rounded-md border transition " +
+                  (showDetail
+                    ? "border-blue-300 bg-blue-50 text-blue-600"
+                    : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600")
+                }
+                title="설명 편집 (사용자 화면에 도움말로 표시)"
+                aria-label="설명 편집"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => remove(v.id)}
+                className="inline-flex items-center justify-center h-6 w-6 rounded-md border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:border-rose-300 transition"
+                title="변수 삭제"
+                aria-label="변수 삭제"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {showDetail && (
+          <tr className="border-b border-gray-100 bg-gray-50/70">
+            <td colSpan={6} className="py-2 px-3 space-y-2">
+              {isSelect && (
+                <OptionsEditor
+                  options={v.options || []}
+                  onChange={(options) =>
+                    update(v.id, {
+                      options,
+                      // 테스트값이 목록에서 빠지면 첫 옵션으로 보정
+                      test:
+                        v.test && options.includes(v.test) ? v.test : options[0] || "",
+                    })
+                  }
+                />
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono text-gray-500 shrink-0 w-12">설명</span>
+                <input
+                  value={v.desc || ""}
+                  onChange={(e) => update(v.id, { desc: e.target.value })}
+                  className={inpCls + " flex-1 !font-sans"}
+                  placeholder="이 변수가 무엇인지 한 줄 설명 — 사용자 입력 화면에 도움말로 표시됩니다"
+                />
+              </div>
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    );
+  };
   const header = (
     <thead>
       <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-blue-700 bg-blue-50 border-y border-blue-100">

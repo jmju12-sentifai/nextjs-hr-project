@@ -1,5 +1,6 @@
 // v5 스키마 — 단일 소스 오브 트루스
-export type VarType = "number" | "text" | "date";
+// select: 정해진 옵션 중 하나만 값이 될 수 있는 선택형 변수 (내부 계산·비교는 text 와 동일하게 문자열)
+export type VarType = "number" | "text" | "date" | "select";
 export type Unit =
   | ""
   | "원"
@@ -43,6 +44,10 @@ export interface Variable {
   // 계층 분류 — 같은 도메인 묶음(예: "경조사" > "결혼") 표시용. 선택적.
   group?: string;
   subGroup?: string;
+  // type="select" 전용 — 허용값 목록. 파싱·수기 입력 모두 이 안에서만 값 결정.
+  options?: string[];
+  // 변수 설명 — 사용자 입력 화면에서 도움말로 노출. 모든 타입 공통 (선택).
+  desc?: string;
 }
 
 export type CmpOp = ">=" | "<=" | ">" | "<" | "==" | "!=";

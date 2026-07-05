@@ -4,6 +4,8 @@ interface Slot {
   name: string;
   type: string;
   unit?: string;
+  desc?: string; // 변수 설명 — 파싱 정확도를 높이기 위한 맥락
+  options?: string[]; // type="select" — 허용값 목록. 파싱 결과는 반드시 이 안에서만.
 }
 
 // 기본 모델 — 환경변수(GEMINI_MODEL) 없으면 gemini-3.5-flash 사용 (빠르고 파싱 정확).
@@ -282,9 +284,14 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     //                 • "대상자관계"      (임직원이 고른 본인/배우자/자녀) → 개인
     // ⚠️ 절대 모든 변수를 한쪽 grp 로 몰지 말 것. 기획서에는 보통 규정·개인 변수가 모두 있다.
     //    규정 변수가 안 보이면 다시 한 번 기획서를 읽어 회사 정책 값을 찾아라.
-    // type ∈ number|text|date
-    // unit ∈ '' | 원 | 일 | 명 | % | 배 | 점 | 개 | 년 | 월 | 시간 | 건 | 회
+    // type ∈ number|text|date|select
+    //   • select = 값이 정해진 후보 중 하나인 변수 (…유형·…방식·…구분·운영모델·분기축 등).
+    //     "options" 배열에 허용값을 모두 나열하고 test 는 그중 하나로.
+    //     기획서 설명에 "값: A/B/C" 처럼 후보가 명시된 변수는 반드시 select 로.
+    //     예: { "name": "급여체계유형", "type": "select", "options": ["밴드","호봉","표준액","미운영"], ... }
+    // unit ∈ '' | 원 | 일 | 명 | % | 배 | 점 | 개 | 년 | 월 | 시간 | 건 | 회 (select 는 unit 빈값)
     // req: 개인 변수에서 필수면 true
+    // desc: 사용자에게 보여줄 한 줄 설명 (기획서의 '설명' 컬럼 내용을 간결히) — 가능한 채워라
     //
     // 🆕 test 필드 (예시 테스트값) — 빌더 미리보기에서 사용. **반드시 채워라**.
     //   • 규정 변수: 기획서에 명시된 정책 값을 그대로 (예: "1000000", "60", "2026-07-01", "혼합형")
@@ -299,7 +306,8 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     //     예: paths[0].conditions = ["경조이벤트유형 == \"결혼\"", "대상자관계 == \"본인\""] 이면
     //         "경조이벤트유형" 의 test = "결혼", "대상자관계" 의 test = "본인" 으로 설정.
     //     숫자 조건도 마찬가지 — "만나이 >= 56" 이면 "만나이" 또는 "생년월일" test 가 만 56세 이상이 되도록.
-    { "id": "auto", "grp": "규정", "name": "변수명_공백없이", "type": "number", "unit": "년", "req": false, "test": "예시값" }
+    { "id": "auto", "grp": "규정", "name": "변수명_공백없이", "type": "number", "unit": "년", "req": false, "test": "예시값", "desc": "한 줄 설명" },
+    { "id": "auto", "grp": "규정", "name": "급여체계유형", "type": "select", "options": ["밴드", "호봉", "표준액", "미운영"], "unit": "", "req": false, "test": "밴드", "desc": "기본급 산정 방식(분기축)" }
   ],
   "shared": {
     // 모든 경로 진입 전 실행되는 공통 사전 계산
@@ -1166,7 +1174,7 @@ function withIds(schema: any) {
   const nonNumericNames = new Set<string>();
   for (const v of schema.vars || []) {
     if (!v?.name) continue;
-    if (v.type === "text" || v.type === "date") nonNumericNames.add(v.name);
+    if (v.type === "text" || v.type === "date" || v.type === "select") nonNumericNames.add(v.name);
     else if (looksLikeText(v.name)) nonNumericNames.add(v.name);
   }
   const collectNonNumericFromSteps = (steps: any[] = []) => {
@@ -1543,12 +1551,77 @@ function withIds(schema: any) {
   }
 
   // 산식에 쓰인 변수는 type='number' 로 승격 (text/date 면 number 로 강제)
-  // 단, 명백히 텍스트성 이름(품목·사유·관계·시기 등)은 절대 number 로 승격하지 않음.
+  // 단, 명백히 텍스트성 이름(품목·사유·관계·시기 등)과 선택형(select — 분류 변수)은 절대 승격하지 않음.
   if (Array.isArray(schema.vars) && numberPromote.size > 0) {
     schema.vars = schema.vars.map((v: any) => {
       if (!v || typeof v !== "object") return v;
-      if (numberPromote.has(v.name) && v.type !== "number" && !looksLikeText(v.name) && !hasNonNumericValue(v.name)) {
+      if (
+        numberPromote.has(v.name) &&
+        v.type !== "number" &&
+        v.type !== "select" &&
+        !looksLikeText(v.name) &&
+        !hasNonNumericValue(v.name)
+      ) {
         return { ...v, type: "number", unit: v.unit || "원" };
+      }
+      return v;
+    });
+  }
+
+  // ── 분류 변수 자동 select 승격 — 진입 조건·switch 가 사실상 옵션 목록을 정의하는 경우 ──
+  // text 변수가 (1) 경로 진입 조건에서 == 리터럴 비교되거나 (2) switch ref 로 쓰이면,
+  // 그 리터럴/case.match 들이 곧 허용값이다. 2개 이상 모이면 select 로 승격해
+  // 사용자 입력을 콤보박스로, 파싱을 목록 내로 제한한다. (AI 가 select 로 안 뽑은 경우의 안전망)
+  if (Array.isArray(schema.vars)) {
+    const optionPool = new Map<string, Set<string>>(); // 변수명 → 발견된 허용값들
+    const noteOption = (varName: any, val: any) => {
+      if (typeof varName !== "string" || !varName.trim()) return;
+      let s = typeof val === "string" ? val.trim() : String(val ?? "").trim();
+      s = s.replace(/^["'“”‘’]|["'“”‘’]$/g, "").trim();
+      if (!s || /^-?\d+(\.\d+)?$/.test(s)) return; // 숫자 비교는 분류 아님
+      const key = varName.trim();
+      if (!optionPool.has(key)) optionPool.set(key, new Set());
+      optionPool.get(key)!.add(s);
+    };
+    const scanCondsForOptions = (conds: any[] = []) => {
+      for (const c of conds) {
+        if (!c || typeof c !== "object") continue;
+        if (c.op !== "==" && c.op !== "!=") continue;
+        if (c.aMode !== "val" && c.bMode === "val") noteOption(c.a, c.b);
+        if (c.bMode !== "val" && c.aMode === "val") noteOption(c.b, c.a);
+      }
+    };
+    const scanSwitchForOptions = (steps: any[] = []) => {
+      for (const s of steps) {
+        if (s?.type !== "switch" || typeof s.ref !== "string") continue;
+        for (const cse of s.cases || []) noteOption(s.ref, cse?.match);
+      }
+    };
+    for (const p of schema.paths || []) {
+      scanCondsForOptions(p.conditions);
+      scanSwitchForOptions(p.steps);
+    }
+    scanSwitchForOptions(schema.shared?.steps);
+    if (schema.fallback) {
+      scanCondsForOptions(schema.fallback.conditions);
+      scanSwitchForOptions(schema.fallback.steps);
+    }
+    schema.vars = schema.vars.map((v: any) => {
+      if (!v || typeof v !== "object" || typeof v.name !== "string") return v;
+      const found = optionPool.get(v.name);
+      if (v.type === "select") {
+        // 기존 select — 조건/switch 에서 발견된 값이 options 에 빠져 있으면 보충
+        const opts: string[] = Array.isArray(v.options) ? [...v.options] : [];
+        for (const o of found || []) if (!opts.includes(o)) opts.push(o);
+        if (typeof v.test === "string" && v.test.trim() && !opts.includes(v.test.trim()))
+          opts.push(v.test.trim());
+        return { ...v, options: opts, unit: "" };
+      }
+      if (v.type === "text" && found && found.size >= 2) {
+        const opts = [...found];
+        if (typeof v.test === "string" && v.test.trim() && !opts.includes(v.test.trim()))
+          opts.push(v.test.trim());
+        return { ...v, type: "select", options: opts, unit: "" };
       }
       return v;
     });
@@ -1821,6 +1894,14 @@ function withIds(schema: any) {
       if (!v || typeof v !== "object" || typeof v.name !== "string") return v;
       // AI 가 채워준 값이 있으면 유지 (단, 공백 문자열만 있으면 비어있는 걸로 간주)
       const existing = typeof v.test === "string" ? v.test.trim() : "";
+      // select — test 는 반드시 options 안에서 (빈 값·목록 밖이면 첫 옵션)
+      if (v.type === "select") {
+        const opts: string[] = Array.isArray(v.options) ? v.options : [];
+        if (!existing || !opts.includes(existing)) {
+          return { ...v, test: opts[0] || "" };
+        }
+        return v;
+      }
       if (existing) return v;
       return { ...v, test: defaultByKeyword(v.name, v.type) };
     });
@@ -1845,9 +1926,14 @@ function withIds(schema: any) {
             // 등가 — 그대로
             v.test = lit;
           } else if (c.op === "!=") {
-            // 부등 — 현재 값이 같으면 다른 값으로 (텍스트면 "_other", 숫자면 +1)
+            // 부등 — 현재 값이 같으면 다른 값으로 (select 는 다른 옵션, 텍스트면 "_other", 숫자면 +1)
             if (String(v.test) === lit) {
-              v.test = /^-?\d+(\.\d+)?$/.test(lit) ? String(Number(lit) + 1) : `${lit}_other`;
+              if (v.type === "select" && Array.isArray(v.options)) {
+                const alt = v.options.find((o: string) => o !== lit);
+                if (alt) v.test = alt;
+              } else {
+                v.test = /^-?\d+(\.\d+)?$/.test(lit) ? String(Number(lit) + 1) : `${lit}_other`;
+              }
             }
           } else if (/^-?\d+(\.\d+)?$/.test(lit)) {
             const n = Number(lit);
@@ -2128,14 +2214,27 @@ export async function parseDocument(
 ): Promise<Record<string, any>> {
   if (!slots || slots.length === 0) return {};
   const slotsDesc = slots
-    .map((s) => `- "${s.name}" (${s.type}${s.unit ? ", " + s.unit : ""})`)
+    .map((s) => {
+      const opts =
+        Array.isArray(s.options) && s.options.length > 0
+          ? ` — 반드시 [${s.options.map((o) => `"${o}"`).join(" | ")}] 중 하나`
+          : "";
+      const d = s.desc && String(s.desc).trim() ? ` :: ${String(s.desc).trim()}` : "";
+      return `- "${s.name}" (${s.type}${s.unit ? ", " + s.unit : ""})${opts}${d}`;
+    })
     .join("\n");
   const prompt = `아래 문서에서 다음 변수 목록의 값을 찾아 JSON으로만 반환해.
 - JSON 키는 **반드시 아래 변수목록의 따옴표 안 이름과 글자 그대로 일치**해야 한다.
   ❌ 금지: "기본급(원)", "근속 년수", "성명(한글)" 같이 단위·공백·괄호 추가.
   ✅ 정확히: 목록의 이름 그대로.
 - 문서에 다른 표현(예: "이름", "직원번호", "Department")이 있어도 목록의 한국어 이름으로 변환해 매칭.
-- 값을 못 찾으면 null. 마크다운/코드블록 없이 JSON 만.
+- **허용값 목록이 있는 변수(select)는 값이 문서에 그 단어로 명시돼 있지 않아도, 문서가 설명하는
+  운영 방식·구조를 읽고 판단(분류)해서 목록 중 하나로 채워라.**
+  예: 문서가 "직급별 연봉 범위(초임~상한)를 운영한다" 고 설명하면 급여체계유형 = "밴드",
+      "경력 인정 비율 100%/80%/50%" 를 설명하면 경력인정방식 = "환산율",
+      "6개월 이상이면 1년으로 반올림" 이면 단수처리방식 = "반올림".
+  판단 근거가 전혀 없을 때만 null. 목록에 없는 값은 절대 만들지 말 것.
+- 그 외 변수는 문서에 있는 값만. 값을 못 찾으면 null. 마크다운/코드블록 없이 JSON 만.
 
 변수목록:
 ${slotsDesc}
@@ -2157,7 +2256,14 @@ ${slotsDesc}
   // AI 가 키를 약간 다르게 (공백·괄호·단위 추가, 동의어 사용) 내놓아도 매핑되도록.
   const out: Record<string, any> = {};
   for (const s of slots) {
-    const v = findMatchingValue(parsed as Record<string, any>, s.name);
+    let v = findMatchingValue(parsed as Record<string, any>, s.name);
+    // select — 허용값 목록 밖의 값은 차단 (프롬프트가 어겨도 코드에서 강제).
+    // 공백 차이 정도는 관대하게 매칭해 목록의 표준 표기로 정규화.
+    if (v != null && Array.isArray(s.options) && s.options.length > 0) {
+      const norm = (x: any) => String(x ?? "").replace(/\s+/g, "").toLowerCase();
+      const hit = s.options.find((o) => norm(o) === norm(v));
+      v = hit ?? null;
+    }
     out[s.name] = v ?? null;
   }
   return out;
@@ -2308,12 +2414,14 @@ export async function generateAppSpecDoc(
 export interface SpecPreviewVar {
   name: string;
   grp: "규정" | "개인";
-  type: "number" | "text" | "date";
+  type: "number" | "text" | "date" | "select";
   unit?: string;
   value?: string; // 참고 문서에서 발견한 값(있다면)
   category: "핵심" | "기타"; // 도메인 핵심인지, 부수적인지
   source: string; // 어느 문서에서 가져온 것 (예: "참고 문서 1: 취업규칙.docx" 또는 "도메인 상식")
   reason: string; // 왜 이 변수를 선언했는지 / 왜 기타로 분류했는지
+  desc?: string; // 사용자에게 보여줄 한 줄 설명
+  options?: string[]; // type="select" 전용 — 허용값 목록
   group?: string; // 상위 분류 (예: "경조사", "급여", "휴가")
   subGroup?: string; // 하위 분류 (예: 경조사 > "결혼", "사망", "회갑")
 }
@@ -2740,16 +2848,20 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
     {
       "name": "변수명_공백없이",
       "grp": "규정" | "개인",
-      "type": "number" | "text" | "date",
+      "type": "number" | "text" | "date" | "select",
       "unit": "원" | "" | "년" | ...,
       "value": "규정변수=문서의 정책값. 개인변수=현실적 예시 1건(아래 ⚠ 규칙대로 채움)",
       "category": "핵심" | "기타",
       "source": "참고 문서 N: 파일명 또는 도메인 상식",
       "reason": "이 변수를 선언한 이유 — 1~2 문장. 기타면 왜 핵심이 아닌지.",
+      "desc": "사용자에게 보여줄 한 줄 설명 — 이 변수가 무엇인지 (예: '기본급 산정 방식(분기축)')",
+      "options": ["select 타입 전용 — 허용값 목록. 예: \\"밴드\\",\\"호봉\\",\\"표준액\\",\\"미운영\\""],
       "group": "상위 분류 (선택) — 예: '경조사', '급여', '휴가', '평가', '복리후생'",
       "subGroup": "하위 분류 (선택) — 예: 경조사 > '결혼', '사망', '회갑', '출산'"
     }
   ],
+  // ⚠ type="select" — 값이 정해진 후보 중 하나인 변수(…유형·…방식·…구분·분기축 등)는 반드시 select 로.
+  //   options 에 모든 허용값을 나열하고 value 는 그중 하나. 자유 텍스트(이름·사유 등)만 text 로.
   "paths": [
     {
       "label": "결혼 경조사",
@@ -3411,8 +3523,10 @@ async function generateSpecVars(
   });
   const extra =
     grp === "개인"
-      ? `\n임직원이 입력/업로드하는 값(성명·사번·생년월일·금액·분류 등). 분기축이 될 분류 변수(예: 경조분류·신청구분)는 reason 에 **분류값 후보를 모두 나열** (예: "분류값 후보: 사망/결혼/출산/입학").`
-      : `\n회사가 정한 정책 값만(기준액·지급액·비율·연령·한도·기한·등급 기준 등). 분류값마다 다른 정책 금액이 있으면 "도메인_분류값" 패턴으로 모두 선언.`;
+      ? `\n임직원이 입력/업로드하는 값(성명·사번·생년월일·금액·분류 등). 분기축이 될 분류 변수(예: 경조분류·신청구분)는 **type="select"** 로 하고 options 에 분류값 후보를 모두 나열 (예: ["사망","결혼","출산","입학"]).`
+      : `\n회사가 정한 정책 값만(기준액·지급액·비율·연령·한도·기한·등급 기준 등). 분류값마다 다른 정책 금액이 있으면 "도메인_분류값" 패턴으로 모두 선언.
+값이 정해진 후보 중 하나인 운영 방식 변수(…유형·…방식·…모델 등, 예: 급여체계유형=밴드/호봉/표준액/미운영)는 **type="select"** + options 로 선언 — 문서에 이런 단어가 그대로 없어도 운영 구조를 분류해 값을 정하라.
+각 변수의 desc 에 사용자용 한 줄 설명을 채워라.`;
   const parsed = await runJsonStage(
     digest,
     [`\n\n[확정 meta]\n${metaBrief}`],
@@ -3516,30 +3630,44 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
   const allPreviewVars = preview.vars || [];
   const coreVars = allPreviewVars.filter((v) => v.category === "핵심");
   const otherVars = allPreviewVars.filter((v) => v.category === "기타");
+  // options/desc 정규화 — select 인데 options 가 부실하면 text 강등, text 인데 options 가 있으면 select 승격.
+  const varOptions = (v: SpecPreviewVar): string[] => {
+    const raw = Array.isArray(v.options) ? v.options : [];
+    const cleaned = raw
+      .map((o) => (typeof o === "string" ? o.trim() : ""))
+      .filter(Boolean);
+    return [...new Set(cleaned)];
+  };
+  const varTypeOf = (v: SpecPreviewVar): string => {
+    const opts = varOptions(v);
+    if (v.type === "select") return opts.length >= 2 ? "select" : "text";
+    if (v.type === "text" && opts.length >= 2) return "select";
+    return v.type;
+  };
+  const toDraftVar = (v: SpecPreviewVar, fallbackGroup: string) => {
+    const type = varTypeOf(v);
+    const opts = type === "select" ? varOptions(v) : [];
+    // select 의 test 값은 options 안에서만 — 벗어나면 목록에 추가 (문서 발견값 보존)
+    let test = v.value || "";
+    if (type === "select" && test && !opts.includes(test)) opts.push(test);
+    return {
+      id: "auto",
+      grp: v.grp,
+      name: v.name,
+      type,
+      unit: v.unit || "",
+      req: false,
+      test,
+      desc: typeof v.desc === "string" ? v.desc.trim() : "",
+      ...(type === "select" ? { options: opts } : {}),
+      group: v.group || fallbackGroup,
+      subGroup: v.subGroup || "",
+    };
+  };
   const draftVars = [
-    ...coreVars.map((v) => ({
-      id: "auto",
-      grp: v.grp,
-      name: v.name,
-      type: v.type,
-      unit: v.unit || "",
-      req: false,
-      test: v.value || "",
-      group: v.group || "",
-      subGroup: v.subGroup || "",
-    })),
-    ...otherVars.map((v) => ({
-      id: "auto",
-      grp: v.grp,
-      name: v.name,
-      type: v.type,
-      unit: v.unit || "",
-      req: false,
-      test: v.value || "",
-      // 기타 변수는 group/subGroup 메타가 없으면 "기타" 묶음으로 강제, 있으면 그대로 사용
-      group: v.group || "기타",
-      subGroup: v.subGroup || "",
-    })),
+    ...coreVars.map((v) => toDraftVar(v, "")),
+    // 기타 변수는 group/subGroup 메타가 없으면 "기타" 묶음으로 강제, 있으면 그대로 사용
+    ...otherVars.map((v) => toDraftVar(v, "기타")),
   ];
   // 모든 변수 이름 집합 — formula/switch ref 등 토큰 매핑 시 사용 (기타도 포함해야 산식에서 참조 가능)
   const allCoreNames = new Set(allPreviewVars.map((v) => v.name));
@@ -3789,7 +3917,7 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
             const v = coreVars.find((x) => x.name === outputVars[0]);
             if (v?.subGroup) {
               const classifier = coreVars.find(
-                (x) => x.grp === "개인" && x.type === "text" && x.subGroup === v.subGroup
+                (x) => x.grp === "개인" && (x.type === "text" || x.type === "select") && x.subGroup === v.subGroup
               );
               if (classifier) ref = classifier.name;
             }
@@ -4019,7 +4147,10 @@ function autoBuildSwitchesForPath(
     (v) => v.grp === "규정" && (v.type === "number" || v.type === "text")
   );
   const classifierAll = coreVars.filter(
-    (v) => v.grp === "개인" && v.type === "text" && !entryVars.has(v.name)
+    (v) =>
+      v.grp === "개인" &&
+      (v.type === "text" || v.type === "select") &&
+      !entryVars.has(v.name)
   );
   if (policyAll.length < 2 || classifierAll.length === 0) return [];
 
