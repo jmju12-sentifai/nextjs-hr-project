@@ -285,9 +285,9 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     // ⚠️ 절대 모든 변수를 한쪽 grp 로 몰지 말 것. 기획서에는 보통 규정·개인 변수가 모두 있다.
     //    규정 변수가 안 보이면 다시 한 번 기획서를 읽어 회사 정책 값을 찾아라.
     // type ∈ number|text|date|select
-    //   • select = 값이 정해진 후보 중 하나인 변수 (…유형·…방식·…구분·운영모델·분기축 등).
-    //     "options" 배열에 허용값을 모두 나열하고 test 는 그중 하나로.
-    //     기획서 설명에 "값: A/B/C" 처럼 후보가 명시된 변수는 반드시 select 로.
+    //   • select = **기획서가 허용값 목록을 명시한 변수만** ("값: A/B/C" 표기 또는 후보가 열거된 경우).
+    //     "options" 배열에 명시된 후보를 그대로 나열하고 test 는 그중 하나로. **후보 발명 금지**.
+    //     select 의 desc 끝에 "값: A/B/C" 표기를 포함. 여러 건 입력하는 목록 항목(경력내역·보유자격 등)은 select 금지 — text.
     //     예: { "name": "급여체계유형", "type": "select", "options": ["밴드","호봉","표준액","미운영"], ... }
     // unit ∈ '' | 원 | 일 | 명 | % | 배 | 점 | 개 | 년 | 월 | 시간 | 건 | 회 (select 는 unit 빈값)
     // req: 개인 변수에서 필수면 true
@@ -1606,10 +1606,26 @@ function withIds(schema: any) {
       scanCondsForOptions(schema.fallback.conditions);
       scanSwitchForOptions(schema.fallback.steps);
     }
+    // select 유지 근거 — 옵션이 "문서/로직에 실재" 해야 함:
+    //   (a) 조건·switch 리터럴에서 그 변수의 값이 실제 사용되거나 (분기축 증거)
+    //   (b) desc 에 「값: A/B/C」 표기가 있거나 (기획서가 후보를 명시 — 프롬프트가 select 의 desc 에 강제)
+    // 둘 다 없으면 AI 가 후보를 지어낸 것(예: 보유자격에 정보보안기사/PMP/CISA 발명) → text 강등.
+    // 목록형 입력(경력내역·보유자격 등 "목록/여러 건") 도 이름·설명 신호로 강등.
+    const VALUE_LIST_RE = /값\s*[:：]/;
+    const MULTI_LIST_RE = /(목록|내역|리스트|여러\s*건)/;
+    const looksMultiList = (v: any) =>
+      MULTI_LIST_RE.test(String(v.name || "")) || MULTI_LIST_RE.test(String(v.desc || ""));
     schema.vars = schema.vars.map((v: any) => {
       if (!v || typeof v !== "object" || typeof v.name !== "string") return v;
       const found = optionPool.get(v.name);
       if (v.type === "select") {
+        const corroborated =
+          (found && found.size > 0) || VALUE_LIST_RE.test(String(v.desc || ""));
+        if (!corroborated || looksMultiList(v)) {
+          // 근거 없는 옵션 목록 — 발명으로 간주하고 자유 입력으로 되돌림
+          const { options: _drop, ...rest } = v;
+          return { ...rest, type: "text" };
+        }
         // 기존 select — 조건/switch 에서 발견된 값이 options 에 빠져 있으면 보충
         const opts: string[] = Array.isArray(v.options) ? [...v.options] : [];
         for (const o of found || []) if (!opts.includes(o)) opts.push(o);
@@ -1617,7 +1633,7 @@ function withIds(schema: any) {
           opts.push(v.test.trim());
         return { ...v, options: opts, unit: "" };
       }
-      if (v.type === "text" && found && found.size >= 2) {
+      if (v.type === "text" && found && found.size >= 2 && !looksMultiList(v)) {
         const opts = [...found];
         if (typeof v.test === "string" && v.test.trim() && !opts.includes(v.test.trim()))
           opts.push(v.test.trim());
@@ -2897,8 +2913,11 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
       "subGroup": "하위 분류 (선택) — 예: 경조사 > '결혼', '사망', '회갑', '출산'"
     }
   ],
-  // ⚠ type="select" — 값이 정해진 후보 중 하나인 변수(…유형·…방식·…구분·분기축 등)는 반드시 select 로.
-  //   options 에 모든 허용값을 나열하고 value 는 그중 하나. 자유 텍스트(이름·사유 등)만 text 로.
+  // ⚠ type="select" — **문서가 허용값 목록을 명시한 변수만** (「값: A/B/C」 표기 또는 후보가 표로 열거된 경우).
+  //   options 는 문서에 명시된 후보 그대로 — **문서에 없는 후보를 지어내지 말 것** (발명 금지).
+  //   select 변수의 desc 끝에는 「값: A/B/C」 표기를 그대로 포함하라.
+  //   여러 건을 입력하는 목록 항목(경력내역·보유자격·품목 목록 등)은 select 금지 — text 로.
+  //   문서에 후보 목록이 없으면 text 로 두되, value 는 문서 내용으로 판단해 채워도 된다.
   "paths": [
     {
       "label": "결혼 경조사",
@@ -3560,10 +3579,12 @@ async function generateSpecVars(
   });
   const extra =
     grp === "개인"
-      ? `\n임직원이 입력/업로드하는 값(성명·사번·생년월일·금액·분류 등). 분기축이 될 분류 변수(예: 경조분류·신청구분)는 **type="select"** 로 하고 options 에 분류값 후보를 모두 나열 (예: ["사망","결혼","출산","입학"]).`
+      ? `\n임직원이 입력/업로드하는 값(성명·사번·생년월일·금액·분류 등). 분기축이 될 분류 변수(예: 경조분류·신청구분)는 **문서에 분류값 후보가 명시된 경우에만** type="select" 로 하고 options 에 그 후보를 그대로 나열 (예: ["사망","결혼","출산","입학"]). 문서에 없는 후보를 지어내지 말 것.
+⚠ 여러 건을 입력하는 **목록 항목**(경력내역·보유자격·품목 목록 등)은 select 금지 — text 로.
+select 변수의 desc 끝에는 「값: A/B/C」 표기를 포함하라. 그 외 변수도 desc 에 사용자용 한 줄 설명을 채워라.`
       : `\n회사가 정한 정책 값만(기준액·지급액·비율·연령·한도·기한·등급 기준 등). 분류값마다 다른 정책 금액이 있으면 "도메인_분류값" 패턴으로 모두 선언.
 ⚠ 단, **열린 목록**(자격증·품목·정책코드처럼 회사마다 나열이 달라지는 항목)은 개별 항목을 변수로 펼치지 말 것 — 특정 항목명(예: 정보보안기사)이 변수 정의에 박제됨. 총액/결과 변수 1개(예: 자격수당가산액)로 선언.
-값이 정해진 후보 중 하나인 운영 방식 변수(…유형·…방식·…모델 등, 예: 급여체계유형=밴드/호봉/표준액/미운영)는 **type="select"** + options 로 선언 — 문서에 이런 단어가 그대로 없어도 운영 구조를 분류해 값을 정하라.
+운영 방식 변수(…유형·…방식·…모델 등)는 **문서에 허용값 목록이 명시된 경우에만** type="select" + options (문서의 후보 그대로, 발명 금지 — desc 끝에 「값: A/B/C」 포함). 목록이 없으면 text 로 두되 value 는 문서의 운영 구조를 읽고 판단해 채워라.
 각 변수의 desc 에 사용자용 한 줄 설명을 채워라.`;
   const parsed = await runJsonStage(
     digest,
