@@ -285,6 +285,7 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     // ⚠️ 절대 모든 변수를 한쪽 grp 로 몰지 말 것. 기획서에는 보통 규정·개인 변수가 모두 있다.
     //    규정 변수가 안 보이면 다시 한 번 기획서를 읽어 회사 정책 값을 찾아라.
     // type ∈ number|text|date|select
+    //   • 기획서에 타입이 명시돼 있으면 그대로 — 타입 칸의 "선택형" = select.
     //   • select = **기획서가 허용값 목록을 명시한 변수만** ("값: A/B/C" 표기 또는 후보가 열거된 경우).
     //     "options" 배열에 명시된 후보를 그대로 나열하고 test 는 그중 하나로. **후보 발명 금지**.
     //     select 의 desc 끝에 "값: A/B/C" 표기를 포함. 여러 건 입력하는 목록 항목(경력내역·보유자격 등)은 select 금지 — text.
@@ -3589,7 +3590,8 @@ select 변수의 desc 끝에는 「값: A/B/C」 표기를 포함하라. 그 외
   const parsed = await runJsonStage(
     digest,
     [`\n\n[확정 meta]\n${metaBrief}`],
-    `\n\n# ⚠ 이번 호출 = [${grp} 변수] 단계. **오직 \`vars\` 키만**, 그리고 **grp='${grp}' 변수만** 담아라 (다른 grp 는 넣지 말 것).${extra}\n출력: { "vars": [ ...위 스키마, 모두 grp="${grp}"... ] }`
+    `\n\n# ⚠ 이번 호출 = [${grp} 변수] 단계. **오직 \`vars\` 키만**, 그리고 **grp='${grp}' 변수만** 담아라 (다른 grp 는 넣지 말 것).
+문서(기획서)에 변수 타입이 명시돼 있으면 그대로 따르라 — "선택형" 표기 = type "select" (설명의 「값: …」 이 options).${extra}\n출력: { "vars": [ ...위 스키마, 모두 grp="${grp}"... ] }`
   );
   const arr = Array.isArray(parsed.vars) ? parsed.vars : [];
   // 다른 grp 가 섞여 들어오면 제외하고, 요청 grp 로 태깅
