@@ -469,6 +469,8 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     //  - chart     : ctype ∈ bar|step|donut|gauge|ratio|bullet|stacked|comparison|delta
     //                bar/step → table step name, donut/stacked → classify step name
     //                gauge → clamp 또는 그냥 변수, ratio/bullet/comparison/delta → bind + bind2(비교 대상)
+    //  - list      : 목록 카드. 여러 건이 한 값에 담기는 목록 텍스트 변수(경력내역·보유자격·품목 목록 등)에 사용.
+    //                bind=그 변수명. field/card 로 두면 통짜 텍스트가 되므로 목록 변수는 반드시 list 로.
     //  - note      : 안내문, tpl 에 '{변수명}' 치환 패턴. LLM 요약 결과를 표시하려면 tpl="{LLM분석}" 처럼.
     { "id": "auto", "kind": "card", "label": "적용 여부", "bind": "적용여부", "w": "third", "h": 2, "wSpan": 2, "hSpan": 2 },
     { "id": "auto", "kind": "fields", "label": "", "binds": ["성명","사번","소속","직급"], "w": "full", "h": 1, "wSpan": 6, "hSpan": 1 },
@@ -600,6 +602,8 @@ function withIds(schema: any) {
     compare:   { w: "full",  h: 2, wSpan: 6, hSpan: 2 },
     calc:      { w: "full",  h: 2, wSpan: 6, hSpan: 2 },
     incexc:    { w: "half",  h: 2, wSpan: 3, hSpan: 2 },
+    // 목록 카드(list): 여러 건 항목이 줄 단위로 쌓임 — 반폭 2행
+    list:      { w: "half",  h: 2, wSpan: 3, hSpan: 2 },
     note:      { w: "full",  h: 2, wSpan: 6, hSpan: 2 },
   };
   const VALID_W = new Set(["full", "half", "third"]);
@@ -738,7 +742,7 @@ function withIds(schema: any) {
   // 변수/step 이름을 찾아 자동 연결. 못 찾으면 빈 카드는 사용자에게 "-" 만 보이므로 통째로 제거.
   const fixEmptyBinds = (report: any[] = []): any[] => {
     if (!Array.isArray(report) || report.length === 0) return report;
-    const needsBind = new Set(["card", "calc", "incexc", "chart", "field"]);
+    const needsBind = new Set(["card", "calc", "incexc", "chart", "field", "list"]);
     return report.filter((e) => {
       if (!e || typeof e !== "object") return false;
       if (!needsBind.has(e.kind)) return true; // bind 불필요 (fields/note/compare/pathlabel)
@@ -1507,7 +1511,7 @@ function withIds(schema: any) {
       for (const s of steps) if (s?.name) scope.add(s.name);
       return scope;
     };
-    const NEEDS_BIND = new Set(["card", "calc", "incexc", "chart", "field"]);
+    const NEEDS_BIND = new Set(["card", "calc", "incexc", "chart", "field", "list"]);
     const cleanScopedReport = (report: any[] = [], scope: Set<string>): any[] =>
       report.filter((e: any) => {
         if (!e || typeof e !== "object") return false;
@@ -1643,6 +1647,33 @@ function withIds(schema: any) {
       }
       return v;
     });
+  }
+
+  // ── 목록형 텍스트 변수의 리포트 표현 교정 — field/card → list ──
+  // 경력내역·보유자격처럼 여러 건이 한 문자열에 담기는 변수를 한 줄 카드로 보여주면
+  // 통짜 텍스트 덩어리가 됨 → 항목 단위로 정리되는 list 카드로 자동 전환.
+  {
+    const LIST_HINT_RE = /(목록|내역|리스트|여러\s*건)/;
+    const listVars = new Set<string>();
+    for (const v of schema.vars || []) {
+      if (!v?.name || v.type !== "text") continue;
+      if (LIST_HINT_RE.test(String(v.name)) || LIST_HINT_RE.test(String(v.desc || "")))
+        listVars.add(v.name);
+      // 값 자체가 목록 형태(괄호 그룹 2개 이상)여도 목록으로 간주 — 예: "A사(3,동종) B사(2,타업)"
+      else if (typeof v.test === "string" && (v.test.match(/[(（]/g) || []).length >= 2)
+        listVars.add(v.name);
+    }
+    if (listVars.size > 0) {
+      const toList = (report: any[] = []) =>
+        report.map((e: any) => {
+          if (!e || (e.kind !== "field" && e.kind !== "card")) return e;
+          if (typeof e.bind !== "string" || !listVars.has(e.bind)) return e;
+          // list 는 항목이 줄로 쌓이므로 field 기본(2×2)보다 넓게
+          return { ...e, kind: "list", w: "half", h: 2, wSpan: 3, hSpan: 2 };
+        });
+      for (const p of schema.paths || []) p.report = toList(p.report);
+      if (schema.fallback) schema.fallback.report = toList(schema.fallback.report);
+    }
   }
 
   // ── 타입↔테스트값 일관성 보정 ──
@@ -2967,7 +2998,9 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
       "elements": [
         { "kind": "fields", "label": "기본정보", "bind": "성명,사번,부서,직급", "reason": "..." },
         { "kind": "note", "label": "안내문", "bind": "{LLM분석}", "reason": "..." },
-        { "kind": "card", "label": "감액률", "bind": "감액률", "reason": "..." }
+        { "kind": "card", "label": "감액률", "bind": "감액률", "reason": "..." },
+        // 여러 건이 담기는 목록 텍스트 변수(경력내역·보유자격 등)는 card/field 대신 "list" — 항목이 줄 단위로 정리됨
+        { "kind": "list", "label": "경력내역", "bind": "경력내역", "reason": "..." }
       ],
       "reason": "이 경로의 리포트를 이렇게 구성한 이유"
     }
@@ -3646,6 +3679,7 @@ async function generateSpecReport(
 각 경로 report 는 그 경로의 step.name 또는 확정 변수만 bind. report 는 경로별 { pathLabel, elements, reason } 배열.
 - 차트 요소(kind="chart")는 **반드시 \`ctype\` 명시**: gauge/bar/step/donut/ratio/bullet/stacked/comparison/delta.
 - 두 값을 비교하는 차트(comparison=이중막대 · delta=증감 · bullet=목표대비 · ratio=달성률)는 **\`bind\` 와 \`bind2\` 에 각각 한 값씩** (예: bind=기준값, bind2=결과값 — 두 산출/변수를 비교). 콤마로 묶지 말 것.
+- **여러 건이 한 값에 담기는 목록 텍스트 변수**(경력내역·보유자격·품목 목록 등)는 kind="list" 로 (bind=그 변수) — 항목이 줄 단위로 정리되어 표시됨. field/card 로 두면 통짜 텍스트가 되니 금지.
 출력: { "report": [...], "rationale": { overall, perDocument, others } }`
   );
   return {
@@ -4501,8 +4535,16 @@ function pathReportFromPreview(
   const hasNote = out.some((e) => e.kind === "note");
   if (!hasFields) {
     const idCandidates = ["성명", "사번", "부서", "직급"];
+    // 목록형(경력내역·보유자격 등) 은 한 줄 fields 에 넣으면 통짜 텍스트가 됨 — 후보에서 제외 (list 카드가 담당)
+    const LISTY_RE = /(목록|내역|리스트|여러\s*건)/;
     const personalCore = (preview.vars || [])
-      .filter((v) => v.grp === "개인" && v.category === "핵심")
+      .filter(
+        (v) =>
+          v.grp === "개인" &&
+          v.category === "핵심" &&
+          !LISTY_RE.test(v.name) &&
+          !LISTY_RE.test(String(v.desc || ""))
+      )
       .map((v) => v.name);
     const binds = idCandidates.filter((n) => personalCore.includes(n));
     if (binds.length > 0) {
@@ -4660,7 +4702,7 @@ function pathReportFromPreview(
     } else pass1.push(e);
   }
   // (2) value 팔레트: 같은 종류+같은 변수 중복 제거 + 묶음에 든 변수는 개별 card/field 로 또 안 보임.
-  const VALUE_KINDS = new Set(["card", "field", "calc", "incexc", "chart"]);
+  const VALUE_KINDS = new Set(["card", "field", "calc", "incexc", "chart", "list"]);
   const seen = new Set<string>();
   const deduped: any[] = [];
   for (const e of pass1) {

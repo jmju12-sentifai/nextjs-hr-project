@@ -9,7 +9,7 @@ import type {
   Sc,
   Step,
 } from "app-renderer";
-import { describeName, fmtU, migrateSchema, tk2disp, unitOf } from "app-renderer";
+import { describeName, fmtU, migrateSchema, parseListItems, tk2disp, unitOf } from "app-renderer";
 import type { Step as RStep } from "app-renderer";
 
 // 새/옛 스키마 모두에서 모든 step 을 평탄화해 검색
@@ -257,6 +257,45 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
         <Lab>{el.label}</Lab>
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <ChartView schema={schema} el={el} sc={sc} />
+        </div>
+        <DescText name={el.bind} text={desc} />
+      </div>
+    );
+  }
+  if (el.kind === "list") {
+    // 여러 건이 한 문자열에 담긴 목록 값(경력내역·보유자격 등)을 줄 단위로 정리
+    const items = parseListItems(disp[el.bind] ?? sc[el.bind]);
+    return (
+      <div className="h-full flex flex-col min-h-0 overflow-hidden">
+        <Lab>{el.label}</Lab>
+        <div className="flex-1 min-h-0 overflow-auto">
+          {items.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-sm text-gray-400">
+              —
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {items.map((it, i) => (
+                <li key={i} className="py-1.5 flex items-baseline gap-2 text-sm">
+                  <span className="inline-flex h-4 w-4 shrink-0 translate-y-0.5 items-center justify-center rounded-full bg-blue-50 text-[10px] font-mono text-blue-600">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 leading-snug">
+                    <span className="font-medium text-gray-900 break-words">{it.head}</span>
+                    {it.detail && (
+                      <span className="ml-2 text-xs text-gray-500 break-words">
+                        {it.detail
+                          .split(",")
+                          .map((x) => x.trim())
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <DescText name={el.bind} text={desc} />
       </div>

@@ -340,6 +340,43 @@ export function unitOf(schema: AppSchema, name: string): Unit | "" {
   return ((st && st.unit) || "") as Unit;
 }
 
+// ----- 목록 문자열 파싱 (list 리포트 카드용) -----
+// "A사 (2020-03 ~ 2023-02, 클라우드 HR, 인사기획), B사 (…), C사 (…)" 처럼
+// 여러 건이 한 문자열에 담긴 값을 항목 단위로 분해한다.
+// 구분자: 최상위 깊이의 콤마·세미콜론·줄바꿈 (괄호 안 콤마는 항목 구분자가 아님).
+export interface ListItem {
+  head: string; // 항목 제목 (예: "A사")
+  detail: string; // 괄호 안 상세 (예: "2020-03 ~ 2023-02, 클라우드 HR, 인사기획")
+}
+export function parseListItems(raw: any): ListItem[] {
+  const s = String(raw ?? "").trim();
+  if (!s) return [];
+  let parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of s) {
+    if (ch === "(" || ch === "（" || ch === "[") depth++;
+    else if (ch === ")" || ch === "）" || ch === "]") depth = Math.max(0, depth - 1);
+    if (depth === 0 && (ch === "," || ch === ";" || ch === "\n")) {
+      if (cur.trim()) parts.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  // "A사(3,동종,동일) B사(2,타업,동일)" — 최상위 콤마 없이 공백으로 나열된 형태 보조 분해
+  if (parts.length === 1 && (s.match(/[(（]/g) || []).length >= 2) {
+    const m = s.match(/[^,;()（）]*?[(（][^)）]*[)）]/g);
+    if (m && m.length >= 2) parts = m.map((x) => x.trim()).filter(Boolean);
+  }
+  return parts.map((p) => {
+    const m = p.match(/^(.+?)\s*[(（]([\s\S]*?)[)）]\s*$/);
+    if (m) return { head: m[1].trim(), detail: m[2].trim() };
+    return { head: p, detail: "" };
+  });
+}
+
 // ----- 레거시 단일 판정 → 다중 경로로 마이그레이션 -----
 export function migrateSchema(schema: AppSchema): AppSchema {
   if (schema.paths) return schema;

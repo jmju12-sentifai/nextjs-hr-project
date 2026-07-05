@@ -190,7 +190,9 @@ export type ElementKind =
   | "calc"
   | "incexc"
   | "chart"
-  | "note";
+  | "note"
+  // list: 여러 건이 한 문자열에 담긴 목록 값(경력내역·보유자격 등)을 줄 단위로 정리해 표시
+  | "list";
 export type ChartType =
   | "bar"
   | "step"

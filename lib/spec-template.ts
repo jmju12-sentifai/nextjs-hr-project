@@ -106,7 +106,7 @@ export const APP_SPEC_TEMPLATE_MD = `# [앱 이름] 기획서
 ## 5. 경로별 리포트 구성
 
 > 사용자에게 보여줄 안내서 카드 배치. 사이즈는 WxH(가로×세로 그리드, 전체 폭 6).
-> 종류: fields(기본정보 묶음) · card(숫자 카드) · note(안내문) · chart(gauge/bullet/delta/comparison/stacked/bar/step/ratio) · incexc(포함·제외 태그) · compare(판단 근거 비교표)
+> 종류: fields(기본정보 묶음) · card(숫자 카드) · note(안내문) · chart(gauge/bullet/delta/comparison/stacked/bar/step/ratio) · incexc(포함·제외 태그) · compare(판단 근거 비교표) · list(목록 카드 — 경력내역·보유자격처럼 여러 건이 담긴 값을 항목별 줄로 정리)
 
 ### 경로 1 — 리포트 카드
 - fields — 성명·사번·소속·직급 (6x2)

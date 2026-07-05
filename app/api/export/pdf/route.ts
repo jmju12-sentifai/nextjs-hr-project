@@ -18,7 +18,7 @@ import {
 } from "@react-pdf/renderer";
 import React from "react";
 import type { AppSchema, Disp, JudgeResult, Sc, Step } from "app-renderer";
-import { activePathOf, migrateSchema, tk2disp, unitOf, fmtU } from "app-renderer";
+import { activePathOf, migrateSchema, parseListItems, tk2disp, unitOf, fmtU } from "app-renderer";
 
 export const runtime = "nodejs";
 
@@ -201,6 +201,23 @@ function renderField(el: any, disp: Disp) {
   return React.createElement(View, { style: { ...styles.card, alignItems: "center" } }, [
     React.createElement(Text, { style: styles.lab, key: "l" }, el.label),
     React.createElement(Text, { style: { ...styles.val, textAlign: "center" }, key: "v" }, String(disp[el.bind] ?? "—")),
+  ]);
+}
+
+// list — 여러 건이 한 문자열에 담긴 목록 값(경력내역 등)을 항목별 줄로
+function renderList(el: any, disp: Disp, sc: Sc) {
+  const items = parseListItems(disp[el.bind] ?? sc[el.bind]);
+  return React.createElement(View, { style: styles.card }, [
+    React.createElement(Text, { style: styles.lab, key: "l" }, el.label),
+    ...(items.length === 0
+      ? [React.createElement(Text, { key: "e" }, "—")]
+      : items.map((it, i) =>
+          React.createElement(
+            Text,
+            { key: "i" + i, style: { marginBottom: 2 } },
+            `${i + 1}. ${it.head}${it.detail ? "  —  " + it.detail.split(",").map((x) => x.trim()).filter(Boolean).join(" · ") : ""}`
+          )
+        )),
   ]);
 }
 
@@ -699,6 +716,7 @@ function renderEl(schema: AppSchema, el: any, sc: Sc, disp: Disp, jres: JudgeRes
   if (el.kind === "calc") return renderCalc(el, schema, disp);
   if (el.kind === "incexc") return renderIncExc(el, schema);
   if (el.kind === "note") return renderNote(el, disp);
+  if (el.kind === "list") return renderList(el, disp, sc);
   if (el.kind === "chart") return renderChart(el, schema, sc);
   return React.createElement(View, { style: styles.card }, [
     React.createElement(Text, { style: styles.lab, key: "l" }, el.label),

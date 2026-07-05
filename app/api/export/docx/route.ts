@@ -16,7 +16,7 @@ import {
   VerticalAlign,
 } from "docx";
 import type { AppSchema, Step } from "app-renderer";
-import { activePathOf, migrateSchema, tk2disp, unitOf, fmtU } from "app-renderer";
+import { activePathOf, migrateSchema, parseListItems, tk2disp, unitOf, fmtU } from "app-renderer";
 
 export const runtime = "nodejs";
 
@@ -251,6 +251,30 @@ function elField(el: any, disp: any): (Paragraph | Table)[] {
   return [
     lab(el.label),
     p(String(disp[el.bind] ?? "—"), { alignment: AlignmentType.CENTER, size: 22 }),
+  ];
+}
+
+// list — 여러 건이 한 문자열에 담긴 목록 값(경력내역 등)을 항목별 줄로
+function elList(el: any, disp: any, sc: any): (Paragraph | Table)[] {
+  const items = parseListItems(disp?.[el.bind] ?? sc?.[el.bind]);
+  return [
+    lab(el.label),
+    ...(items.length === 0
+      ? [p("—")]
+      : items.map((it, i) =>
+          p(
+            `${i + 1}. ${it.head}${
+              it.detail
+                ? "  —  " +
+                  it.detail
+                    .split(",")
+                    .map((x: string) => x.trim())
+                    .filter(Boolean)
+                    .join(" · ")
+                : ""
+            }`
+          )
+        )),
   ];
 }
 
@@ -712,6 +736,7 @@ function renderEl(el: any, schema: AppSchema, result: any, cellDXA: number): (Pa
   if (el.kind === "calc") return elCalc(el, schema, disp);
   if (el.kind === "incexc") return elIncExc(el, schema);
   if (el.kind === "note") return elNote(el, disp);
+  if (el.kind === "list") return elList(el, disp, sc);
   if (el.kind === "chart") return elChart(el, schema, sc, cellDXA);
   return [lab(el.label), p(`[${el.kind}]`)];
 }

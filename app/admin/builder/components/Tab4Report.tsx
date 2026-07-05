@@ -35,6 +35,7 @@ const PAL: PaletteItem[] = [
   { kind: "compare", t: "판단 근거 비교표", s: "판정부 그대로", use: "조건 ↔ 입력값을 표로 보여주며 근거를 설명할 때" },
   { kind: "calc", t: "산출 근거", s: "계산식 + 결과값", use: "어떤 식으로 결과가 나왔는지 수식으로 보여줄 때" },
   { kind: "incexc", t: "포함/제외 태그", s: "분류 단계 항목", use: "분류 단계별 포함/제외 항목을 칩으로 나열할 때" },
+  { kind: "list", t: "목록 카드", s: "여러 건 텍스트 → 줄 단위", use: "경력내역·보유자격처럼 여러 건이 담긴 텍스트를 항목별로 정리해 보여줄 때" },
   { kind: "chart", ctype: "bar", t: "구간 막대 차트", s: "구간표 → 막대", use: "구간별 값/비율을 직관적으로 비교할 때" },
   { kind: "chart", ctype: "step", t: "구간 계단선", s: "연령별 감액률 등", use: "연령·기간별 비율이 계단식으로 바뀌는 표현" },
   { kind: "chart", ctype: "donut", t: "포함/제외 도넛", s: "분류 비율", use: "전체 대비 포함/제외 비율을 한눈에 볼 때" },
@@ -121,6 +122,25 @@ function PalettePreview({ item }: { item: PaletteItem }) {
           <text x="22" y="67" fontSize="10" fill="#991b1b">✕ 휴직</text>
           <rect x="78" y="52" width="62" height="22" rx="11" fill="#fee2e2" stroke="#fca5a5" />
           <text x="90" y="67" fontSize="10" fill="#991b1b">✕ 징계</text>
+        </>
+      );
+    case "list":
+      return wrap(
+        <>
+          <circle cx="18" cy="30" r="7" fill="#eff6ff" stroke="#bfdbfe" />
+          <text x="15" y="34" fontSize="9" fill="#2563eb">1</text>
+          <text x="32" y="34" fontSize="11" fontWeight="600" fill="#0f172a">A사</text>
+          <text x="60" y="34" fontSize="9" fill="#64748b">2020-03 ~ 2023-02 · 인사기획</text>
+          <line x1="10" y1="44" x2="210" y2="44" stroke="#e2e8f0" />
+          <circle cx="18" cy="60" r="7" fill="#eff6ff" stroke="#bfdbfe" />
+          <text x="15" y="64" fontSize="9" fill="#2563eb">2</text>
+          <text x="32" y="64" fontSize="11" fontWeight="600" fill="#0f172a">B사</text>
+          <text x="60" y="64" fontSize="9" fill="#64748b">2023-03 ~ 2025-02 · 제조업</text>
+          <line x1="10" y1="74" x2="210" y2="74" stroke="#e2e8f0" />
+          <circle cx="18" cy="90" r="7" fill="#eff6ff" stroke="#bfdbfe" />
+          <text x="15" y="94" fontSize="9" fill="#2563eb">3</text>
+          <text x="32" y="94" fontSize="11" fontWeight="600" fill="#0f172a">C사</text>
+          <text x="60" y="94" fontSize="9" fill="#64748b">2025-03 ~ · 유통</text>
         </>
       );
     case "chart|bar":
@@ -298,6 +318,7 @@ const wDef: Record<ElementKind, Width> = {
   compare: "full",
   calc: "half",
   incexc: "half",
+  list: "half",
   chart: "half",
   note: "full",
 };
@@ -699,7 +720,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
                 icon: "🧮",
                 accent: "amber",
                 items: PAL.filter((p) =>
-                  ["card", "compare", "calc", "incexc"].includes(p.kind)
+                  ["card", "compare", "calc", "incexc", "list"].includes(p.kind)
                 ),
               },
               {
@@ -1066,6 +1087,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
                       e.kind === "card" ||
                       e.kind === "calc" ||
                       e.kind === "incexc" ||
+                      e.kind === "list" ||
                       e.kind === "chart") &&
                       e.bind && (
                         <label

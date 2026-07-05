@@ -149,7 +149,7 @@ c.push(tbl([
 c.push(H("5. 경로별 리포트 구성  →  ④ 리포트 구성"));
 c.push(Bold("사용 가능한 카드 종류 (이 중에서 골라 쓰세요)"));
 [
-  "기본: fields(기본정보 묶음) · field(기본정보) · card(요약 카드) · note(안내문) · calc(산출 근거) · compare(판단 근거 비교표) · incexc(포함/제외 태그) · pathlabel(경로 정보)",
+  "기본: fields(기본정보 묶음) · field(기본정보) · card(요약 카드) · note(안내문) · calc(산출 근거) · compare(판단 근거 비교표) · incexc(포함/제외 태그) · list(목록 카드 — 경력내역·보유자격 등 여러 건 항목) · pathlabel(경로 정보)",
   "차트: gauge(게이지) · bar(구간 막대 차트) · step(구간 계단선) · donut(포함/제외 도넛) · ratio(비율 게이지) · bullet(불릿 차트) · stacked(누적 가로 막대) · comparison(이중 막대) · delta(Δ 변화량)",
 ].forEach((t) => c.push(Bullet(t)));
 const rpt = (label, rows) => {
