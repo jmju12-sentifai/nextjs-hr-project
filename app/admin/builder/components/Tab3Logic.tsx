@@ -9,7 +9,7 @@ import type {
   StepType,
   Unit,
 } from "app-renderer";
-import { AGG, bandNum, migrateSchema, parseRows, run, tk2disp, UNITS } from "app-renderer";
+import { AGG, bandNum, cmp, migrateSchema, parseRows, run, tk2disp, UNITS } from "app-renderer";
 import TokenBuilder from "./TokenBuilder";
 
 const uid = () => Math.random().toString(36).slice(2, 7);
@@ -1799,8 +1799,69 @@ function RowCalcEditor({ step, update, numAv, rowsVars, allSteps, sharedSteps, s
         )}
       </div>
 
-      {/* 행 산식 — 컬럼명·매핑값·전역 변수를 조합 */}
-      {step.out !== "count" && (
+      {/* 조회(pick) — 산식이 아니라 "가져올 컬럼" 선택 (텍스트 컬럼 포함) */}
+      {step.out === "pick" && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-gray-600">가져올 컬럼</span>
+          <select
+            value={
+              Array.isArray(step.tokens) && step.tokens.length === 1 && step.tokens[0]?.t === "var"
+                ? step.tokens[0].name
+                : ""
+            }
+            onChange={(e) =>
+              update({ tokens: e.target.value ? [{ t: "var", name: e.target.value }] : [] })
+            }
+            className={inp + " min-w-[140px]"}
+          >
+            <option value="">(선택)</option>
+            {cols.map((c: any) => (
+              <option key={c.name} value={c.name}>
+                {c.name}
+                {c.type !== "number" ? " (텍스트)" : ""}
+              </option>
+            ))}
+            {cols.length === 0 && <option value="값">값</option>}
+          </select>
+          {(() => {
+            // 조회 미리보기 — 테스트 행에서 필터에 맞는 첫 행의 값
+            const colName =
+              Array.isArray(step.tokens) && step.tokens.length === 1 && step.tokens[0]?.t === "var"
+                ? step.tokens[0].name
+                : "";
+            if (!colName) return null;
+            const rows = parseRows(refVar?.test);
+            const litOrRef = (x: any) => {
+              if (typeof x === "string" && sc && x in sc) return sc[x];
+              const n = parseFloat(String(x));
+              return !isNaN(n) && String(n) === String(x).trim() ? n : x;
+            };
+            const hitRow = rows.find((row) =>
+              (step.filters || []).every((f: any) => {
+                if (!f || !f.col) return true;
+                try {
+                  return cmp(row[f.col], f.op, litOrRef(f.val));
+                } catch {
+                  return false;
+                }
+              })
+            );
+            const v = hitRow ? hitRow[colName] : undefined;
+            return (
+              <span className="text-[11px] font-mono">
+                {v === undefined || v === null || v === "" ? (
+                  <span className="text-gray-400">조회 미리보기: (테스트 행에서 매칭 없음)</span>
+                ) : (
+                  <span className="text-emerald-700">조회 미리보기 = "{String(v)}"</span>
+                )}
+              </span>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* 행 산식 — 컬럼명·매핑값·전역 변수를 조합 (합산/평균/최대/최소/목록) */}
+      {step.out !== "count" && step.out !== "pick" && (
         <div>
           <div className="text-gray-600 mb-1">행 산식 (각 행마다 계산)</div>
           {(() => {
