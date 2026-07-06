@@ -99,19 +99,28 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
     liveBad = true;
   }
 
-  // 계산식에 쓰인 변수 중 값이 숫자가 아닌 것 — 식 오류 원인 안내 (텍스트 변수를 산식에 넣은 경우)
+  // 계산식에 쓰인 변수 중 값이 숫자가 아닌 것 — 두 부류를 구분해 안내:
+  //   (1) 텍스트 값 → 진짜 식 오류 (텍스트 변수를 산식에 넣은 설계 문제, 빨강)
+  //   (2) 값 없음(NaN·빈값 — 조회 미매칭·미입력) → 설계는 정상, 데이터가 아직 없을 뿐 (노랑 안내)
   const isNumeric = (v: any) =>
     typeof v === "number"
       ? !isNaN(v)
       : typeof v === "string"
       ? v.trim() !== "" && !isNaN(Number(v.replace(/,/g, "")))
       : false;
-  const nonNumericVars = Array.from(
+  const isEmptyVal = (v: any) =>
+    v === undefined ||
+    v === null ||
+    (typeof v === "number" && isNaN(v)) ||
+    (typeof v === "string" && v.trim() === "");
+  const usedVars = Array.from(
     new Set(
       tokens.filter((t: any) => t.t === "var" && t.name).map((t: any) => t.name as string)
     )
-  )
-    .filter((name) => name in sc && !isNumeric((sc as any)[name]))
+  ).filter((name) => name in sc && !isNumeric((sc as any)[name]));
+  const emptyVars = usedVars.filter((name) => isEmptyVal((sc as any)[name]));
+  const nonNumericVars = usedVars
+    .filter((name) => !isEmptyVal((sc as any)[name]))
     .map((name) => ({ name, value: (sc as any)[name] }));
 
   const chipCls = (t: Token) =>
@@ -279,17 +288,20 @@ export default function TokenBuilder({ tokens, onChange, varNames, sc, varsMeta 
           <div className="font-bold">▲ 식 오류 — 숫자가 아닌 변수를 계산식에 사용했습니다</div>
           {nonNumericVars.map((b) => (
             <div key={b.name} className="font-mono">
-              “{b.name}” 값:{" "}
-              <b>
-                "
-                {b.value === undefined || b.value === null || b.value === ""
-                  ? "(빈 값)"
-                  : String(b.value)}
-                "
-              </b>{" "}
-              — 텍스트라서 계산에 쓸 수 없습니다 (0 으로 처리됨).
+              “{b.name}” 값: <b>"{String(b.value)}"</b> — 텍스트라서 계산에 쓸 수 없습니다 (0 으로
+              처리됨).
             </div>
           ))}
+        </div>
+      )}
+      {emptyVars.length > 0 && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 space-y-0.5">
+          <div className="font-bold">ⓘ 아직 값이 없는 항목이 있습니다 (지금은 0 으로 계산)</div>
+          <div className="font-mono">{emptyVars.join(" · ")}</div>
+          <div>
+            조회가 매칭되지 않았거나 테스트 값이 비어 있습니다 — 상류 입력·테스트 행을 채우면
+            자동으로 계산됩니다. 식 자체는 정상입니다.
+          </div>
         </div>
       )}
     </div>
