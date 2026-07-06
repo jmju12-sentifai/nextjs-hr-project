@@ -668,7 +668,12 @@ export function run(
         };
         const NUM_RE = /^-?\d+(\.\d+)?$/;
         const filtered = rows.filter(passes);
-        const vals: number[] = [];
+        // 행 산식이 단일 컬럼 참조면 그 셀 값을 그대로 — 텍스트 컬럼 조회(예: 직급명) 지원
+        const singleVar =
+          Array.isArray(s.tokens) && s.tokens.length === 1 && (s.tokens[0] as any)?.t === "var"
+            ? (s.tokens[0] as any).name
+            : "";
+        const vals: any[] = [];
         const outRows: Record<string, any>[] = [];
         for (const row of filtered) {
           // 행 스코프 = 전역 + 컬럼값(숫자면 숫자화) + 매핑값
@@ -678,7 +683,12 @@ export function run(
             rowSc[k] = typeof val === "number" ? val : NUM_RE.test(str) ? Number(str) : val;
           }
           if (s.map) rowSc["매핑값"] = mapValFor(row);
-          const v = s.tokens && s.tokens.length ? evtok(s.tokens, rowSc) : NaN;
+          let v: any;
+          if (singleVar && singleVar in rowSc && typeof rowSc[singleVar] === "string") {
+            v = rowSc[singleVar]; // 텍스트 셀 그대로 (evtok 은 숫자 전용)
+          } else {
+            v = s.tokens && s.tokens.length ? evtok(s.tokens, rowSc) : NaN;
+          }
           vals.push(v);
           outRows.push({ ...row, 값: v });
         }
@@ -689,10 +699,17 @@ export function run(
           r = filtered.length;
           d = fmtU(r, s.unit);
         } else if (s.out === "pick") {
-          // 조회 — 필터에 맞는 첫 행의 산식 값 (매칭 행 없으면 0)
-          const first = vals.find((x) => typeof x === "number" && !isNaN(x));
-          r = first ?? 0;
-          d = vals.length === 0 ? "—" : fmtU(r, s.unit);
+          // 조회 — 필터에 맞는 첫 행의 값 (숫자 또는 텍스트 셀). 매칭 행 없으면 0/"—"
+          const first = vals.find(
+            (x) => (typeof x === "number" && !isNaN(x)) || (typeof x === "string" && x !== "")
+          );
+          if (typeof first === "string") {
+            r = first;
+            d = first;
+          } else {
+            r = first ?? 0;
+            d = vals.length === 0 ? "—" : fmtU(r, s.unit);
+          }
         } else {
           const nums = vals.filter((x) => typeof x === "number" && !isNaN(x));
           r =

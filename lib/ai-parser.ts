@@ -1215,19 +1215,69 @@ function withIds(schema: any) {
       } else if (out.type === "rowcalc") {
         // 목록 행별 계산 — ref(목록)·filters·tokens(행 산식)·map(계수 매핑)·out(출력) 정규화
         if (typeof out.ref !== "string") out.ref = "";
+        // ref 가 rows 변수와 살짝 다르면(띄어쓰기 등) 가장 가까운 rows 변수로 스냅
+        const rowsVarList = (schema.vars || []).filter((v: any) => v?.type === "rows");
+        const normK = (x: string) => x.replace(/[\s_·\-./()]/g, "").toLowerCase();
+        if (out.ref && !rowsVarList.some((v: any) => v.name === out.ref)) {
+          const t = normK(out.ref);
+          const hit = rowsVarList.find((v: any) => normK(v.name) === t);
+          if (hit) out.ref = hit.name;
+        }
+        // 컬럼명 자동 스냅 — AI 가 쓴 필터/매핑/산식의 컬럼명이 목록 cols 와 다르면 가장 가까운 컬럼으로 보정
+        //   (스크린샷 사례: 필터 col "최소경력" vs 실제 컬럼명 불일치 → 드롭다운 공란 + 매칭 실패)
+        const refVar = rowsVarList.find((v: any) => v.name === out.ref);
+        const colNames: string[] = (refVar?.cols || [])
+          .map((c: any) => String(c?.name || ""))
+          .filter(Boolean);
+        const snapCol = (nm: any): string => {
+          const raw = String(nm ?? "").trim();
+          if (!raw || colNames.length === 0 || colNames.includes(raw)) return raw;
+          const t = normK(raw);
+          let hit = colNames.find((n) => normK(n) === t);
+          if (hit) return hit;
+          const cand = colNames
+            .filter((n) => normK(n).includes(t) || t.includes(normK(n)))
+            .sort((a, b) => a.length - b.length);
+          if (cand[0]) return cand[0];
+          // 어순이 다른 경우("인정경력최대" ↔ "최대경력") — 바이그램 유사도 폴백
+          const bigrams = (x: string) => {
+            const set = new Set<string>();
+            for (let i = 0; i < x.length - 1; i++) set.add(x.slice(i, i + 2));
+            return set;
+          };
+          const tb = bigrams(t);
+          let best = "";
+          let bestScore = 0;
+          for (const n of colNames) {
+            const nb = bigrams(normK(n));
+            let common = 0;
+            for (const g of tb) if (nb.has(g)) common++;
+            const score = common / Math.max(1, Math.min(tb.size, nb.size));
+            if (score > bestScore || (score === bestScore && best && n.length < best.length)) {
+              best = n;
+              bestScore = score;
+            }
+          }
+          return bestScore >= 0.5 ? best : raw;
+        };
         const OPS = ["<", "<=", "==", "!=", ">=", ">"];
         out.filters = (Array.isArray(out.filters) ? out.filters : [])
           .filter((f: any) => f && typeof f === "object" && typeof f.col === "string" && f.col.trim())
           .map((f: any) => ({
-            col: f.col.trim(),
+            col: snapCol(f.col),
             op: OPS.includes(f.op) ? f.op : "==",
             val: String(f.val ?? ""),
           }));
-        // 행 산식 토큰 — 컬럼명 참조는 전역 숫자 승격 대상이 아니므로 promote=false
-        out.tokens = repairFormulaTokens(out.tokens || [], false);
+        // 행 산식 토큰 — 컬럼명 참조는 전역 숫자 승격 대상이 아니므로 promote=false.
+        // var 토큰도 컬럼명에 가까우면 스냅 (전역 이름과 무관한 경우에만 매칭됨 — snapCol 은 못 찾으면 원본 유지)
+        out.tokens = repairFormulaTokens(out.tokens || [], false).map((t: any) =>
+          t?.t === "var" && t.name && t.name !== "매핑값" && t.name !== "값"
+            ? { ...t, name: snapCol(t.name) }
+            : t
+        );
         if (out.map && typeof out.map === "object" && typeof out.map.col === "string" && out.map.col.trim()) {
           out.map = {
-            col: out.map.col.trim(),
+            col: snapCol(out.map.col),
             cases: (Array.isArray(out.map.cases) ? out.map.cases : [])
               .filter((c: any) => c && typeof c === "object" && c.match != null)
               .map((c: any) => ({ match: String(c.match), value: numOrName(c.value) })),
@@ -1274,6 +1324,15 @@ function withIds(schema: any) {
       } else if (s.type === "rowcalc" && s.out === "list") {
         // 목록 출력 — 산식에 넣으면 안 됨 (rowcalc/목록 카드에서만 사용)
         nonNumericNames.add(s.name);
+      } else if (s.type === "rowcalc" && s.out === "pick") {
+        // 텍스트 컬럼 조회(예: 직급명 → "대리") — 결과가 문자열이므로 산식 금지
+        const rv2 = (schema.vars || []).find((v: any) => v?.type === "rows" && v.name === s.ref);
+        const sv =
+          Array.isArray(s.tokens) && s.tokens.length === 1 && s.tokens[0]?.t === "var"
+            ? s.tokens[0].name
+            : "";
+        const col = rv2?.cols?.find((c: any) => c?.name === sv);
+        if (col && col.type !== "number") nonNumericNames.add(s.name);
       } else if (s.type === "branch") {
         // 양쪽 다 text 모드면 결과도 텍스트
         if (s.thenT === "text" && s.elsT === "text") nonNumericNames.add(s.name);
@@ -1424,6 +1483,17 @@ function withIds(schema: any) {
   const rescanSwitchBranchNumeric = (steps: any[] = []) => {
     for (const s of steps) {
       if (!s?.name) continue;
+      if (s.type === "rowcalc" && s.out === "pick") {
+        // repair(컬럼명 스냅) 후 재검사 — 텍스트 컬럼 조회면 비숫자
+        const rv2 = (schema.vars || []).find((v: any) => v?.type === "rows" && v.name === s.ref);
+        const sv =
+          Array.isArray(s.tokens) && s.tokens.length === 1 && s.tokens[0]?.t === "var"
+            ? s.tokens[0].name
+            : "";
+        const col = rv2?.cols?.find((c: any) => c?.name === sv);
+        if (col && col.type !== "number") nonNumericNames.add(s.name);
+        continue;
+      }
       if (s.type === "branch") {
         if (s.thenT === "calc" || s.elsT === "calc") {
           nonNumericNames.delete(s.name);
@@ -3883,6 +3953,11 @@ async function generateSpecPaths(
     "filters":[{"col":"최소경력","op":"<=","val":"최종경력연차"},{"col":"최대경력","op":">=","val":"최종경력연차"}] }
   직급하한액 = 같은 필터 + "expression":"하한액". 직급이 몇 개든 표 행 수만큼 커버된다.
   ⚠ 표를 switch(직급1→직급1_하한액…) 로 펼치지 말 것 — 케이스 수가 고정돼버림.
+- ⚠ **rowcalc 의 filters[].col·map.col·expression 의 컬럼명은 ref 목록 변수의 cols 이름과 글자 그대로 일치**시켜라 (다르면 매칭 실패).
+- 조회(pick)는 **텍스트 컬럼도 가능** (예: expression "직급명" → "대리"). 텍스트 조회 결과는 표시·필터 비교(== )에만 쓰고 산식에는 넣지 말 것.
+- **단수처리**: 유효총경력 → 최종경력연차 확정은 round/floor/ceil 산식으로 (예: formula "round(유효총경력)". 단수처리방식 select 변수가 있으면 switch 의 case 별 산식으로 round/floor/ceil 분기).
+- **date add 의 out 단위는 더하는 수량의 단위와 일치** — 체류연한이 '년' 이면 out="year" (일 아님).
+- **주기 환산**: 표에 지급주기(월/년) 컬럼이 있으면 연간 환산을 map 으로 — map={"col":"지급주기","cases":[{"match":"월","value":12},{"match":"년","value":1}]}, expression "지급액 * 매핑값".
 - 분기축(분류 변수)의 **모든 분류값마다 path 1개씩 빠짐없이** 생성. 하나만 만들고 나머지를 fallback 으로 떠넘기지 말 것.
 출력: { "shared": { "steps": [...] }, "paths": [...], "fallback": {...} }`
   );
