@@ -9,7 +9,7 @@ import type {
   StepType,
   Unit,
 } from "app-renderer";
-import { AGG, migrateSchema, run, tk2disp, UNITS } from "app-renderer";
+import { AGG, bandNum, migrateSchema, parseRows, run, tk2disp, UNITS } from "app-renderer";
 import TokenBuilder from "./TokenBuilder";
 
 const uid = () => Math.random().toString(36).slice(2, 7);
@@ -652,6 +652,7 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                           rowsVars={schema.vars.filter((v) => v.type === "rows")}
                           allSteps={currentSteps()}
                           sharedSteps={shared.steps}
+                          sc={sc}
                         />
                       )}
                       {s.type === "llm" && (
@@ -1628,7 +1629,7 @@ function ClampEditor({ step, update, av, varsMeta }: any) {
 }
 
 // 행집계(rowcalc) 편집기 — 목록(rows) 변수의 필터 → 행 산식 → 집계/목록
-function RowCalcEditor({ step, update, numAv, rowsVars, allSteps, sharedSteps }: any) {
+function RowCalcEditor({ step, update, numAv, rowsVars, allSteps, sharedSteps, sc }: any) {
   const inp = "rounded border px-2 py-1 text-xs";
   const OUT_OPTS: { v: string; t: string }[] = [
     { v: "sum", t: "합산" },
@@ -1800,13 +1801,35 @@ function RowCalcEditor({ step, update, numAv, rowsVars, allSteps, sharedSteps }:
       {step.out !== "count" && (
         <div>
           <div className="text-gray-600 mb-1">행 산식 (각 행마다 계산)</div>
-          <TokenBuilder
-            tokens={step.tokens || []}
-            onChange={(tokens: any) => update({ tokens })}
-            varNames={[...numColNames, ...(step.map ? ["매핑값"] : []), ...(numAv || [])]}
-            sc={{}}
-            varsMeta={{}}
-          />
+          {(() => {
+            // 라이브 검증용 미리보기 스코프 — 전역 sc + 첫 테스트 행의 컬럼값 + 매핑값.
+            // (없으면 컬럼 참조가 "미정의" 로 오판됨 — 실제 계산은 행 스코프에서 정상)
+            const firstRow: Record<string, any> = parseRows(refVar?.test)[0] || {};
+            const rowSc: Record<string, any> = { ...(sc || {}) };
+            for (const c of cols) {
+              const raw = firstRow[c.name];
+              rowSc[c.name] =
+                c.type === "number" ? Number(raw ?? 0) || 0 : raw ?? "";
+            }
+            rowSc["값"] = rowSc["값"] ?? 0;
+            if (step.map) {
+              const key = String(firstRow[step.map.col] ?? "");
+              const hit = (step.map.cases || []).find((x: any) => String(x.match) === key);
+              rowSc["매핑값"] = bandNum((hit ? hit.value : step.map.default) as any, sc);
+            }
+            return (
+              <TokenBuilder
+                tokens={step.tokens || []}
+                onChange={(tokens: any) => update({ tokens })}
+                varNames={[...numColNames, ...(step.map ? ["매핑값"] : []), ...(numAv || [])]}
+                sc={rowSc}
+                varsMeta={{}}
+              />
+            );
+          })()}
+          <div className="text-[10px] text-gray-400 mt-1">
+            검증 값은 첫 번째 테스트 행 기준 미리보기입니다 — 실제 실행은 모든 행에 반복 적용됩니다.
+          </div>
         </div>
       )}
     </div>
