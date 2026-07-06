@@ -409,6 +409,8 @@ export default function Tab4Report({ schema, onChange }: Props) {
   const [dragging, setDragging] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  // 타겟 카드의 앞(false)/뒤(true) 어디에 삽입할지 — 커서가 카드의 좌/우(전체폭은 상/하) 절반 중 어디인지로 결정
+  const [overAfter, setOverAfter] = useState(false);
   const [hoverPal, setHoverPal] = useState<{
     item: PaletteItem;
     accentBar: string;
@@ -538,6 +540,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
     }
     setDraggedId(null);
     setOverId(null);
+    setOverAfter(false);
   };
 
   const list = currentReport();
@@ -546,8 +549,11 @@ export default function Tab4Report({ schema, onChange }: Props) {
   const displayedList: ReportElement[] = (() => {
     if (!draggedId || !overId || draggedId === overId) return list;
     const from = list.findIndex((x) => x.id === draggedId);
-    const to = list.findIndex((x) => x.id === overId);
+    let to = list.findIndex((x) => x.id === overId);
     if (from < 0 || to < 0) return list;
+    if (overAfter) to += 1; // 타겟 뒤에 삽입
+    if (from < to) to -= 1; // 제거로 인한 인덱스 보정
+    if (to === from) return list;
     const next = [...list];
     const [mv] = next.splice(from, 1);
     next.splice(to, 0, mv);
@@ -886,14 +892,30 @@ export default function Tab4Report({ schema, onChange }: Props) {
                   if (dx * dx + dy * dy < 30 * 30) return;
                 }
                 let hit: string | null = null;
+                let after = false;
+
+                // 0) 모든 카드보다 아래의 빈 공간 → 리스트 맨 뒤로
+                let maxBottom = -Infinity;
+                dragSnapshot.current.forEach((r, id) => {
+                  if (id !== draggedId && r.bottom > maxBottom) maxBottom = r.bottom;
+                });
+                if (y > maxBottom) {
+                  const lastEl = [...displayedList].reverse().find((el) => el.id !== draggedId);
+                  if (lastEl) {
+                    hit = lastEl.id;
+                    after = true;
+                  }
+                }
 
                 // 1) 정확한 사각형 내부 hit 우선
-                dragSnapshot.current.forEach((r, id) => {
-                  if (id === draggedId) return;
-                  if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-                    hit = id;
-                  }
-                });
+                if (!hit) {
+                  dragSnapshot.current.forEach((r, id) => {
+                    if (id === draggedId) return;
+                    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+                      hit = id;
+                    }
+                  });
+                }
 
                 // 2) 빈 공간이면 같은 행에서 가장 가까운 카드,
                 //    행 자체에 없으면 y 기준 가장 가까운 카드로 fallback
@@ -916,33 +938,52 @@ export default function Tab4Report({ schema, onChange }: Props) {
                   hit = bestId;
                 }
 
-                // 3) 드래그 중인 카드가 폭 6(가로 전체)이면, 타겟이 속한 행의 "맨 앞" 카드로 스냅
-                //    — dense 자동 채우기로 좁은 카드들이 backfill 되는 것을 막음
+                // 타겟 카드의 앞/뒤 결정 — 좌/우 절반 기준.
+                // 타겟이나 드래그 카드가 전체폭(6칸)이면 가로 비교가 무의미하므로 상/하 절반 기준.
+                if (hit && !after) {
+                  const hitRect = dragSnapshot.current.get(hit);
+                  const hitEl = currentReport().find((el) => el.id === hit);
+                  const draggedEl = currentReport().find((el) => el.id === draggedId);
+                  if (hitRect) {
+                    const vertical =
+                      (hitEl && wSpanOf(hitEl) >= 6) ||
+                      (draggedEl && wSpanOf(draggedEl) >= 6);
+                    after = vertical
+                      ? y > (hitRect.top + hitRect.bottom) / 2
+                      : x > (hitRect.left + hitRect.right) / 2;
+                  }
+                }
+
+                // 3) 드래그 중인 카드가 폭 6(가로 전체)이면 행 단위로 스냅
+                //    — 앞 삽입이면 그 행의 맨 앞 카드 앞에, 뒤 삽입이면 맨 뒤 카드 뒤에
                 if (hit) {
-                  const draggedEl = currentReport().find((x) => x.id === draggedId);
+                  const draggedEl = currentReport().find((el) => el.id === draggedId);
                   if (draggedEl && wSpanOf(draggedEl) >= 6) {
                     const hitRect = dragSnapshot.current.get(hit);
                     if (hitRect) {
                       const rowY = (hitRect.top + hitRect.bottom) / 2;
-                      let leftmostId: string = hit;
-                      let leftmostX = hitRect.left;
+                      const halfH = (hitRect.bottom - hitRect.top) / 2;
+                      let edgeId: string = hit;
+                      let edgeX = hitRect.left;
                       dragSnapshot.current.forEach((r, id) => {
                         if (id === draggedId) return;
                         const cardMidY = (r.top + r.bottom) / 2;
                         // 같은 행 (수직 중점 차이가 카드 높이 절반 이내)
-                        const halfH = (hitRect.bottom - hitRect.top) / 2;
-                        if (Math.abs(cardMidY - rowY) < halfH + 4 && r.left < leftmostX) {
-                          leftmostId = id;
-                          leftmostX = r.left;
+                        if (Math.abs(cardMidY - rowY) < halfH + 4) {
+                          if (after ? r.left > edgeX : r.left < edgeX) {
+                            edgeId = id;
+                            edgeX = r.left;
+                          }
                         }
                       });
-                      hit = leftmostId;
+                      hit = edgeId;
                     }
                   }
                 }
 
-                if (hit !== overId) {
+                if (hit !== overId || after !== overAfter) {
                   setOverId(hit);
+                  setOverAfter(after);
                   // 이번 재정렬 시점의 커서 위치 저장 → 다음 재정렬은 임계값 이상 이동했을 때만
                   lastReorderPos.current = { x, y };
                 }
@@ -998,6 +1039,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
                   onDragEnd={() => {
                     setDraggedId(null);
                     setOverId(null);
+                    setOverAfter(false);
                     dragSnapshot.current = new Map();
                     lastReorderPos.current = null;
                   }}
