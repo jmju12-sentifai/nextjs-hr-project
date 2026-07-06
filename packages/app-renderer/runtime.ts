@@ -662,8 +662,20 @@ export function run(
         const passes = (row: Record<string, any>) =>
           (s.filters || []).every((f) => {
             if (!f || !f.col) return true;
+            const cell = row[f.col];
+            const emptyCell =
+              cell === undefined || cell === null || String(cell).trim() === "" ||
+              String(cell).trim() === "-";
+            if (emptyCell) {
+              // 개방 구간 — 부등호 비교에서 빈 셀("-" 포함)은 "제한 없음" 으로 통과.
+              // 예: 직급표 "과장 = 8년 이상, 최대 없음" 의 최대경력 빈칸이 >= 필터에서
+              // 탈락해 상위 구간 조회가 전부 실패하던 문제 방지. 동등 비교는 엄격 유지.
+              if (f.op === "==") return false;
+              if (f.op === "!=") return true;
+              return true;
+            }
             try {
-              return cmp(row[f.col], f.op, litOrRef(f.val));
+              return cmp(cell, f.op, litOrRef(f.val));
             } catch {
               return false;
             }

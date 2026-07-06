@@ -1839,8 +1839,13 @@ function RowCalcEditor({ step, update, numAv, rowsVars, allSteps, sharedSteps, s
             const hitRow = rows.find((row) =>
               (step.filters || []).every((f: any) => {
                 if (!f || !f.col) return true;
+                const cell = row[f.col];
+                const emptyCell =
+                  cell === undefined || cell === null || String(cell).trim() === "" ||
+                  String(cell).trim() === "-";
+                if (emptyCell) return f.op !== "=="; // 개방 구간 — 런타임과 동일 규칙
                 try {
-                  return cmp(row[f.col], f.op, litOrRef(f.val));
+                  return cmp(cell, f.op, litOrRef(f.val));
                 } catch {
                   return false;
                 }
