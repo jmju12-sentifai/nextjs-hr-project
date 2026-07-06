@@ -1741,6 +1741,37 @@ function withIds(schema: any) {
         });
       }
     }
+
+    // ── step 의존 순서 자동 정렬 — 참조 대상이 자기보다 뒤에 정의돼 있으면 앞으로 끌어올림 ──
+    // 실행은 위→아래라서, AI 가 "다중분기 → (그 뒤에) case 가 참조하는 산식" 순으로 내놓으면
+    // 분기 시점에 값이 없어 항상 0 이 된다 (실사례: 최종경력연차 switch 가 round/ceil/floor 산출을 뒤에 둠).
+    // 위상 정렬(안정적, 순환은 원래 순서 유지)로 의존 → 사용 순서를 보장. llm 은 항상 마지막.
+    const orderByDeps = (steps: any[]): any[] => {
+      if (!Array.isArray(steps) || steps.length < 2) return steps;
+      const byName = new Map<string, any>();
+      for (const st of steps) if (st?.name) byName.set(st.name, st);
+      const done = new Set<any>();
+      const visiting = new Set<any>();
+      const out: any[] = [];
+      const visit = (st: any) => {
+        if (!st || done.has(st) || visiting.has(st)) return; // 순환은 끊고 원래 순서 유지
+        visiting.add(st);
+        for (const r of refsOfStep(st)) {
+          const dep = byName.get(r);
+          if (dep && dep !== st) visit(dep);
+        }
+        visiting.delete(st);
+        done.add(st);
+        out.push(st);
+      };
+      for (const st of steps) visit(st);
+      const llm = out.filter((st: any) => st?.type === "llm");
+      const rest = out.filter((st: any) => st?.type !== "llm");
+      return [...rest, ...llm];
+    };
+    if (schema.shared) schema.shared.steps = orderByDeps(schema.shared.steps || []);
+    for (const p of schema.paths || []) p.steps = orderByDeps(p.steps || []);
+    if (schema.fallback) schema.fallback.steps = orderByDeps(schema.fallback.steps || []);
   }
 
   // 산식에 쓰인 변수는 type='number' 로 승격 (text/date 면 number 로 강제)
@@ -1894,6 +1925,14 @@ function withIds(schema: any) {
           const options = [...new Set([...(c.options || []), ...words])];
           return { ...c, type: "select", options };
         });
+        // 매핑/필터가 참조하는 컬럼이 목록에 아예 없으면 — select 컬럼으로 자동 생성.
+        // (실사례: 경력내역이 산업분류×직무분류 2축인데 매핑 어휘는 동종동일/타업동일 결합코드 —
+        //  기준 컬럼이 없어 매핑값이 항상 0 이 되던 문제. 컬럼을 만들어두면 파서가 채워 조인 성립)
+        const existing = new Set(cols.map((c: any) => c.name));
+        for (const [colName, words] of colVocab) {
+          if (existing.has(colName) || words.size === 0) continue;
+          cols.push({ name: colName, type: "select", options: [...words] });
+        }
         return { ...v, cols };
       });
     }
@@ -4012,6 +4051,12 @@ async function generateSpecPaths(
   **짧은 표준 코드값 어휘**(예: 동종동일/타업동일/타업타직)로 통일하라 — 그 컬럼을 select+options 로 선언하고,
   매핑 case·필터 val 도 그 코드값 그대로. 문서의 긴 서술("동일 업종(HR·소프트웨어)")을 match 값으로 쓰지 말 것 —
   파서가 문서 표현을 코드값으로 분류하므로 어휘만 통일되면 조인이 성립한다.
+- ⚠ **매핑 기준은 단일 컬럼**: 계수가 두 속성 조합(산업×직무 등)으로 정해지면 컬럼 두 개로 쪼개지 말고
+  **결합 코드 컬럼 하나**(예: 환산구분 select["동종동일","타업동일","타업타직"])를 개인 목록 cols 에 선언하고
+  그 컬럼으로 매핑하라. (컬럼 2개로는 map 을 걸 수 없다.)
+- ⚠ **clamp(보정)의 ref 는 이미 정의된 선행 산출을 그대로 참조** — 예: 사이닝보너스 = 희망연봉갭을 0~최대사이닝보너스로 보정.
+  "사이닝보너스판단" 같은 **정의한 적 없는 새 이름을 ref 로 만들지 말 것** (유령 변수 0 이 되어 결과가 틀려진다).
+- ⚠ 승진심의일처럼 **미래 시점 산출은 반드시 date mode="add"** (기준일 + n) — diff(두 날짜 차이·나이) 를 쓰지 말 것.
 - 조회(pick)는 **텍스트 컬럼도 가능** (예: expression "직급명" → "대리"). 텍스트 조회 결과는 표시·필터 비교(== )에만 쓰고 산식에는 넣지 말 것.
 - **단수처리**: 유효총경력 → 최종경력연차 확정은 round/floor/ceil 산식으로 (예: formula "round(유효총경력)". 단수처리방식 select 변수가 있으면 switch 의 case 별 산식으로 round/floor/ceil 분기).
 - **date add 의 out 단위는 더하는 수량의 단위와 일치** — 체류연한이 '년' 이면 out="year" (일 아님).
@@ -5045,7 +5090,7 @@ function pathReportFromPreview(
   // 분석 로직이 계산한 step 값들을 card 로 보여준다. 특히 최종 결과물(마지막 산출 step) 은 반드시 포함.
   // (llm 은 note 로 들어가므로 제외. 이미 노출된 값은 중복 추가 안 함.)
   const VALUE_STEP_TYPES = new Set([
-    "formula", "clamp", "switch", "table", "classify", "branch", "date",
+    "formula", "clamp", "switch", "table", "classify", "branch", "date", "rowcalc",
   ]);
   const valueSteps: string[] = (pathSteps || [])
     .filter((s: any) => s && s.name && VALUE_STEP_TYPES.has(s.type))
@@ -5054,10 +5099,15 @@ function pathReportFromPreview(
   //   calc 팔레트는 formula step 에서만 의미 있음(식=값 표시). 가장 하류 formula = 핵심식.
   const keyFormula =
     (pathSteps || []).filter((s: any) => s && s.name && s.type === "formula").map((s: any) => String(s.name)).pop() || "";
+  const finalResult = valueSteps[valueSteps.length - 1] || ""; // 마지막 산출 = 결과물
   if (valueSteps.length > 0) {
-    const finalResult = valueSteps[valueSteps.length - 1]; // 마지막 산출 = 결과물
-    // 핵심식은 calc 로 보여주므로 card 중복 추가 대상에서 제외
-    const toAdd = valueSteps.filter((n) => !shown.has(n) && n !== keyFormula);
+    // 핵심식은 calc 로 보여주므로 card 중복 추가 대상에서 제외 —
+    // 단, **최종 결과물은 calc/노트에 있어도 큰 숫자 card 를 반드시 보장** (총 합계가 큰 글씨로 보여야 함)
+    const toAdd = valueSteps.filter((n) => {
+      if (n === finalResult)
+        return !out.some((e) => e.kind === "card" && (e as any).bind === n);
+      return !shown.has(n) && n !== keyFormula;
+    });
     // 결과물을 맨 앞으로 (강조)
     toAdd.sort((a, b) => (a === finalResult ? -1 : b === finalResult ? 1 : 0));
     const cards = toAdd.map((n) => ({ id: "auto", kind: "card", label: n, bind: n }));
@@ -5070,9 +5120,13 @@ function pathReportFromPreview(
     const hasCalc = out.some((e) => e.kind === "calc" && e.bind === keyFormula);
     if (!hasCalc) {
       const calcEl = { id: "auto", kind: "calc", label: keyFormula, bind: keyFormula };
-      // 같은 값이 이미 card/field 로 있으면 calc 로 교체(식+값 둘 다 보임), 없으면 note 앞에 추가
+      // 같은 값이 이미 card/field 로 있으면 calc 로 교체(식+값 둘 다 보임) —
+      // 단, 최종 결과물의 card 는 교체하지 않고 calc 를 별도 추가 (큰 카드 + 근거식 공존)
       const dupIdx = out.findIndex(
-        (e) => (e.kind === "card" || e.kind === "field") && e.bind === keyFormula
+        (e) =>
+          (e.kind === "card" || e.kind === "field") &&
+          e.bind === keyFormula &&
+          keyFormula !== finalResult
       );
       if (dupIdx >= 0) {
         out[dupIdx] = calcEl;
