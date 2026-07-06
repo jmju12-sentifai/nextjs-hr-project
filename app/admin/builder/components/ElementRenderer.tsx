@@ -44,11 +44,13 @@ function DescText({ name, text }: { name: string; text: string }) {
 export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel, pathConditions }: Props) {
   const showDesc = el.showDesc !== false; // 기본 true
   const desc = showDesc ? describeName(schema, el.bind, sc) : "";
+  // 카드 제목 — 변수가 바인딩돼 있으면 항상 변수명을 제목으로 사용
+  const title = el.bind?.trim() ? el.bind : el.label;
 
   if (el.kind === "field") {
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        <Lab>{el.label}</Lab>
+        <Lab>{title}</Lab>
         <div className="flex-1 min-h-0 flex items-center justify-center text-center">
           <div className="text-base font-medium break-words tabular-nums">
             {disp[el.bind] ?? "—"}
@@ -84,7 +86,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
     const conds = pathConditions || [];
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        {el.label && <Lab>{el.label}</Lab>}
+        {el.label && <Lab>{title}</Lab>}
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 overflow-hidden">
           <div className="inline-flex items-center justify-center rounded-full bg-blue-50 border border-blue-200 px-3 py-1 text-sm font-medium text-blue-700">
             {pathLabel || "—"}
@@ -105,7 +107,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
   if (el.kind === "card") {
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        <Lab>{el.label}</Lab>
+        <Lab>{title}</Lab>
         <div className="flex-1 min-h-0 flex items-center justify-center text-center">
           <div className="font-serif text-3xl font-bold tracking-tight text-blue-700 break-words leading-none tabular-nums">
             {disp[el.bind] ?? "—"}
@@ -119,13 +121,13 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
     if (!jres.length)
       return (
         <div>
-          <Lab>{el.label}</Lab>
+          <Lab>{title}</Lab>
           <div className="text-xs text-gray-500">판정부 비교가 없습니다</div>
         </div>
       );
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        <Lab>{el.label}</Lab>
+        <Lab>{title}</Lab>
         <table className="w-full text-xs text-center">
           <thead>
             <tr className="text-[10px] font-mono uppercase text-gray-500">
@@ -188,7 +190,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
         : "(계산식 단계 바인딩)";
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        <Lab>{el.label}</Lab>
+        <Lab>{title}</Lab>
         <div className="flex-1 min-h-0 flex items-center justify-center">
           <div className="rounded bg-gray-50 border px-3 py-2 font-mono text-xs text-center">
             {expr} ={" "}
@@ -206,7 +208,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
     if (!st || st.type !== "classify")
       return (
         <div className="h-full flex flex-col min-h-0 overflow-hidden">
-          <Lab>{el.label}</Lab>
+          <Lab>{title}</Lab>
           <div className="flex-1 min-h-0 flex items-center justify-center text-xs text-gray-500">
             분류 단계 바인딩 필요
           </div>
@@ -214,7 +216,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
       );
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        <Lab>{el.label}</Lab>
+        <Lab>{title}</Lab>
         <div className="flex-1 min-h-0 flex items-center justify-center text-center">
         <div className="text-xs w-full">
           <div className="mb-1 flex flex-wrap justify-center items-center gap-1">
@@ -254,7 +256,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
   if (el.kind === "chart") {
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        <Lab>{el.label}</Lab>
+        <Lab>{title}</Lab>
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <ChartView schema={schema} el={el} sc={sc} />
         </div>
@@ -268,7 +270,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
     const items = parseListItems(rawList);
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        <Lab>{el.label}</Lab>
+        <Lab>{title}</Lab>
         <div className="flex-1 min-h-0 overflow-auto">
           {items.length === 0 ? (
             <div className="h-full flex items-center justify-center text-sm text-gray-400">
@@ -302,7 +304,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
     );
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
-        <Lab>{el.label}</Lab>
+        <Lab>{title}</Lab>
         <div className="flex-1 min-h-0 flex items-center justify-center text-center">
           <div className="text-sm leading-relaxed whitespace-pre-wrap">{text}</div>
         </div>

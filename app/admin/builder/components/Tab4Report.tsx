@@ -1022,7 +1022,15 @@ export default function Tab4Report({ schema, onChange }: Props) {
                       e.kind !== "pathlabel" && (
                         <select
                           value={e.bind}
-                          onChange={(ev) => updEl(e.id, { bind: ev.target.value })}
+                          onChange={(ev) => {
+                            const v = ev.target.value;
+                            // 제목이 팔레트 기본값이거나 이전 변수명 그대로면 새 변수명으로 함께 갱신
+                            const isDefault =
+                              !e.label ||
+                              e.label === e.bind ||
+                              PAL.some((p) => p.t === e.label);
+                            updEl(e.id, isDefault && v ? { bind: v, label: v } : { bind: v });
+                          }}
                           className="rounded border px-1 py-0.5 text-[11px] max-w-[130px]"
                         >
                           <option value="">(바인딩)</option>
