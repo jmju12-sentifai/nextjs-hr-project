@@ -688,6 +688,11 @@ export function run(
         } else if (s.out === "count") {
           r = filtered.length;
           d = fmtU(r, s.unit);
+        } else if (s.out === "pick") {
+          // 조회 — 필터에 맞는 첫 행의 산식 값 (매칭 행 없으면 0)
+          const first = vals.find((x) => typeof x === "number" && !isNaN(x));
+          r = first ?? 0;
+          d = vals.length === 0 ? "—" : fmtU(r, s.unit);
         } else {
           const nums = vals.filter((x) => typeof x === "number" && !isNaN(x));
           r =
@@ -902,6 +907,7 @@ export function describeStep(s: Step, sc?: Sc): string {
       max: "행별 계산의 최대값",
       min: "행별 계산의 최소값",
       count: "조건에 해당하는 건수",
+      pick: "조건에 맞는 행에서 꺼낸 값",
     };
     const what = aggLabel[s.out] || "행별 계산 결과";
     const cond = (s.filters || []).length ? "조건에 맞는 행만 골라 " : "";

@@ -1205,7 +1205,8 @@ function sayStep(s: Step): React.ReactNode {
   }
   if (s.type === "rowcalc") {
     const OUT_T: Record<string, string> = {
-      sum: "합산", avg: "평균", max: "최대", min: "최소", count: "건수", list: "행별 결과 목록으로",
+      sum: "합산", avg: "평균", max: "최대", min: "최소", count: "건수",
+      pick: "조회(1행)", list: "행별 결과 목록으로",
     };
     return (
       <>
@@ -1637,6 +1638,7 @@ function RowCalcEditor({ step, update, numAv, rowsVars, allSteps, sharedSteps, s
     { v: "max", t: "최대" },
     { v: "min", t: "최소" },
     { v: "count", t: "건수" },
+    { v: "pick", t: "조회 (조건에 맞는 행의 값)" },
     { v: "list", t: "목록 (행별 결과)" },
   ];
   // 대상 목록 후보: rows 변수 + 선행 행집계(목록 출력)

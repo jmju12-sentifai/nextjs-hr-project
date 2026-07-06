@@ -194,7 +194,9 @@ export interface RowMap {
   cases: { match: string; value: number | string }[]; // value: 숫자 또는 전역 변수/산출 이름
   default?: number | string;
 }
-export type RowCalcOut = "list" | "sum" | "avg" | "max" | "min" | "count";
+// pick(조회): 필터에 맞는 첫 행의 산식 값 하나를 반환 — 규정 표(rows)에서 키 조회(lookup) 용
+//   예: 직급체계표에서 "최소경력<=경력연차<=최대경력" 행의 하한액 꺼내기
+export type RowCalcOut = "list" | "sum" | "avg" | "max" | "min" | "count" | "pick";
 export interface RowCalcStep extends StepBase {
   type: "rowcalc";
   ref: string; // 목록 변수 이름 또는 선행 rowcalc(out=list) 이름
