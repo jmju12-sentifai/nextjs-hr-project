@@ -356,15 +356,57 @@ export function unitOf(schema: AppSchema, name: string): Unit | "" {
   return ((st && st.unit) || "") as Unit;
 }
 
-// ----- 목록 문자열 파싱 (list 리포트 카드용) -----
-// "A사 (2020-03 ~ 2023-02, 클라우드 HR, 인사기획), B사 (…), C사 (…)" 처럼
-// 여러 건이 한 문자열에 담긴 값을 항목 단위로 분해한다.
-// 구분자: 최상위 깊이의 콤마·세미콜론·줄바꿈 (괄호 안 콤마는 항목 구분자가 아님).
+// ----- rows(목록) 변수 값 파싱 -----
+// 값은 행 객체 배열 그대로이거나 JSON 문자열. 그 외 형태는 빈 배열.
+export function parseRows(raw: any): Record<string, any>[] {
+  if (Array.isArray(raw)) return raw.filter((r) => r && typeof r === "object");
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    if (s.startsWith("[")) {
+      try {
+        const arr = JSON.parse(s);
+        return Array.isArray(arr) ? arr.filter((r) => r && typeof r === "object") : [];
+      } catch {
+        return [];
+      }
+    }
+  }
+  return [];
+}
+
+// ----- 목록 값 파싱 (list 리포트 카드용) -----
+// (1) rows(목록) 변수·rowcalc 목록 출력 — 행 객체 배열을 항목으로.
+// (2) "A사 (2020-03 ~ 2023-02, 클라우드 HR, 인사기획), B사 (…)" 문자열 — 항목 단위 분해.
+//     구분자: 최상위 깊이의 콤마·세미콜론·줄바꿈 (괄호 안 콤마는 항목 구분자가 아님).
+// detail 은 표시용으로 " · " 로 이미 연결된 문자열.
 export interface ListItem {
   head: string; // 항목 제목 (예: "A사")
-  detail: string; // 괄호 안 상세 (예: "2020-03 ~ 2023-02, 클라우드 HR, 인사기획")
+  detail: string; // 상세 (예: "2020-03 ~ 2023-02 · 클라우드 HR · 인사기획")
 }
+const joinDetail = (parts: string[]) => parts.map((x) => x.trim()).filter(Boolean).join(" · ");
 export function parseListItems(raw: any): ListItem[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((r) => r != null)
+      .map((r, i) => {
+        if (typeof r !== "object") return { head: String(r), detail: "" };
+        const entries = Object.entries(r).filter(([, v]) => v !== "" && v != null);
+        // head = 첫 번째 텍스트성 값 (회사명 등). 없으면 순번.
+        const headEntry = entries.find(
+          ([, v]) => typeof v === "string" && !/^-?\d/.test(String(v).trim())
+        );
+        const head = headEntry ? String(headEntry[1]) : `#${i + 1}`;
+        const detail = joinDetail(
+          entries
+            .filter((e) => e !== headEntry)
+            .map(([k, v]) =>
+              typeof v === "number" ? `${k} ${v.toLocaleString()}` : `${k} ${v}`
+            )
+        );
+        return { head, detail };
+      });
+  }
   const s = String(raw ?? "").trim();
   if (!s) return [];
   let parts: string[] = [];
@@ -388,7 +430,7 @@ export function parseListItems(raw: any): ListItem[] {
   }
   return parts.map((p) => {
     const m = p.match(/^(.+?)\s*[(（]([\s\S]*?)[)）]\s*$/);
-    if (m) return { head: m[1].trim(), detail: m[2].trim() };
+    if (m) return { head: m[1].trim(), detail: joinDetail(m[2].split(",")) };
     return { head: p, detail: "" };
   });
 }
@@ -450,12 +492,19 @@ export function run(
 
   for (const v of allVarList) {
     const raw = v.test;
-    const isEmpty = raw == null || String(raw).trim() === "";
+    const isEmpty =
+      raw == null || (typeof raw === "string" && raw.trim() === "") ||
+      (Array.isArray(raw) && raw.length === 0);
     if (v.type === "number") {
       // sc 는 계산용 — 빈 값이면 0 으로 (산식이 NaN 으로 깨지지 않게).
       // disp 는 표시용 — 입력 안 한 변수는 "—" 로 표시 (사용자가 "0" 을 명시한 경우와 구분).
       sc[v.name] = isEmpty ? 0 : Number(raw);
       disp[v.name] = isEmpty ? "—" : fmtU(sc[v.name], v.unit);
+    } else if (v.type === "rows") {
+      // 목록 변수 — 값은 행 객체 배열(또는 JSON 문자열)
+      const rows = parseRows(raw);
+      sc[v.name] = rows;
+      disp[v.name] = rows.length ? `${rows.length}건` : "—";
     } else {
       sc[v.name] = isEmpty ? "" : (raw as any);
       disp[v.name] = isEmpty ? "—" : (raw as any);
@@ -591,6 +640,70 @@ export function run(
               : s.out === "month"
               ? A.getMonth() + 1
               : A.getDate();
+          d = fmtU(r, s.unit);
+        }
+      } else if (s.type === "rowcalc") {
+        // 목록(rows) 행별 계산 — 필터(AND) → 행 산식(map) → 집계(reduce) 또는 목록 출력.
+        // 루프 문법 없이 선언 세 칸으로 고정: 행 간 참조·중첩 없음 (결정론 유지).
+        const rows = parseRows(sc[s.ref]);
+        const litOrRef = (x: any) => {
+          if (typeof x === "string" && x in sc) return sc[x];
+          const n = parseFloat(String(x));
+          return !isNaN(n) && String(n) === String(x).trim() ? n : x;
+        };
+        const passes = (row: Record<string, any>) =>
+          (s.filters || []).every((f) => {
+            if (!f || !f.col) return true;
+            try {
+              return cmp(row[f.col], f.op, litOrRef(f.val));
+            } catch {
+              return false;
+            }
+          });
+        const mapValFor = (row: Record<string, any>): number => {
+          if (!s.map || !s.map.col) return 0;
+          const key = String(row[s.map.col] ?? "");
+          const hit = (s.map.cases || []).find((c) => String(c.match) === key);
+          return bandNum((hit ? hit.value : s.map.default) as any, sc);
+        };
+        const NUM_RE = /^-?\d+(\.\d+)?$/;
+        const filtered = rows.filter(passes);
+        const vals: number[] = [];
+        const outRows: Record<string, any>[] = [];
+        for (const row of filtered) {
+          // 행 스코프 = 전역 + 컬럼값(숫자면 숫자화) + 매핑값
+          const rowSc: Sc = { ...sc };
+          for (const [k, val] of Object.entries(row)) {
+            const str = String(val ?? "").replace(/,/g, "").trim();
+            rowSc[k] = typeof val === "number" ? val : NUM_RE.test(str) ? Number(str) : val;
+          }
+          if (s.map) rowSc["매핑값"] = mapValFor(row);
+          const v = s.tokens && s.tokens.length ? evtok(s.tokens, rowSc) : NaN;
+          vals.push(v);
+          outRows.push({ ...row, 값: v });
+        }
+        if (s.out === "list") {
+          r = outRows;
+          d = outRows.length ? `${outRows.length}건` : "0건";
+        } else if (s.out === "count") {
+          r = filtered.length;
+          d = fmtU(r, s.unit);
+        } else {
+          const nums = vals.filter((x) => typeof x === "number" && !isNaN(x));
+          r =
+            s.out === "sum"
+              ? nums.reduce((a, b) => a + b, 0)
+              : s.out === "avg"
+              ? nums.length
+                ? nums.reduce((a, b) => a + b, 0) / nums.length
+                : 0
+              : s.out === "max"
+              ? nums.length
+                ? Math.max(...nums)
+                : 0
+              : nums.length
+              ? Math.min(...nums)
+              : 0;
           d = fmtU(r, s.unit);
         }
       } else if (s.type === "llm") {
@@ -781,6 +894,19 @@ export function describeStep(s: Step, sc?: Sc): string {
     }
     return `${s.a} 의 ${u === "년" ? "연도" : u}을(를) 추출한 값입니다.`;
   }
+  if (s.type === "rowcalc") {
+    const aggLabel: Record<string, string> = {
+      list: "행별로 계산한 목록",
+      sum: "행별 계산을 합산한 값",
+      avg: "행별 계산의 평균",
+      max: "행별 계산의 최대값",
+      min: "행별 계산의 최소값",
+      count: "조건에 해당하는 건수",
+    };
+    const what = aggLabel[s.out] || "행별 계산 결과";
+    const cond = (s.filters || []).length ? "조건에 맞는 행만 골라 " : "";
+    return `${s.ref || "목록"} 의 각 행을 ${cond}계산한 뒤 만든 ${what}입니다.`;
+  }
   if (s.type === "llm") {
     return "위 산출 결과를 종합해 작성된 안내입니다.";
   }
@@ -805,6 +931,8 @@ export function describeName(schema: AppSchema, name: string, sc?: Sc): string {
     const subject =
       v.type === "date"
         ? "날짜"
+        : v.type === "rows"
+        ? "목록"
         : v.type === "text" || v.type === "select"
         ? "정보"
         : v.unit === "원"

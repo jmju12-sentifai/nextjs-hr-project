@@ -6,6 +6,8 @@ interface Slot {
   unit?: string;
   desc?: string; // 변수 설명 — 파싱 정확도를 높이기 위한 맥락
   options?: string[]; // type="select" — 허용값 목록. 파싱 결과는 반드시 이 안에서만.
+  // type="rows" — 목록 변수의 컬럼 구조. 파싱 결과는 이 컬럼들로 이뤄진 행 객체 배열.
+  cols?: { name: string; type: string; unit?: string; options?: string[] }[];
 }
 
 // 기본 모델 — 환경변수(GEMINI_MODEL) 없으면 gemini-3.5-flash 사용 (빠르고 파싱 정확).
@@ -284,7 +286,11 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     //                 • "대상자관계"      (임직원이 고른 본인/배우자/자녀) → 개인
     // ⚠️ 절대 모든 변수를 한쪽 grp 로 몰지 말 것. 기획서에는 보통 규정·개인 변수가 모두 있다.
     //    규정 변수가 안 보이면 다시 한 번 기획서를 읽어 회사 정책 값을 찾아라.
-    // type ∈ number|text|date|select
+    // type ∈ number|text|date|select|rows
+    //   • rows = 여러 건이 행으로 쌓이는 목록 변수 (경력내역·신청내역 등 건별 계산 대상).
+    //     "cols" 에 컬럼 구조 명시: [{"name":"근무년수","type":"number","unit":"년"},
+    //     {"name":"환산구분","type":"select","options":["동종동일","타업동일","타업타직"]}].
+    //     test 는 행 객체 배열의 JSON 문자열. 건별 계산은 rowcalc step (아래) 이 담당.
     //   • 기획서에 타입이 명시돼 있으면 그대로 — 타입 칸의 "선택형" = select.
     //   • select = **기획서가 허용값 목록을 명시한 변수만** ("값: A/B/C" 표기 — 설명·예시 어느 칸이든 — 또는 후보가 열거된 경우).
     //     "options" 배열에 명시된 후보를 그대로 나열. **후보 발명 금지**.
@@ -379,6 +385,15 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     // 5) clamp   — 상·하한 보정
     //    { "type": "clamp", "name": "최종금액", "unit": "원", "ref": "피크임금",
     //      "min": "최저임금", "max": "" }   // 변수명 또는 '' (없음)
+    // 6.5) rowcalc — rows(목록) 변수의 행별 계산 (필터 → 행 산식 → 집계/목록)
+    //    { "type": "rowcalc", "name": "유효총경력", "unit": "년", "ref": "경력내역",
+    //      "filters": [],                                     // 선택 — [{ "col","op","val" }] AND
+    //      "tokens": [ {"t":"var","name":"근무년수"}, {"t":"op","op":"*"},
+    //                  {"t":"var","name":"매핑값"}, {"t":"op","op":"/"}, {"t":"num","v":100} ],
+    //      "map": { "col": "환산구분", "cases": [ {"match":"동종동일","value":"동종동일_환산율"} ] },
+    //      "out": "sum" }                                      // sum|avg|max|min|count|list
+    //    tokens 의 var 는 컬럼명·전역 변수·"매핑값" 참조. map.value 는 숫자 또는 규정 변수 이름.
+    //    out="list" 면 행별 결과 목록(리포트 list 카드로 노출), 그 외는 숫자 하나.
     // 6) branch  — 조건 분기 (참/거짓 → 텍스트 또는 계산식)
     //    { "type": "branch", "name": "적용시점", "unit": "",
     //      "ref": "출생월", "op": "<=", "rhs": 6,
@@ -1011,8 +1026,19 @@ function withIds(schema: any) {
     "clamp",
     "branch",
     "switch",
+    "rowcalc",
     "llm",
   ]);
+  // 숫자면 number, 이름이면 문자열 보존(+숫자 승격 표시) — table band·rowcalc map 값 공용
+  const numOrName = (x: any): number | string => {
+    if (typeof x === "number") return isNaN(x) ? 0 : x;
+    const str = String(x ?? "").trim();
+    if (!str) return 0;
+    const cleaned = str.replace(/,/g, "");
+    if (/^-?\d+(\.\d+)?$/.test(cleaned)) return Number(cleaned);
+    numberPromote.add(str);
+    return str;
+  };
   const repairSteps = (steps: any[] = []): any[] =>
     steps
       .filter((s) => {
@@ -1053,19 +1079,10 @@ function withIds(schema: any) {
           out.bands = [{ from: 0, to: 100, v: 0 }];
         } else {
           // 각 band 의 from/to/v — 숫자는 숫자로, 이름(변수/산출 참조)은 문자열로 보존 (런타임 동적 조회)
-          const bandField = (x: any): number | string => {
-            if (typeof x === "number") return isNaN(x) ? 0 : x;
-            const str = String(x ?? "").trim();
-            if (!str) return 0;
-            const cleaned = str.replace(/,/g, "");
-            if (/^-?\d+(\.\d+)?$/.test(cleaned)) return Number(cleaned);
-            numberPromote.add(str); // 이름 참조 — 숫자여야 함
-            return str;
-          };
           out.bands = out.bands.map((b: any) => ({
-            from: bandField(b?.from),
-            to: bandField(b?.to),
-            v: bandField(b?.v),
+            from: numOrName(b?.from),
+            to: numOrName(b?.to),
+            v: numOrName(b?.v),
           }));
         }
         if (out.ref) numberPromote.add(out.ref);
@@ -1191,6 +1208,32 @@ function withIds(schema: any) {
             } else out.n = 0;
           }
         }
+      } else if (out.type === "rowcalc") {
+        // 목록 행별 계산 — ref(목록)·filters·tokens(행 산식)·map(계수 매핑)·out(출력) 정규화
+        if (typeof out.ref !== "string") out.ref = "";
+        const OPS = ["<", "<=", "==", "!=", ">=", ">"];
+        out.filters = (Array.isArray(out.filters) ? out.filters : [])
+          .filter((f: any) => f && typeof f === "object" && typeof f.col === "string" && f.col.trim())
+          .map((f: any) => ({
+            col: f.col.trim(),
+            op: OPS.includes(f.op) ? f.op : "==",
+            val: String(f.val ?? ""),
+          }));
+        // 행 산식 토큰 — 컬럼명 참조는 전역 숫자 승격 대상이 아니므로 promote=false
+        out.tokens = repairFormulaTokens(out.tokens || [], false);
+        if (out.map && typeof out.map === "object" && typeof out.map.col === "string" && out.map.col.trim()) {
+          out.map = {
+            col: out.map.col.trim(),
+            cases: (Array.isArray(out.map.cases) ? out.map.cases : [])
+              .filter((c: any) => c && typeof c === "object" && c.match != null)
+              .map((c: any) => ({ match: String(c.match), value: numOrName(c.value) })),
+            ...(out.map.default != null ? { default: numOrName(out.map.default) } : {}),
+          };
+          if (out.map.cases.length === 0) delete out.map;
+        } else {
+          delete out.map;
+        }
+        if (!["list", "sum", "avg", "max", "min", "count"].includes(out.out)) out.out = "sum";
       } else if (out.type === "llm") {
         if (!Array.isArray(out.items)) out.items = [];
         if (typeof out.prompt !== "string") out.prompt = "";
@@ -1213,7 +1256,8 @@ function withIds(schema: any) {
   const nonNumericNames = new Set<string>();
   for (const v of schema.vars || []) {
     if (!v?.name) continue;
-    if (v.type === "text" || v.type === "date" || v.type === "select") nonNumericNames.add(v.name);
+    if (v.type === "text" || v.type === "date" || v.type === "select" || v.type === "rows")
+      nonNumericNames.add(v.name);
     else if (looksLikeText(v.name)) nonNumericNames.add(v.name);
   }
   const collectNonNumericFromSteps = (steps: any[] = []) => {
@@ -1222,6 +1266,9 @@ function withIds(schema: any) {
       if (s.type === "llm") nonNumericNames.add(s.name);
       else if (s.type === "date" && s.mode === "add") {
         // 날짜 가산 출력은 "YYYY-MM-DD" 문자열 — 산식에 넣으면 안 됨
+        nonNumericNames.add(s.name);
+      } else if (s.type === "rowcalc" && s.out === "list") {
+        // 목록 출력 — 산식에 넣으면 안 됨 (rowcalc/목록 카드에서만 사용)
         nonNumericNames.add(s.name);
       } else if (s.type === "branch") {
         // 양쪽 다 text 모드면 결과도 텍스트
@@ -1346,6 +1393,12 @@ function withIds(schema: any) {
       if (s.mode === "diff" && s.a === s.b) return false;
       return true;
     }
+    if (s.type === "rowcalc") {
+      if (typeof s.ref !== "string" || s.ref.trim() === "") return false;
+      // count 는 산식 없이도 의미 있음. 그 외 출력은 행 산식 필요.
+      if (s.out !== "count" && (!Array.isArray(s.tokens) || s.tokens.length === 0)) return false;
+      return true;
+    }
     if (s.type === "llm") {
       // items 가 비어 있어도 LLM 은 호출 가능 (그냥 메타만 보내도 됨) — OK
       return true;
@@ -1444,6 +1497,11 @@ function withIds(schema: any) {
       if (/["'“”‘’%()*/+]/.test(n)) return null;
       return n;
     };
+    // rows 컬럼 이름 집합 — rowcalc 행 산식의 컬럼 참조는 전역 스코프 검사 대상이 아님
+    const rowColNames = new Set<string>(["값", "매핑값"]);
+    for (const v of schema.vars || [])
+      if (v?.type === "rows")
+        for (const c of v.cols || []) if (c?.name) rowColNames.add(String(c.name));
     // step 이 참조하는 이름들 (llm items 는 런타임이 안전 처리하므로 제외)
     const refsOfStep = (s: any): string[] => {
       const out: string[] = [];
@@ -1453,6 +1511,15 @@ function withIds(schema: any) {
         add(s.a);
         if (s.mode === "diff") add(s.b);
         if (s.mode === "add" && typeof s.n === "string") add(s.n);
+      }
+      else if (s.type === "rowcalc") {
+        add(s.ref);
+        // 행 산식·매핑의 이름 참조 중 컬럼명이 아닌 것(전역 변수/산출)만 스코프 검사
+        for (const t of s.tokens || [])
+          if (t?.t === "var" && t.name && !rowColNames.has(t.name)) add(t.name);
+        for (const c of s.map?.cases || [])
+          if (typeof c?.value === "string" && !rowColNames.has(c.value)) add(c.value);
+        if (typeof s.map?.default === "string" && !rowColNames.has(s.map.default)) add(s.map.default);
       }
       else if (s.type === "table") {
         add(s.ref);
@@ -1611,6 +1678,7 @@ function withIds(schema: any) {
         numberPromote.has(v.name) &&
         v.type !== "number" &&
         v.type !== "select" &&
+        v.type !== "rows" &&
         !looksLikeText(v.name) &&
         !hasNonNumericValue(v.name)
       ) {
@@ -1625,28 +1693,33 @@ function withIds(schema: any) {
   // 그 리터럴/case.match 들이 곧 허용값이다. 2개 이상 모이면 select 로 승격해
   // 사용자 입력을 콤보박스로, 파싱을 목록 내로 제한한다. (AI 가 select 로 안 뽑은 경우의 안전망)
   if (Array.isArray(schema.vars)) {
-    const optionPool = new Map<string, Set<string>>(); // 변수명 → 발견된 허용값들
-    const noteOption = (varName: any, val: any) => {
+    // 출처를 분리해 수집 — 조건(condPool)은 신뢰도 높음(경로 매칭에 실사용),
+    // switch case(switchPool)는 AI 오배선이 섞일 수 있어 "승격 판단"에만 쓰고
+    // **기존 select 의 options 보충에는 쓰지 않는다** (오배선 케이스값이 허용값을 오염시키는 사고 방지 —
+    // 실제 사례: 경력1_환산구분 switch 에 하한/표준/상한 케이스가 잘못 생겨 허용값 6개로 불어남).
+    const condPool = new Map<string, Set<string>>();
+    const switchPool = new Map<string, Set<string>>();
+    const noteOption = (pool: Map<string, Set<string>>, varName: any, val: any) => {
       if (typeof varName !== "string" || !varName.trim()) return;
       let s = typeof val === "string" ? val.trim() : String(val ?? "").trim();
       s = s.replace(/^["'“”‘’]|["'“”‘’]$/g, "").trim();
       if (!s || /^-?\d+(\.\d+)?$/.test(s)) return; // 숫자 비교는 분류 아님
       const key = varName.trim();
-      if (!optionPool.has(key)) optionPool.set(key, new Set());
-      optionPool.get(key)!.add(s);
+      if (!pool.has(key)) pool.set(key, new Set());
+      pool.get(key)!.add(s);
     };
     const scanCondsForOptions = (conds: any[] = []) => {
       for (const c of conds) {
         if (!c || typeof c !== "object") continue;
         if (c.op !== "==" && c.op !== "!=") continue;
-        if (c.aMode !== "val" && c.bMode === "val") noteOption(c.a, c.b);
-        if (c.bMode !== "val" && c.aMode === "val") noteOption(c.b, c.a);
+        if (c.aMode !== "val" && c.bMode === "val") noteOption(condPool, c.a, c.b);
+        if (c.bMode !== "val" && c.aMode === "val") noteOption(condPool, c.b, c.a);
       }
     };
     const scanSwitchForOptions = (steps: any[] = []) => {
       for (const s of steps) {
         if (s?.type !== "switch" || typeof s.ref !== "string") continue;
-        for (const cse of s.cases || []) noteOption(s.ref, cse?.match);
+        for (const cse of s.cases || []) noteOption(switchPool, s.ref, cse?.match);
       }
     };
     for (const p of schema.paths || []) {
@@ -1658,6 +1731,11 @@ function withIds(schema: any) {
       scanCondsForOptions(schema.fallback.conditions);
       scanSwitchForOptions(schema.fallback.steps);
     }
+    const unionFound = (name: string): Set<string> => {
+      const out = new Set<string>(condPool.get(name) || []);
+      for (const o of switchPool.get(name) || []) out.add(o);
+      return out;
+    };
     // select 유지 근거 — 옵션이 "문서/로직에 실재" 해야 함:
     //   (a) 조건·switch 리터럴에서 그 변수의 값이 실제 사용되거나 (분기축 증거)
     //   (b) desc 에 「값: A/B/C」 표기가 있거나 (기획서가 후보를 명시 — 프롬프트가 select 의 desc 에 강제)
@@ -1669,23 +1747,22 @@ function withIds(schema: any) {
       MULTI_LIST_RE.test(String(v.name || "")) || MULTI_LIST_RE.test(String(v.desc || ""));
     schema.vars = schema.vars.map((v: any) => {
       if (!v || typeof v !== "object" || typeof v.name !== "string") return v;
-      const found = optionPool.get(v.name);
+      const found = unionFound(v.name);
       if (v.type === "select") {
-        const corroborated =
-          (found && found.size > 0) || VALUE_LIST_RE.test(String(v.desc || ""));
+        const corroborated = found.size > 0 || VALUE_LIST_RE.test(String(v.desc || ""));
         if (!corroborated || looksMultiList(v)) {
           // 근거 없는 옵션 목록 — 발명으로 간주하고 자유 입력으로 되돌림
           const { options: _drop, ...rest } = v;
           return { ...rest, type: "text" };
         }
-        // 기존 select — 조건/switch 에서 발견된 값이 options 에 빠져 있으면 보충
+        // 기존 select — **조건 리터럴만** options 에 보충 (switch case 는 오배선 가능성 → 오염 금지)
         const opts: string[] = Array.isArray(v.options) ? [...v.options] : [];
-        for (const o of found || []) if (!opts.includes(o)) opts.push(o);
+        for (const o of condPool.get(v.name) || []) if (!opts.includes(o)) opts.push(o);
         if (typeof v.test === "string" && v.test.trim() && !opts.includes(v.test.trim()))
           opts.push(v.test.trim());
         return { ...v, options: opts, unit: "" };
       }
-      if (v.type === "text" && found && found.size >= 2 && !looksMultiList(v)) {
+      if (v.type === "text" && found.size >= 2 && !looksMultiList(v)) {
         const opts = [...found];
         if (typeof v.test === "string" && v.test.trim() && !opts.includes(v.test.trim()))
           opts.push(v.test.trim());
@@ -1702,13 +1779,28 @@ function withIds(schema: any) {
     const LIST_HINT_RE = /(목록|내역|리스트|여러\s*건)/;
     const listVars = new Set<string>();
     for (const v of schema.vars || []) {
-      if (!v?.name || v.type !== "text") continue;
+      if (!v?.name) continue;
+      // rows(목록) 변수는 무조건 목록 카드로
+      if (v.type === "rows") {
+        listVars.add(v.name);
+        continue;
+      }
+      if (v.type !== "text") continue;
       if (LIST_HINT_RE.test(String(v.name)) || LIST_HINT_RE.test(String(v.desc || "")))
         listVars.add(v.name);
       // 값 자체가 목록 형태(괄호 그룹 2개 이상)여도 목록으로 간주 — 예: "A사(3,동종) B사(2,타업)"
       else if (typeof v.test === "string" && (v.test.match(/[(（]/g) || []).length >= 2)
         listVars.add(v.name);
     }
+    // rowcalc 목록 출력도 목록 카드 대상
+    const rowcalcListNames = new Set<string>();
+    const scanRowcalc = (steps: any[] = []) => {
+      for (const st of steps) if (st?.type === "rowcalc" && st.out === "list" && st.name) rowcalcListNames.add(st.name);
+    };
+    scanRowcalc(schema.shared?.steps);
+    for (const p of schema.paths || []) scanRowcalc(p.steps);
+    scanRowcalc(schema.fallback?.steps);
+    for (const n of rowcalcListNames) listVars.add(n);
     if (listVars.size > 0) {
       const toList = (report: any[] = []) =>
         report.map((e: any) => {
@@ -1987,6 +2079,8 @@ function withIds(schema: any) {
     };
     schema.vars = schema.vars.map((v: any) => {
       if (!v || typeof v !== "object" || typeof v.name !== "string") return v;
+      // rows(목록) — 값은 행 배열/JSON. 키워드 기본값 로직 대상 아님 (덮어쓰면 행 유실)
+      if (v.type === "rows") return v;
       // AI 가 채워준 값이 있으면 유지 (단, 공백 문자열만 있으면 비어있는 걸로 간주)
       const existing = typeof v.test === "string" ? v.test.trim() : "";
       // select — test 는 반드시 options 안에서 (빈 값·목록 밖이면 첫 옵션)
@@ -2337,11 +2431,24 @@ export async function parseDocument(
   if (!slots || slots.length === 0) return {};
   const slotsDesc = slots
     .map((s) => {
+      const d = s.desc && String(s.desc).trim() ? ` :: ${String(s.desc).trim()}` : "";
+      // 목록(rows) 슬롯 — 컬럼 구조를 명시하고 행 객체 배열로 받는다
+      if (s.type === "rows" && Array.isArray(s.cols) && s.cols.length > 0) {
+        const colDesc = s.cols
+          .map((c) => {
+            const co =
+              Array.isArray(c.options) && c.options.length > 0
+                ? `[${c.options.join("|")}] 중 하나`
+                : c.type;
+            return `"${c.name}": ${co}${c.unit ? "(" + c.unit + ")" : ""}`;
+          })
+          .join(", ");
+        return `- "${s.name}" (목록 — 여러 건을 객체 배열로. 각 행: { ${colDesc} })${d}`;
+      }
       const opts =
         Array.isArray(s.options) && s.options.length > 0
           ? ` — 반드시 [${s.options.map((o) => `"${o}"`).join(" | ")}] 중 하나`
           : "";
-      const d = s.desc && String(s.desc).trim() ? ` :: ${String(s.desc).trim()}` : "";
       return `- "${s.name}" (${s.type}${s.unit ? ", " + s.unit : ""})${opts}${d}`;
     })
     .join("\n");
@@ -2356,6 +2463,9 @@ export async function parseDocument(
       "경력 인정 비율 100%/80%/50%" 를 설명하면 경력인정방식 = "환산율",
       "6개월 이상이면 1년으로 반올림" 이면 단수처리방식 = "반올림".
   판단 근거가 전혀 없을 때만 null. 목록에 없는 값은 절대 만들지 말 것.
+- **목록 변수(각 행: {...} 표기)는 문서의 해당 항목들을 모두 찾아 행 객체 배열로.**
+  예: 이력서의 근무 이력 3건 → [{"근무년수":3,"환산구분":"동종동일"}, {"근무년수":2,"환산구분":"타업동일"}, ...].
+  컬럼 이름은 표기 그대로, select 컬럼은 후보 중 하나로 판단(분류). 건수 제한 없음. 없으면 [].
 - 그 외 변수는 문서에 있는 값만. 값을 못 찾으면 null. 마크다운/코드블록 없이 JSON 만.
 
 변수목록:
@@ -2377,14 +2487,39 @@ ${slotsDesc}
   // 유사 매칭 — exact → 정규화(공백·괄호·단위·구두점 제거) → 동의어 순으로 찾음.
   // AI 가 키를 약간 다르게 (공백·괄호·단위 추가, 동의어 사용) 내놓아도 매핑되도록.
   const out: Record<string, any> = {};
+  const norm = (x: any) => String(x ?? "").replace(/\s+/g, "").toLowerCase();
   for (const s of slots) {
     let v = findMatchingValue(parsed as Record<string, any>, s.name);
     // select — 허용값 목록 밖의 값은 차단 (프롬프트가 어겨도 코드에서 강제).
     // 공백 차이 정도는 관대하게 매칭해 목록의 표준 표기로 정규화.
-    if (v != null && Array.isArray(s.options) && s.options.length > 0) {
-      const norm = (x: any) => String(x ?? "").replace(/\s+/g, "").toLowerCase();
+    if (v != null && s.type !== "rows" && Array.isArray(s.options) && s.options.length > 0) {
       const hit = s.options.find((o) => norm(o) === norm(v));
       v = hit ?? null;
+    }
+    // rows(목록) — 행 객체 배열로 강제: 선언된 컬럼만, 숫자 컬럼 숫자화, select 컬럼 허용값 정규화
+    if (s.type === "rows") {
+      const rowsIn = Array.isArray(v) ? v : [];
+      const cols = Array.isArray(s.cols) ? s.cols : [];
+      const rowsOut: Record<string, any>[] = [];
+      for (const r of rowsIn) {
+        if (!r || typeof r !== "object") continue;
+        const row: Record<string, any> = {};
+        for (const c of cols) {
+          const raw = findMatchingValue(r as Record<string, any>, c.name);
+          if (raw == null) continue;
+          if (c.type === "number") {
+            const n = Number(String(raw).replace(/[,\s]/g, ""));
+            if (!isNaN(n)) row[c.name] = n;
+          } else if (Array.isArray(c.options) && c.options.length > 0) {
+            const hit = c.options.find((o) => norm(o) === norm(raw));
+            if (hit) row[c.name] = hit;
+          } else {
+            row[c.name] = String(raw);
+          }
+        }
+        if (Object.keys(row).length > 0) rowsOut.push(row);
+      }
+      v = rowsOut;
     }
     out[s.name] = v ?? null;
   }
@@ -2536,14 +2671,16 @@ export async function generateAppSpecDoc(
 export interface SpecPreviewVar {
   name: string;
   grp: "규정" | "개인";
-  type: "number" | "text" | "date" | "select";
+  type: "number" | "text" | "date" | "select" | "rows";
   unit?: string;
-  value?: string; // 참고 문서에서 발견한 값(있다면)
+  value?: any; // 참고 문서에서 발견한 값(있다면). rows 는 행 객체 배열 가능
   category: "핵심" | "기타"; // 도메인 핵심인지, 부수적인지
   source: string; // 어느 문서에서 가져온 것 (예: "참고 문서 1: 취업규칙.docx" 또는 "도메인 상식")
   reason: string; // 왜 이 변수를 선언했는지 / 왜 기타로 분류했는지
   desc?: string; // 사용자에게 보여줄 한 줄 설명
   options?: string[]; // type="select" 전용 — 허용값 목록
+  // type="rows" 전용 — 컬럼 구조 (여러 건 목록: 경력내역·신청내역 등)
+  cols?: { name: string; type: "number" | "text" | "select"; unit?: string; options?: string[] }[];
   group?: string; // 상위 분류 (예: "경조사", "급여", "휴가")
   subGroup?: string; // 하위 분류 (예: 경조사 > "결혼", "사망", "회갑")
 }
@@ -2564,7 +2701,10 @@ export interface SpecPreviewStep {
   b?: string;
   mode?: "diff" | "part" | "add";
   n?: number | string; // mode="add" 전용 — 더할 수량 (숫자 또는 변수/산출 이름)
-  out?: "year" | "month" | "day";
+  out?: "year" | "month" | "day" | string; // rowcalc 은 list/sum/avg/max/min/count
+  // rowcalc 의 경우: 필터·계수 매핑 (expression 이 행 산식 — 컬럼명·전역 변수·"매핑값" 참조)
+  filters?: { col: string; op: string; val: string }[];
+  map?: { col: string; cases: { match: string; value: number | string }[]; default?: number | string };
   // llm 의 경우: 요약 대상 변수/산출 이름들
   items?: string[];
 }
@@ -2987,18 +3127,22 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
     {
       "name": "변수명_공백없이",
       "grp": "규정" | "개인",
-      "type": "number" | "text" | "date" | "select",
+      "type": "number" | "text" | "date" | "select" | "rows",
       "unit": "원" | "" | "년" | ...,
-      "value": "규정변수=문서의 정책값. 개인변수=현실적 예시 1건(아래 ⚠ 규칙대로 채움)",
+      "value": "규정변수=문서의 정책값. 개인변수=현실적 예시 1건(아래 ⚠ 규칙대로 채움). rows 는 행 객체 배열",
       "category": "핵심" | "기타",
       "source": "참고 문서 N: 파일명 또는 도메인 상식",
       "reason": "이 변수를 선언한 이유 — 1~2 문장. 기타면 왜 핵심이 아닌지.",
       "desc": "사용자에게 보여줄 한 줄 설명 — 이 변수가 무엇인지 (예: '기본급 산정 방식(분기축)')",
       "options": ["select 타입 전용 — 허용값 목록. 예: \\"밴드\\",\\"호봉\\",\\"표준액\\",\\"미운영\\""],
+      "cols": [{ "name": "근무년수", "type": "number", "unit": "년" }],
       "group": "상위 분류 (선택) — 예: '경조사', '급여', '휴가', '평가', '복리후생'",
       "subGroup": "하위 분류 (선택) — 예: 경조사 > '결혼', '사망', '회갑', '출산'"
     }
   ],
+  // ⚠ type="rows" — 여러 건이 행으로 쌓이는 목록 변수 (경력내역·신청내역 등 건별 계산 대상).
+  //   cols 에 컬럼 구조를 명시 (number/text/select — select 는 options 포함), value 는 행 객체 배열.
+  //   건별 계산은 분석 로직의 rowcalc step 이 담당. 건수 제한 없음.
   // ⚠ type="select" — **문서가 허용값 목록을 명시한 변수만** (「값: A/B/C」 표기 또는 후보가 표로 열거된 경우).
   //   options 는 문서에 명시된 후보 그대로 — **문서에 없는 후보를 지어내지 말 것** (발명 금지).
   //   select 변수의 desc 끝에는 「값: A/B/C」 표기를 그대로 포함하라.
@@ -3136,6 +3280,8 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   - "기준 값이 어느 구간에 속하는지" → table — bands 의 from/to/v 에는 숫자 대신 **변수 이름**도 가능.
     회사 문서에서 파싱되는 정책값(직급별 하한·상한 등)은 숫자를 굳히지 말고 변수 이름으로 참조하라.
   - "여러 항목의 합/평균/최대/최소" → classify
+  - "목록(rows) 변수의 건별 계산·필터·합산" (경력 건별 환산 합산 등) → rowcalc
+    (ref=목록 변수, expression=행 산식(컬럼명·"매핑값" 참조), map=구분→계수, out=sum/list/…)
   - "최저·최고 보정" → clamp
   - "조건부 산출(조건 만족 시 갭 보전, 아니면 0 등)" → branch(조건→산식/0) + clamp(상·하한) 2단 분해
   - "단순 yes/no 분기 후 두 값 중 하나" → branch
@@ -3672,8 +3818,12 @@ async function generateSpecVars(
     grp === "개인"
       ? `\n임직원이 입력/업로드하는 값(성명·사번·생년월일·금액·분류 등). 분기축이 될 분류 변수(예: 경조분류·신청구분)는 **문서에 분류값 후보가 명시된 경우에만** type="select" 로 하고 options 에 그 후보를 그대로 나열 (예: ["사망","결혼","출산","입학"]). 문서에 없는 후보를 지어내지 말 것.
 후보 명시 = 「값: A/B/C」 표기(설명·예시 어느 칸이든) 또는 후보 열거. 예시 칸이 "결혼 ↵ 값: 결혼/사망/출산" 형태면 value="결혼", options=["결혼","사망","출산"] ("값:" 줄은 value 에 넣지 말 것).
-⚠ 여러 건을 입력하는 **목록 항목**(경력내역·보유자격·품목 목록 등)은 select 금지 — text 로.
-⚠ **목록이 건별 계산에 쓰이는 경우**(예: 경력내역 각 건에 환산율 적용 후 합산): 목록 text 변수와 함께 **계산용 고정 슬롯 변수**를 선언하라 — 예: 경력1_근무년수(number)·경력1_구분(select) … 경력3_… (3~5건, 문서 파싱이 채움). 슬롯이 없으면 그 계산은 앱에서 불가능해진다.
+⚠ 여러 건을 입력하는 **목록 항목**(경력내역·신청내역·품목 목록 등)은 **type="rows"** 로 선언하고
+cols 에 컬럼 구조를 명시하라 — 예: 경력내역 = { "type":"rows", "cols":[
+  {"name":"근무년수","type":"number","unit":"년"},
+  {"name":"환산구분","type":"select","options":["동종동일","타업동일","타업타직"]} ] }.
+value 는 행 객체 배열 (예: [{"근무년수":3,"환산구분":"동종동일"},…]) — 건수 제한 없음.
+건별 계산이 필요 없는 단순 나열(보유자격 등)은 text 로 둬도 된다.
 select 변수의 desc 끝에는 「값: A/B/C」 표기를 포함하라. 그 외 변수도 desc 에 사용자용 한 줄 설명을 채워라.`
       : `\n회사가 정한 정책 값만(기준액·지급액·비율·연령·한도·기한·등급 기준 등). 분류값마다 다른 정책 금액이 있으면 "도메인_분류값" 패턴으로 모두 선언.
 **표 형태 정책**(직급체계표·페이밴드표·환산율표 등)은 표를 통째로 text 변수에 담지 말고, **행·필드별 number 변수로 펼쳐 선언**하라 — 예: 직급1_하한액·직급1_상한액·직급2_하한액… / 동종동일_환산율·타업동일_환산율. 분석 로직의 구간표(table)가 이 변수들을 참조해 회사별 문서 값에 따라 움직인다.
@@ -3712,7 +3862,13 @@ async function generateSpecPaths(
 - **구간표(table) 의 bands 는 { "from", "to", "v" } 배열** — from/to/v 에 숫자 대신 **확정 변수 이름**(문자열)을 쓸 수 있다. 회사 문서에서 파싱되는 정책값(직급별 하한·상한·표준액 등)은 숫자를 굳히지 말고 변수 이름으로 참조하라 (회사마다 값이 달라도 표가 따라 움직임). 예: 직급 매핑 = table(경력연차→직급코드 1/2/3) + 금액 = table(직급코드, v="직급1_하한액"…).
 - **조건부 산출(예: 갭 보전 사이닝보너스, 상한 캡)은 2단 분해** — branch(조건 참/거짓 → 산식/0) 다음 clamp(상·하한 보정). 산식 안에 조건 문구를 섞지 말 것.
 - **날짜 가산**은 date step mode="add" ({ a: 기준 날짜 변수, n: 숫자 또는 숫자 변수/산출, out: year/month/day }) — 예: 승진심의일 = 정기인사기준일 + 잔여체류연한.
-- **다건 목록 계산**(경력내역처럼 건별 환산 후 합산): 확정 변수에 슬롯 변수(경력1_근무년수·경력1_구분 등)가 있으면 슬롯별 step(switch 환산율 → formula 곱) + classify(sum) 합산으로 구성하라. 슬롯 변수가 없으면 합산 결과를 담는 확정 변수(예: 유효총경력)를 그대로 입력값으로 사용.
+- **다건 목록 계산**(rows 변수 — 경력내역처럼 건별 계산 후 합산)은 **rowcalc** step 으로:
+  { "type":"rowcalc", "name":"유효총경력", "ref":"경력내역",
+    "filters":[{"col":"환산구분","op":"!=","val":"제외"}]  ← 선택 (없으면 전체 행),
+    "expression":"근무년수 * 매핑값 / 100",              ← 행 산식: 컬럼명·전역 변수·"매핑값" 참조
+    "map":{"col":"환산구분","cases":[{"match":"동종동일","value":"동종동일_환산율"},{"match":"타업동일","value":"타업동일_환산율"},{"match":"타업타직","value":"타업타직_환산율"}]},
+    "out":"sum" }                                         ← sum/avg/max/min/count/list(행별 결과 목록)
+  map 의 value 는 숫자 또는 규정 변수 이름 (회사별 파싱 값 연동). out="list" 결과는 리포트 목록 카드로 노출 가능.
 - 분기축(분류 변수)의 **모든 분류값마다 path 1개씩 빠짐없이** 생성. 하나만 만들고 나머지를 fallback 으로 떠넘기지 말 것.
 출력: { "shared": { "steps": [...] }, "paths": [...], "fallback": {...} }`
   );
@@ -3804,10 +3960,41 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
     return v.type;
   };
   const toDraftVar = (v: SpecPreviewVar, fallbackGroup: string) => {
+    // rows(목록) — 컬럼 구조 보존, 값(행 배열)은 JSON 문자열로
+    if (v.type === "rows") {
+      const cols = (Array.isArray(v.cols) ? v.cols : [])
+        .filter((c) => c && typeof c.name === "string" && c.name.trim())
+        .map((c) => ({
+          name: c.name.trim(),
+          type: c.type === "number" || c.type === "select" ? c.type : ("text" as const),
+          ...(c.unit ? { unit: c.unit } : {}),
+          ...(c.type === "select" && Array.isArray(c.options)
+            ? { options: c.options.map((o) => String(o).trim()).filter(Boolean) }
+            : {}),
+        }));
+      const test = Array.isArray(v.value)
+        ? JSON.stringify(v.value)
+        : typeof v.value === "string"
+        ? v.value
+        : "";
+      return {
+        id: "auto",
+        grp: v.grp,
+        name: v.name,
+        type: "rows",
+        unit: "",
+        req: false,
+        test,
+        cols,
+        desc: typeof v.desc === "string" ? v.desc.trim() : "",
+        group: v.group || fallbackGroup,
+        subGroup: v.subGroup || "",
+      };
+    }
     const type = varTypeOf(v);
     const opts = type === "select" ? varOptions(v) : [];
     // select 의 test 값은 options 안에서만 — 벗어나면 목록에 추가 (문서 발견값 보존)
-    let test = v.value || "";
+    let test = typeof v.value === "string" ? v.value : v.value != null ? String(v.value) : "";
     if (type === "select" && test && !opts.includes(test)) opts.push(test);
     return {
       id: "auto",
@@ -3889,7 +4076,8 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
     return 0;
   };
   // 수식 문자열 → v5 토큰. 식별자는 resolveName 으로 실제 이름에 매핑. (예: "통상임금 * (1 - 감액률 / 100)")
-  const tokenizeExpr = (expr: any): any[] => {
+  // protect: resolveName 을 건너뛸 이름들 (rowcalc 행 산식의 컬럼명 — 전역 이름에 오매핑 방지)
+  const tokenizeExpr = (expr: any, protect?: Set<string>): any[] => {
     let s = String(expr ?? "");
     // 유니코드 연산자 정규화 (× ÷ − 등 → * / -)
     s = s.replace(/[×∙·]/g, "*").replace(/÷/g, "/").replace(/[−–—]/g, "-");
@@ -3938,7 +4126,7 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
       if (!name) continue;
       // floor/ceil/round → 함수 토큰, 그 외 → 변수
       if (FN_NAMES.has(name.toLowerCase())) toks.push({ t: "fn", fn: name.toLowerCase() });
-      else toks.push({ t: "var", name: resolveName(name) });
+      else toks.push({ t: "var", name: protect?.has(name) ? name : resolveName(name) });
     }
     return toks;
   };
@@ -3949,10 +4137,58 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
     if (r && (isKnown(r) || /^-?\d+(\.\d+)?$/.test(r.replace(/,/g, "")))) return r;
     return "";
   };
+  // rows(목록) 변수별 컬럼 이름 — rowcalc 행 산식에서 컬럼 참조 보호용
+  const rowsColsByVar = new Map<string, Set<string>>();
+  for (const v of allPreviewVars) {
+    if (v.type !== "rows") continue;
+    const set = new Set<string>(["값"]);
+    for (const c of v.cols || []) if (c?.name) set.add(String(c.name).trim());
+    rowsColsByVar.set(v.name, set);
+  }
   const buildStep = (s: SpecPreviewStep): any => {
     const sa = s as any;
     const base = { id: "auto", name: s.name || "", unit: "" } as any;
     switch (s.type) {
+      case "rowcalc": {
+        const ref = resolveName(s.ref) || (s.ref || "").trim();
+        const protect = new Set<string>(["매핑값", "값"]);
+        const own = rowsColsByVar.get(ref);
+        if (own) for (const c of own) protect.add(c);
+        // 선행 rowcalc(목록 출력) 체이닝 등 — ref 가 rows 변수가 아니면 모든 컬럼명을 보수적으로 보호
+        if (!own) for (const set of rowsColsByVar.values()) for (const c of set) protect.add(c);
+        const tokens = tokenizeExpr(sa.expression || sa.formula, protect);
+        const OPS = ["<", "<=", "==", "!=", ">=", ">"];
+        const filters = (Array.isArray(sa.filters) ? sa.filters : [])
+          .filter((f: any) => f && typeof f.col === "string" && f.col.trim())
+          .map((f: any) => ({
+            col: f.col.trim(),
+            op: OPS.includes(f.op) ? f.op : "==",
+            val: String(f.val ?? ""),
+          }));
+        // 매핑 값 — 숫자 / 알려진 이름(동적 조회) / 미정의 식별자(자동 변수 대상) / 그 외 0
+        const mapVal = (x: any): number | string => {
+          const str = String(x ?? "").replace(/,/g, "").trim();
+          if (/^-?\d+(\.\d+)?$/.test(str)) return Number(str);
+          const rn = resolveName(x);
+          if (rn && isKnown(rn)) return rn;
+          const id = String(x ?? "").trim();
+          return /^[가-힣A-Za-z_][가-힣A-Za-z0-9_]*$/.test(id) ? id : 0;
+        };
+        const map =
+          sa.map && typeof sa.map === "object" && typeof sa.map.col === "string" && sa.map.col.trim()
+            ? {
+                col: sa.map.col.trim(),
+                cases: (Array.isArray(sa.map.cases) ? sa.map.cases : [])
+                  .filter((c: any) => c && c.match != null)
+                  .map((c: any) => ({ match: String(c.match), value: mapVal(c.value) })),
+                ...(sa.map.default != null ? { default: mapVal(sa.map.default) } : {}),
+              }
+            : undefined;
+        const out = ["list", "sum", "avg", "max", "min", "count"].includes(sa.out as any)
+          ? sa.out
+          : "sum";
+        return { ...base, type: "rowcalc", ref, filters, tokens, ...(map ? { map } : {}), out };
+      }
       case "date": {
         // AI 가 명시한 a/b/out 사용. b 는 날짜 변수/step 으로 해석되면 그 이름, 아니면 "오늘".
         const a = resolveName(s.a) || s.a || "";

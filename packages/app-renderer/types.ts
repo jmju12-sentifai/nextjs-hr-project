@@ -1,6 +1,16 @@
 // v5 스키마 — 단일 소스 오브 트루스
 // select: 정해진 옵션 중 하나만 값이 될 수 있는 선택형 변수 (내부 계산·비교는 text 와 동일하게 문자열)
-export type VarType = "number" | "text" | "date" | "select";
+// rows: 여러 건이 행으로 쌓이는 목록 변수 (경력내역·신청내역 등). 컬럼 구조(cols)를 선언하고
+//       값은 행 객체 배열 — 건수 제한 없음. 계산은 rowcalc 블록이 담당.
+export type VarType = "number" | "text" | "date" | "select" | "rows";
+
+// rows 변수의 컬럼 정의
+export interface RowCol {
+  name: string; // 컬럼명 (행 산식·필터에서 이 이름으로 참조)
+  type: "number" | "text" | "select";
+  unit?: Unit;
+  options?: string[]; // type="select" 전용
+}
 export type Unit =
   | ""
   | "원"
@@ -46,6 +56,8 @@ export interface Variable {
   subGroup?: string;
   // type="select" 전용 — 허용값 목록. 파싱·수기 입력 모두 이 안에서만 값 결정.
   options?: string[];
+  // type="rows" 전용 — 컬럼 구조. 값(test/입력)은 행 객체 배열의 JSON 문자열 또는 배열.
+  cols?: RowCol[];
   // 변수 설명 — 사용자 입력 화면에서 도움말로 노출. 모든 타입 공통 (선택).
   desc?: string;
 }
@@ -81,6 +93,7 @@ export type StepType =
   | "formula"
   | "clamp"
   | "date"
+  | "rowcalc"
   | "llm";
 
 interface StepBase {
@@ -168,6 +181,29 @@ export interface SwitchStep extends StepBase {
   defaultTokens?: Token[];
 }
 
+// rowcalc — 목록(rows) 변수의 행별 계산 (루프 없는 map/filter/reduce 선언 블록)
+//   필터 통과한 행마다 tokens 산식을 평가(컬럼명·전역 변수·매핑값 참조 가능)하고,
+//   out=list 면 행별 결과 목록(각 행 + "값" 컬럼), 그 외엔 집계된 숫자 하나를 출력.
+export interface RowFilter {
+  col: string; // 컬럼명
+  op: CmpOp;
+  val: string; // 리터럴 또는 전역 변수/산출 이름
+}
+export interface RowMap {
+  col: string; // 매핑 기준 컬럼 (보통 select 컬럼 — 예: 환산구분)
+  cases: { match: string; value: number | string }[]; // value: 숫자 또는 전역 변수/산출 이름
+  default?: number | string;
+}
+export type RowCalcOut = "list" | "sum" | "avg" | "max" | "min" | "count";
+export interface RowCalcStep extends StepBase {
+  type: "rowcalc";
+  ref: string; // 목록 변수 이름 또는 선행 rowcalc(out=list) 이름
+  filters?: RowFilter[]; // AND — 비우면 전체 행
+  tokens: Token[]; // 행 산식. var 토큰은 컬럼명 → 매핑값("매핑값") → 전역 순으로 해석
+  map?: RowMap; // 선택 — 행 산식에서 "매핑값" 이름으로 참조
+  out: RowCalcOut;
+}
+
 export interface LlmStep extends StepBase {
   type: "llm";
   items: string[]; // 분석에 포함할 변수/산출 이름
@@ -184,6 +220,7 @@ export type Step =
   | FormulaStep
   | ClampStep
   | DateStep
+  | RowCalcStep
   | LlmStep;
 
 // 리포트 요소

@@ -206,7 +206,8 @@ function renderField(el: any, disp: Disp) {
 
 // list — 여러 건이 한 문자열에 담긴 목록 값(경력내역 등)을 항목별 줄로
 function renderList(el: any, disp: Disp, sc: Sc) {
-  const items = parseListItems(disp[el.bind] ?? sc[el.bind]);
+  const rawList = Array.isArray(sc[el.bind]) ? sc[el.bind] : disp[el.bind] ?? sc[el.bind];
+  const items = parseListItems(rawList);
   return React.createElement(View, { style: styles.card }, [
     React.createElement(Text, { style: styles.lab, key: "l" }, el.label),
     ...(items.length === 0
@@ -215,7 +216,7 @@ function renderList(el: any, disp: Disp, sc: Sc) {
           React.createElement(
             Text,
             { key: "i" + i, style: { marginBottom: 2 } },
-            `${i + 1}. ${it.head}${it.detail ? "  —  " + it.detail.split(",").map((x) => x.trim()).filter(Boolean).join(" · ") : ""}`
+            `${i + 1}. ${it.head}${it.detail ? "  —  " + it.detail : ""}`
           )
         )),
   ]);

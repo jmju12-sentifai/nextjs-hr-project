@@ -1,7 +1,8 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { Grp, Unit, VarType, Variable } from "app-renderer";
-import { UNITS } from "app-renderer";
+import type { Grp, RowCol, Unit, VarType, Variable } from "app-renderer";
+import { parseRows, UNITS } from "app-renderer";
+import RowsTable from "./RowsTable";
 
 const uid = () => Math.random().toString(36).slice(2, 7);
 
@@ -11,9 +12,9 @@ interface Props {
   onChange: (vars: Variable[]) => void;
 }
 
-const TYPES: VarType[] = ["number", "text", "date", "select"];
-// 타입 표시명 — select 는 "선택형" 으로 (정해진 옵션 중에서만 값을 고르는 변수)
-const typeLabel = (t: VarType) => (t === "select" ? "선택형" : t);
+const TYPES: VarType[] = ["number", "text", "date", "select", "rows"];
+// 타입 표시명 — select 는 "선택형", rows 는 "목록" (여러 건이 행으로 쌓이는 변수)
+const typeLabel = (t: VarType) => (t === "select" ? "선택형" : t === "rows" ? "목록" : t);
 
 export default function TabVars({ grp, vars, onChange }: Props) {
   const list = vars.filter((v) => v.grp === grp);
@@ -106,6 +107,7 @@ export default function TabVars({ grp, vars, onChange }: Props) {
         req,
         test: "",
         ...(ty === "select" ? { options: [] } : {}),
+        ...(ty === "rows" ? { cols: [] } : {}),
       },
     ]);
     setNm("");
@@ -296,6 +298,94 @@ function OptionsEditor({
   );
 }
 
+// 목록(rows) 변수의 컬럼 구조 편집 — 컬럼명·타입·단위·옵션(선택형 컬럼) 추가/삭제.
+function ColsEditor({
+  cols,
+  onChange,
+}: {
+  cols: RowCol[];
+  onChange: (cols: RowCol[]) => void;
+}) {
+  const inp = "rounded border px-1.5 py-0.5 text-xs";
+  const upd = (i: number, patch: Partial<RowCol>) => {
+    const next = cols.map((c, x) => (x === i ? { ...c, ...patch } : c));
+    onChange(next);
+  };
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-mono text-gray-500 shrink-0 w-12">컬럼</span>
+        <span className="text-[10px] text-gray-400">
+          각 행이 가질 항목 — 예: 근무년수(number) · 환산구분(선택형, 값 목록)
+        </span>
+      </div>
+      {cols.map((c, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-1.5 pl-14">
+          <input
+            value={c.name}
+            onChange={(e) => upd(i, { name: e.target.value })}
+            placeholder="컬럼명"
+            className={inp + " w-28 font-mono"}
+          />
+          <select
+            value={c.type}
+            onChange={(e) => {
+              const type = e.target.value as RowCol["type"];
+              upd(i, { type, ...(type !== "select" ? { options: undefined } : {}), ...(type !== "number" ? { unit: undefined } : {}) });
+            }}
+            className={inp}
+          >
+            <option value="number">number</option>
+            <option value="text">text</option>
+            <option value="select">선택형</option>
+          </select>
+          {c.type === "number" && (
+            <select
+              value={c.unit || ""}
+              onChange={(e) => upd(i, { unit: e.target.value as Unit })}
+              className={inp}
+            >
+              {UNITS.map((u) => (
+                <option key={u} value={u}>{u || "(단위없음)"}</option>
+              ))}
+            </select>
+          )}
+          {c.type === "select" && (
+            <input
+              value={(c.options || []).join(", ")}
+              onChange={(e) =>
+                upd(i, {
+                  options: e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                })
+              }
+              placeholder="허용값 (콤마 구분) — 동종동일, 타업동일, 타업타직"
+              className={inp + " w-64 font-mono"}
+            />
+          )}
+          <button
+            onClick={() => onChange(cols.filter((_, x) => x !== i))}
+            className="text-rose-500 hover:text-rose-700 text-xs"
+            title="컬럼 삭제"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      <div className="pl-14">
+        <button
+          onClick={() => onChange([...cols, { name: "", type: "number" }])}
+          className="rounded border bg-white px-2 py-0.5 text-xs hover:bg-gray-50"
+        >
+          + 컬럼 추가
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // 인라인 변수명 입력 — 로컬 draft 로 편집하다 blur/Enter 시 커밋.
 // 중복/공백이면 커밋만 거부(스키마 미반영)하고 입력한 값은 그대로 유지 → 이어서 고쳐 쓸 수 있음.
 // 빨간 테두리로 무효 상태를 라이브 표시. Esc 로 직전 이름으로 취소 가능.
@@ -397,8 +487,9 @@ function GroupedVarsTable({
   const hasHierarchy = list.some((v) => v.group?.trim());
   const renderRow = (v: Variable) => {
     const isSelect = v.type === "select";
-    // 상세행(설명·허용값 편집) — 선택형이거나, 설명이 이미 있거나, 사용자가 펼친 경우 표시
-    const showDetail = isSelect || !!v.desc?.trim() || expandedIds.has(v.id);
+    const isRows = v.type === "rows";
+    // 상세행(설명·허용값·컬럼 편집) — 선택형/목록이거나, 설명이 있거나, 사용자가 펼친 경우 표시
+    const showDetail = isSelect || isRows || !!v.desc?.trim() || expandedIds.has(v.id);
     return (
       <Fragment key={v.id}>
         <tr className={"border-gray-100 " + (showDetail ? "" : "border-b")}>
@@ -422,6 +513,11 @@ function GroupedVarsTable({
                   if (!v.options?.length && v.test?.trim()) patch.options = [v.test.trim()];
                   else if (!v.options) patch.options = [];
                 }
+                if (type === "rows") {
+                  patch.unit = "";
+                  if (!v.cols) patch.cols = [];
+                  patch.test = "";
+                }
                 update(v.id, patch);
               }}
               className={selCls + " w-full"}
@@ -444,7 +540,11 @@ function GroupedVarsTable({
             </select>
           </td>
           <td className="py-1.5 px-2">
-            {isSelect ? (
+            {isRows ? (
+              <span className="text-xs font-mono text-gray-500">
+                {parseRows(v.test).length}건 · 아래에서 편집
+              </span>
+            ) : isSelect ? (
               <select
                 value={v.test || ""}
                 onChange={(e) => update(v.id, { test: e.target.value })}
@@ -516,6 +616,27 @@ function GroupedVarsTable({
                     })
                   }
                 />
+              )}
+              {isRows && (
+                <>
+                  <ColsEditor
+                    cols={v.cols || []}
+                    onChange={(cols) => update(v.id, { cols })}
+                  />
+                  <div className="flex items-start gap-2">
+                    <span className="text-[11px] font-mono text-gray-500 shrink-0 w-12 pt-1">
+                      테스트값
+                    </span>
+                    <div className="flex-1 rounded border border-gray-200 bg-white p-2">
+                      <RowsTable
+                        cols={v.cols || []}
+                        value={v.test}
+                        onChange={(rows) => update(v.id, { test: JSON.stringify(rows) })}
+                        compact
+                      />
+                    </div>
+                  </div>
+                </>
               )}
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-mono text-gray-500 shrink-0 w-12">설명</span>

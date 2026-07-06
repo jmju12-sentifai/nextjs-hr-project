@@ -6,6 +6,7 @@ import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import type { AppSchema, Grp, Variable } from "app-renderer";
 import { activePathOf, fmtU, migrateSchema, run, todayStr } from "app-renderer";
 import ElementRenderer from "@/app/admin/builder/components/ElementRenderer";
+import RowsTable from "@/app/admin/builder/components/RowsTable";
 
 const PVTABS = [
   ["msaas", "M SaaS 설명", ""],
@@ -41,6 +42,8 @@ async function fileToBase64(file: File): Promise<string> {
 
 function coerceValue(raw: any, type: string): any {
   if (raw === null || raw === undefined) return null;
+  // rows(목록) — 파서가 행 객체 배열로 반환. 그대로 유지 (문자열화 금지)
+  if (type === "rows") return Array.isArray(raw) ? raw : null;
   if (type === "number") {
     if (typeof raw === "number") return raw;
     const cleaned = String(raw).replace(/[^\d.\-]/g, "");
@@ -127,7 +130,13 @@ export default function AppPage() {
       ...app.app_schema,
       vars: app.app_schema.vars.map((v) => ({
         ...v,
-        test: v.name in filled ? String(filled[v.name] ?? "") : "",
+        // rows(목록) 값은 행 배열 — 문자열화하면 깨지므로 JSON 으로
+        test:
+          v.name in filled
+            ? Array.isArray(filled[v.name])
+              ? JSON.stringify(filled[v.name])
+              : String(filled[v.name] ?? "")
+            : "",
       })),
       shared: app.app_schema.shared
         ? { ...app.app_schema.shared, steps: overlayLLM(app.app_schema.shared.steps as any[]) }
@@ -775,7 +784,8 @@ function ParseFrame({
     v.name in filled &&
     filled[v.name] !== "" &&
     filled[v.name] !== null &&
-    filled[v.name] !== undefined;
+    filled[v.name] !== undefined &&
+    !(Array.isArray(filled[v.name]) && filled[v.name].length === 0);
   const miss = vs.filter((v) => v.req && !slotsHas(v));
 
   const handleUpload = async (file: File) => {
@@ -795,6 +805,7 @@ function ParseFrame({
             unit: s.unit,
             desc: s.desc || undefined,
             options: s.type === "select" && s.options?.length ? s.options : undefined,
+            cols: s.type === "rows" && s.cols?.length ? s.cols : undefined,
           })),
         }),
       });
@@ -1337,7 +1348,43 @@ function GroupedVarsList({
 
   const renderRow = (v: Variable) => {
     const val = v.name in filled ? filled[v.name] : "";
-    const has = val !== "" && val !== null && val !== undefined;
+    const has = Array.isArray(val)
+      ? val.length > 0
+      : val !== "" && val !== null && val !== undefined;
+    // rows(목록) — 행 편집 표를 전체 폭으로
+    if (v.type === "rows") {
+      return (
+        <li key={v.id} className="py-2.5 first:pt-0 last:pb-0 text-sm">
+          <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+            <span className="text-gray-800">{v.name}</span>
+            {v.req && (
+              <span
+                className={
+                  "text-[9px] rounded px-1.5 py-0.5 font-mono shrink-0 ring-1 " +
+                  (grp === "개인"
+                    ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                    : "bg-gray-100 text-gray-600 ring-gray-200")
+                }
+              >
+                필수
+              </span>
+            )}
+            <span className="text-[10px] font-mono text-gray-400 shrink-0">목록</span>
+            {!has && v.req && (
+              <span className="text-[10px] text-rose-600 font-mono">누락</span>
+            )}
+          </div>
+          {v.desc?.trim() && (
+            <div className="text-[11px] text-gray-400 mb-1.5">{v.desc}</div>
+          )}
+          <RowsTable
+            cols={v.cols || []}
+            value={val}
+            onChange={(rows) => setFilled({ ...filled, [v.name]: rows })}
+          />
+        </li>
+      );
+    }
     const isSelect = v.type === "select" && Array.isArray(v.options) && v.options.length > 0;
     const inputCls =
       "w-40 rounded-lg border px-2.5 py-1.5 text-xs font-mono shrink-0 " +

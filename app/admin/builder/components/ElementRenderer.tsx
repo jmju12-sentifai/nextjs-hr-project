@@ -263,8 +263,9 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
     );
   }
   if (el.kind === "list") {
-    // 여러 건이 한 문자열에 담긴 목록 값(경력내역·보유자격 등)을 줄 단위로 정리
-    const items = parseListItems(disp[el.bind] ?? sc[el.bind]);
+    // 목록 값(rows 변수·rowcalc 목록 출력·목록 문자열)을 줄 단위로 정리
+    const rawList = Array.isArray(sc[el.bind]) ? sc[el.bind] : disp[el.bind] ?? sc[el.bind];
+    const items = parseListItems(rawList);
     return (
       <div className="h-full flex flex-col min-h-0 overflow-hidden">
         <Lab>{el.label}</Lab>
@@ -283,13 +284,7 @@ export default function ElementRenderer({ schema, el, sc, disp, jres, pathLabel,
                   <div className="min-w-0 leading-snug">
                     <span className="font-medium text-gray-900 break-words">{it.head}</span>
                     {it.detail && (
-                      <span className="ml-2 text-xs text-gray-500 break-words">
-                        {it.detail
-                          .split(",")
-                          .map((x) => x.trim())
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </span>
+                      <span className="ml-2 text-xs text-gray-500 break-words">{it.detail}</span>
                     )}
                   </div>
                 </li>

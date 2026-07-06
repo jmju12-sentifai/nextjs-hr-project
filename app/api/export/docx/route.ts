@@ -256,23 +256,15 @@ function elField(el: any, disp: any): (Paragraph | Table)[] {
 
 // list — 여러 건이 한 문자열에 담긴 목록 값(경력내역 등)을 항목별 줄로
 function elList(el: any, disp: any, sc: any): (Paragraph | Table)[] {
-  const items = parseListItems(disp?.[el.bind] ?? sc?.[el.bind]);
+  const rawList = Array.isArray(sc?.[el.bind]) ? sc[el.bind] : disp?.[el.bind] ?? sc?.[el.bind];
+  const items = parseListItems(rawList);
   return [
     lab(el.label),
     ...(items.length === 0
       ? [p("—")]
       : items.map((it, i) =>
           p(
-            `${i + 1}. ${it.head}${
-              it.detail
-                ? "  —  " +
-                  it.detail
-                    .split(",")
-                    .map((x: string) => x.trim())
-                    .filter(Boolean)
-                    .join(" · ")
-                : ""
-            }`
+            `${i + 1}. ${it.head}${it.detail ? "  —  " + it.detail : ""}`
           )
         )),
   ];

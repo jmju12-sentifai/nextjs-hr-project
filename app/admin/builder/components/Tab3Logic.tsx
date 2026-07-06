@@ -29,6 +29,7 @@ const STEP_LABEL: Record<StepType, string> = {
   formula: "계산식",
   clamp: "보정",
   date: "날짜",
+  rowcalc: "행집계",
   llm: "LLM 요약",
 };
 
@@ -39,7 +40,8 @@ const STEP_HINT: Record<StepType, string> = {
   table: "구간별 단계값.",
   formula: "변수 콤보 + 연산자 버튼으로 식을 쌓습니다.",
   clamp: "결과를 상·하한으로 보정.",
-  date: "두 날짜 차이 또는 연·월·일 추출.",
+  date: "두 날짜 차이, 연·월·일 추출, 날짜 더하기.",
+  rowcalc: "목록(rows) 변수의 행별 계산 — 필터 → 행 산식 → 합산/목록.",
   llm: "앱 개요 + 선택한 산출 값으로 한 줄 요약 (Gemini).",
 };
 
@@ -51,6 +53,7 @@ const STEP_BADGE: Record<StepType, string> = {
   formula: "bg-emerald-100 text-emerald-700",
   clamp: "bg-rose-100 text-rose-700",
   date: "bg-blue-100 text-blue-700",
+  rowcalc: "bg-amber-100 text-amber-700",
   llm: "bg-violet-100 text-violet-700",
 };
 
@@ -86,6 +89,8 @@ function newStep(t: StepType, firstVar: string): Step {
     return { ...base, type: "table", ref: "", bands: [{ from: 0, to: 0, v: 0 }] };
   if (t === "formula") return { ...base, type: "formula", tokens: [] };
   if (t === "clamp") return { ...base, type: "clamp", ref: "", min: "", max: "" };
+  if (t === "rowcalc")
+    return { ...base, type: "rowcalc", ref: "", filters: [], tokens: [], out: "sum" };
   if (t === "llm") return { ...base, type: "llm", items: [], prompt: "" };
   return { ...base, type: "date", mode: "diff", a: "", b: "오늘", out: "year" };
 }
@@ -639,6 +644,16 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                       {s.type === "date" && (
                         <DateEditor step={s} update={(p: any) => updS(s.id, p)} dn={dn} av={numAv} />
                       )}
+                      {s.type === "rowcalc" && (
+                        <RowCalcEditor
+                          step={s}
+                          update={(p: any) => updS(s.id, p)}
+                          numAv={numAv}
+                          rowsVars={schema.vars.filter((v) => v.type === "rows")}
+                          allSteps={currentSteps()}
+                          sharedSteps={shared.steps}
+                        />
+                      )}
                       {s.type === "llm" && (
                         <LlmEditor
                           step={s}
@@ -662,7 +677,7 @@ export default function Tab3Logic({ schema, onChange }: Props) {
               onChange={(e) => setStepT(e.target.value as StepType)}
               className={selCls + " min-w-[180px]"}
             >
-              {(["formula", "table", "classify", "branch", "switch", "clamp", "date", "llm"] as StepType[]).map((t) => (
+              {(["formula", "table", "classify", "branch", "switch", "clamp", "date", "rowcalc", "llm"] as StepType[]).map((t) => (
                 <option key={t} value={t}>
                   {STEP_LABEL[t]}
                 </option>
@@ -1187,6 +1202,17 @@ function sayStep(s: Step): React.ReactNode {
       <>위 산출 결과를 종합해 작성된 안내입니다. {s.lastResult ? <span className="text-emerald-600">· 분석됨</span> : <span className="text-gray-400">· 미실행</span>}</>
     );
   }
+  if (s.type === "rowcalc") {
+    const OUT_T: Record<string, string> = {
+      sum: "합산", avg: "평균", max: "최대", min: "최소", count: "건수", list: "행별 결과 목록으로",
+    };
+    return (
+      <>
+        <b>{s.ref || "목록"}</b> 의 {s.filters?.length ? "조건에 맞는 행을 " : "각 행을 "}
+        계산해 <b>{OUT_T[s.out] || "합산"}</b> 정리한 값입니다.
+      </>
+    );
+  }
   if (s.type === "date") {
     const u = { year: "년", month: "월", day: "일" }[s.out];
     if (s.mode === "diff") {
@@ -1597,6 +1623,192 @@ function ClampEditor({ step, update, av, varsMeta }: any) {
         {literalOpt(step.max)}
         <VarOpts names={av} varsMeta={varsMeta} />
       </select>
+    </div>
+  );
+}
+
+// 행집계(rowcalc) 편집기 — 목록(rows) 변수의 필터 → 행 산식 → 집계/목록
+function RowCalcEditor({ step, update, numAv, rowsVars, allSteps, sharedSteps }: any) {
+  const inp = "rounded border px-2 py-1 text-xs";
+  const OUT_OPTS: { v: string; t: string }[] = [
+    { v: "sum", t: "합산" },
+    { v: "avg", t: "평균" },
+    { v: "max", t: "최대" },
+    { v: "min", t: "최소" },
+    { v: "count", t: "건수" },
+    { v: "list", t: "목록 (행별 결과)" },
+  ];
+  // 대상 목록 후보: rows 변수 + 선행 행집계(목록 출력)
+  const listSteps = [...(sharedSteps || []), ...(allSteps || [])].filter(
+    (s: any) => s?.type === "rowcalc" && s.out === "list" && s.name && s.id !== step.id
+  );
+  const refVar = (rowsVars || []).find((v: any) => v.name === step.ref);
+  const cols: any[] = refVar?.cols || [];
+  const colNames = cols.map((c: any) => c.name);
+  const numColNames = cols.filter((c: any) => c.type === "number").map((c: any) => c.name);
+  const mapColCandidates = cols.filter((c: any) => c.type !== "number");
+  const mapColDef = cols.find((c: any) => c.name === step.map?.col);
+  const dlId = "rowcalc-vals-" + step.id;
+  const updFilter = (i: number, patch: any) => {
+    const next = [...(step.filters || [])];
+    next[i] = { ...next[i], ...patch };
+    update({ filters: next });
+  };
+  const updCase = (i: number, patch: any) => {
+    const cases = [...(step.map?.cases || [])];
+    cases[i] = { ...cases[i], ...patch };
+    update({ map: { ...step.map, cases } });
+  };
+  // 매핑값 산출용 값 입력: 숫자면 number, 아니면 변수 이름(문자열)
+  const numOrNameVal = (raw: string): number | string => {
+    const t = raw.trim();
+    const cleaned = t.replace(/,/g, "");
+    return /^-?\d+(\.\d+)?$/.test(cleaned) ? Number(cleaned) : t;
+  };
+  return (
+    <div className="space-y-2 text-xs">
+      <datalist id={dlId}>
+        {(numAv || []).map((n: string) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-gray-600">대상 목록</span>
+        <select value={step.ref} onChange={(e) => update({ ref: e.target.value })} className={inp + " min-w-[140px]"}>
+          <option value="">(선택)</option>
+          {(rowsVars || []).map((v: any) => (
+            <option key={v.name} value={v.name}>{v.name}</option>
+          ))}
+          {listSteps.map((s: any) => (
+            <option key={s.id} value={s.name}>{s.name} (행집계 목록)</option>
+          ))}
+        </select>
+        <span className="text-gray-600">출력</span>
+        <select value={step.out} onChange={(e) => update({ out: e.target.value })} className={inp}>
+          {OUT_OPTS.map((o) => (
+            <option key={o.v} value={o.v}>{o.t}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 필터 — 조건에 맞는 행만 계산 */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-gray-600 shrink-0">필터</span>
+        {(step.filters || []).map((f: any, i: number) => (
+          <span key={i} className="inline-flex items-center gap-1 rounded border bg-white px-1.5 py-0.5">
+            <select value={f.col} onChange={(e) => updFilter(i, { col: e.target.value })} className={inp + " !px-1 !py-0.5"}>
+              <option value="">(컬럼)</option>
+              {colNames.map((n: string) => (<option key={n}>{n}</option>))}
+            </select>
+            <select value={f.op} onChange={(e) => updFilter(i, { op: e.target.value })} className={inp + " !px-1 !py-0.5"}>
+              {OPS.map((o) => (<option key={o}>{o}</option>))}
+            </select>
+            <input
+              value={f.val ?? ""}
+              onChange={(e) => updFilter(i, { val: e.target.value })}
+              list={dlId}
+              placeholder="값/변수"
+              className={inp + " !px-1 !py-0.5 w-24 font-mono"}
+            />
+            <button
+              onClick={() => update({ filters: (step.filters || []).filter((_: any, x: number) => x !== i) })}
+              className="text-rose-600"
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        <button
+          onClick={() => update({ filters: [...(step.filters || []), { col: colNames[0] || "", op: "==", val: "" }] })}
+          className="rounded bg-blue-50 px-2 py-0.5 text-blue-700"
+        >
+          + 조건
+        </button>
+        <span className="text-[10px] text-gray-400">없으면 전체 행 계산</span>
+      </div>
+
+      {/* 계수 매핑 — 구분 컬럼 값 → 계수(숫자/규정 변수). 행 산식에서 "매핑값" 으로 참조 */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <label className="inline-flex items-center gap-1 text-gray-600">
+          <input
+            type="checkbox"
+            checked={!!step.map}
+            onChange={(e) =>
+              update(
+                e.target.checked
+                  ? { map: { col: mapColCandidates[0]?.name || "", cases: [] } }
+                  : { map: undefined }
+              )
+            }
+            className="accent-blue-600"
+          />
+          계수 매핑
+        </label>
+        {step.map && (
+          <>
+            <select
+              value={step.map.col || ""}
+              onChange={(e) => update({ map: { ...step.map, col: e.target.value, cases: [] } })}
+              className={inp}
+            >
+              <option value="">(기준 컬럼)</option>
+              {mapColCandidates.map((c: any) => (
+                <option key={c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+            {(step.map.cases || []).map((c: any, i: number) => (
+              <span key={i} className="inline-flex items-center gap-1 rounded border bg-white px-1.5 py-0.5">
+                {mapColDef?.options?.length ? (
+                  <select value={c.match} onChange={(e) => updCase(i, { match: e.target.value })} className={inp + " !px-1 !py-0.5"}>
+                    <option value="">(값)</option>
+                    {mapColDef.options.map((o: string) => (<option key={o}>{o}</option>))}
+                  </select>
+                ) : (
+                  <input value={c.match ?? ""} onChange={(e) => updCase(i, { match: e.target.value })} placeholder="값" className={inp + " !px-1 !py-0.5 w-20"} />
+                )}
+                <span className="text-gray-400">→</span>
+                <input
+                  value={String(c.value ?? "")}
+                  onChange={(e) => updCase(i, { value: numOrNameVal(e.target.value) })}
+                  list={dlId}
+                  placeholder="계수/변수"
+                  className={
+                    inp + " !px-1 !py-0.5 w-28 font-mono" +
+                    (typeof c.value === "string" && c.value ? " text-blue-700 bg-blue-50/50" : "")
+                  }
+                />
+                <button
+                  onClick={() => update({ map: { ...step.map, cases: (step.map.cases || []).filter((_: any, x: number) => x !== i) } })}
+                  className="text-rose-600"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            <button
+              onClick={() => update({ map: { ...step.map, cases: [...(step.map.cases || []), { match: "", value: 0 }] } })}
+              className="rounded bg-blue-50 px-2 py-0.5 text-blue-700"
+            >
+              + 매핑
+            </button>
+            <span className="text-[10px] text-gray-400">행 산식에서 「매핑값」 으로 참조</span>
+          </>
+        )}
+      </div>
+
+      {/* 행 산식 — 컬럼명·매핑값·전역 변수를 조합 */}
+      {step.out !== "count" && (
+        <div>
+          <div className="text-gray-600 mb-1">행 산식 (각 행마다 계산)</div>
+          <TokenBuilder
+            tokens={step.tokens || []}
+            onChange={(tokens: any) => update({ tokens })}
+            varNames={[...numColNames, ...(step.map ? ["매핑값"] : []), ...(numAv || [])]}
+            sc={{}}
+            varsMeta={{}}
+          />
+        </div>
+      )}
     </div>
   );
 }
