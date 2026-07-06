@@ -606,8 +606,16 @@ export function run(
         d = fmtU(r, s.unit);
       } else if (s.type === "clamp") {
         let x = Number(rv(s.ref));
-        if (s.min !== "") x = Math.max(x, Number(rv(s.min)));
-        if (s.max !== "") x = Math.min(x, Number(rv(s.max)));
+        // 상·하한 참조가 유효한 숫자가 아니면(조회 실패 NaN 등) 그 보정은 건너뜀 —
+        // 무효한 경계로 정상 값을 파괴(예: 상한 NaN/미조회 → 0)하지 않기 위함
+        if (s.min !== "") {
+          const mn = Number(rv(s.min));
+          if (isFinite(mn)) x = Math.max(x, mn);
+        }
+        if (s.max !== "") {
+          const mx = Number(rv(s.max));
+          if (isFinite(mx)) x = Math.min(x, mx);
+        }
         r = x;
         d = fmtU(x, s.unit);
       } else if (s.type === "date") {
@@ -699,16 +707,22 @@ export function run(
           r = filtered.length;
           d = fmtU(r, s.unit);
         } else if (s.out === "pick") {
-          // 조회 — 필터에 맞는 첫 행의 값 (숫자 또는 텍스트 셀). 매칭 행 없으면 0/"—"
+          // 조회 — 필터에 맞는 첫 행의 값 (숫자 또는 텍스트 셀).
+          // ⚠ 매칭 행이 없으면 0 이 아니라 "값 없음"(NaN) — 0 은 유효값으로 위장돼
+          //   하류 보정(clamp 상한 0 등)이 정상 값을 파괴한다. NaN 은 clamp 가 무시하고
+          //   산식에선 "—" 로 드러나 실패가 보이게 된다.
           const first = vals.find(
             (x) => (typeof x === "number" && !isNaN(x)) || (typeof x === "string" && x !== "")
           );
           if (typeof first === "string") {
             r = first;
             d = first;
+          } else if (first === undefined) {
+            r = NaN;
+            d = "—";
           } else {
-            r = first ?? 0;
-            d = vals.length === 0 ? "—" : fmtU(r, s.unit);
+            r = first;
+            d = fmtU(r, s.unit);
           }
         } else {
           const nums = vals.filter((x) => typeof x === "number" && !isNaN(x));

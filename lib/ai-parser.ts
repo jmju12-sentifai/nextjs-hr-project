@@ -1846,6 +1846,59 @@ function withIds(schema: any) {
     });
   }
 
+  // ── 조인 어휘 계약 — rowcalc 매핑·동등 필터가 정의하는 어휘를 해당 컬럼의 select 옵션으로 강제 ──
+  // 근본 문제: 서로 다른 문서에서 독립 파싱된 값끼리 문자열 동등으로 조인하는데, 어휘 계약이 없으면
+  // "동종" vs "동일 업종(HR·소프트웨어)" 처럼 표현이 달라 매칭이 0건이 된다.
+  // 매핑 case·동등 필터의 리터럴을 그 컬럼의 허용값(select options)으로 선언해두면,
+  // 문서 파서가 자유 표현을 이 어휘로 분류·정규화(select 컬럼 정규화)해 조인이 성립한다.
+  {
+    const globalNames = new Set<string>();
+    for (const v of schema.vars || []) if (v?.name) globalNames.add(v.name);
+    for (const st of schema.shared?.steps || []) if (st?.name) globalNames.add(st.name);
+    for (const p of schema.paths || [])
+      for (const st of p.steps || []) if (st?.name) globalNames.add(st.name);
+    for (const st of schema.fallback?.steps || []) if (st?.name) globalNames.add(st.name);
+    const NUMLIT = /^-?\d+(\.\d+)?$/;
+    const vocab = new Map<string, Map<string, Set<string>>>(); // rows 변수 → 컬럼 → 어휘
+    const note = (refName: any, col: any, val: any) => {
+      const rn = String(refName ?? "").trim();
+      const cn = String(col ?? "").trim();
+      const s = String(val ?? "").trim();
+      if (!rn || !cn || !s) return;
+      if (NUMLIT.test(s.replace(/,/g, ""))) return;
+      if (globalNames.has(s)) return; // 전역 변수/산출 참조는 리터럴 어휘가 아님
+      if (!vocab.has(rn)) vocab.set(rn, new Map());
+      const m = vocab.get(rn)!;
+      if (!m.has(cn)) m.set(cn, new Set());
+      m.get(cn)!.add(s);
+    };
+    const scanRowcalcVocab = (steps: any[] = []) => {
+      for (const st of steps) {
+        if (st?.type !== "rowcalc") continue;
+        if (st.map?.col) for (const c of st.map.cases || []) note(st.ref, st.map.col, c?.match);
+        for (const f of st.filters || [])
+          if (f && (f.op === "==" || f.op === "!=")) note(st.ref, f.col, f.val);
+      }
+    };
+    scanRowcalcVocab(schema.shared?.steps);
+    for (const p of schema.paths || []) scanRowcalcVocab(p.steps);
+    scanRowcalcVocab(schema.fallback?.steps);
+    if (vocab.size > 0 && Array.isArray(schema.vars)) {
+      schema.vars = schema.vars.map((v: any) => {
+        if (v?.type !== "rows" || !vocab.has(v.name) || !Array.isArray(v.cols)) return v;
+        const colVocab = vocab.get(v.name)!;
+        const cols = v.cols.map((c: any) => {
+          const words = c?.name ? colVocab.get(c.name) : undefined;
+          if (!words || words.size === 0) return c;
+          if (c.type === "number") return c; // 숫자 컬럼은 어휘 대상 아님
+          const options = [...new Set([...(c.options || []), ...words])];
+          return { ...c, type: "select", options };
+        });
+        return { ...v, cols };
+      });
+    }
+  }
+
   // ── 목록형 텍스트 변수의 리포트 표현 교정 — field/card → list ──
   // 경력내역·보유자격처럼 여러 건이 한 문자열에 담기는 변수를 한 줄 카드로 보여주면
   // 통짜 텍스트 덩어리가 됨 → 항목 단위로 정리되는 list 카드로 자동 전환.
@@ -3906,6 +3959,7 @@ select 변수의 desc 끝에는 「값: A/B/C」 표기를 포함하라. 그 외
   예: 직급체계표 = { "type":"rows", "cols":[{"name":"직급코드","type":"number"},{"name":"직급명","type":"text"},{"name":"최소경력","type":"number","unit":"년"},{"name":"최대경력","type":"number","unit":"년"},{"name":"체류연한","type":"number","unit":"년"},{"name":"하한액","type":"number","unit":"원"},{"name":"표준액","type":"number","unit":"원"},{"name":"상한액","type":"number","unit":"원"}], "value":[…문서의 행들…] }
   ⚠ 직급1_하한액 같은 "행별 개별 변수 펼치기" 금지 — 직급 수가 고정돼버림. 조회는 분석 로직의 rowcalc(out="pick") 가 담당.
 ⚠ **열린 목록**(자격증·품목처럼 회사마다 나열이 달라지는 단순 항목)은 개별 항목을 변수로 펼치지 말 것 — 총액/결과 변수 1개(예: 자격수당가산액)로 선언.
+⚠ **서술형 정책**(표가 아니라 문장으로 된 규칙 — 예: "직전연봉 수평이동하되 상한 초과 불가")은 rows 목록이 아니라 **select** 로 (예: 보상정책 = select["수평이동","상한캡","표준액배수"]) — 문장을 행으로 파싱할 수 없다.
 운영 방식 변수(…유형·…방식·…모델 등)는 **문서에 허용값 목록이 명시된 경우에만** type="select" + options (문서의 후보 그대로, 발명 금지 — desc 끝에 「값: A/B/C」 포함). 후보 명시 = 「값: A/B/C」 표기(설명·예시 어느 칸이든). 예시 칸이 "일시금 ↵ 값: 일시금/분할" 형태면 value="일시금", options=["일시금","분할"]. 목록이 없으면 text 로 두되 value 는 문서의 운영 구조를 읽고 판단해 채워라.
 각 변수의 desc 에 사용자용 한 줄 설명을 채워라.`;
   const parsed = await runJsonStage(
@@ -3954,6 +4008,10 @@ async function generateSpecPaths(
   직급하한액 = 같은 필터 + "expression":"하한액". 직급이 몇 개든 표 행 수만큼 커버된다.
   ⚠ 표를 switch(직급1→직급1_하한액…) 로 펼치지 말 것 — 케이스 수가 고정돼버림.
 - ⚠ **rowcalc 의 filters[].col·map.col·expression 의 컬럼명은 ref 목록 변수의 cols 이름과 글자 그대로 일치**시켜라 (다르면 매칭 실패).
+- ⚠ **조인 어휘 통일 (매우 중요)**: 파싱된 값끼리 == 매칭하는 컬럼(매핑 기준 컬럼·동등 필터 컬럼)은
+  **짧은 표준 코드값 어휘**(예: 동종동일/타업동일/타업타직)로 통일하라 — 그 컬럼을 select+options 로 선언하고,
+  매핑 case·필터 val 도 그 코드값 그대로. 문서의 긴 서술("동일 업종(HR·소프트웨어)")을 match 값으로 쓰지 말 것 —
+  파서가 문서 표현을 코드값으로 분류하므로 어휘만 통일되면 조인이 성립한다.
 - 조회(pick)는 **텍스트 컬럼도 가능** (예: expression "직급명" → "대리"). 텍스트 조회 결과는 표시·필터 비교(== )에만 쓰고 산식에는 넣지 말 것.
 - **단수처리**: 유효총경력 → 최종경력연차 확정은 round/floor/ceil 산식으로 (예: formula "round(유효총경력)". 단수처리방식 select 변수가 있으면 switch 의 case 별 산식으로 round/floor/ceil 분기).
 - **date add 의 out 단위는 더하는 수량의 단위와 일치** — 체류연한이 '년' 이면 out="year" (일 아님).

@@ -442,7 +442,7 @@ function ChartView({
       const n = parseFloat(str);
       if (!isNaN(n) && String(n) === str.trim()) return n;
       const v = sc[str];
-      return typeof v === "number" ? v : null;
+      return typeof v === "number" && isFinite(v) ? v : null;
     };
     if (st && st.type === "clamp") {
       const mn = tryNum(st.min);
