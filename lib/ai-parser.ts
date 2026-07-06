@@ -350,9 +350,10 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
   "_step_blocks": [
     // 산출 블록. 단계는 위→아래 순서로 실행. step.name 은 이후 단계에서 변수처럼 참조 가능.
     // 6종 타입:
-    // 1) date    — 두 날짜 차이(diff) 또는 연·월·일 추출(part)
+    // 1) date    — 두 날짜 차이(diff) / 연·월·일 추출(part) / 날짜 더하기(add)
     //    { "type": "date", "name": "만나이", "unit": "년", "mode": "diff", "a": "생년월일", "b": "오늘", "out": "year" }
-    //    out ∈ year|month|day
+    //    { "type": "date", "name": "승진심의일", "mode": "add", "a": "정기인사기준일", "n": "잔여체류연한", "out": "year" }
+    //    out ∈ year|month|day.  add 의 n 은 숫자 또는 숫자 변수/산출 이름, 결과는 날짜(YYYY-MM-DD)
     // 2) classify — 항목 집계 (sum/count/avg/max/min)
     //    { "type": "classify", "name": "통상임금", "unit": "원", "agg": "sum",
     //      "items": [{ "ref": "기본급", "inc": true }, { "ref": "수당", "inc": true }] }
@@ -360,6 +361,9 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     //    { "type": "table", "name": "감액률", "unit": "%", "ref": "만나이",
     //      "bands": [{ "from": 56, "to": 57, "v": 0 }, { "from": 58, "to": 58, "v": 0.2 }] }
     //    (단위가 % 면 0.2 ↔ 20% 로 표시됨)
+    //    ⚠ from/to/v 에는 숫자 대신 **변수 이름**(문자열)도 가능 — 회사 문서에서 파싱되는 정책값이면
+    //      숫자를 굳히지 말고 변수 이름을 써라 (회사마다 값이 달라도 구간표가 따라 움직임).
+    //      예: { "from": 1, "to": 3, "v": "직급1_하한액" }  /  직급별 표는 "직급코드 구간표 + 값=변수" 로.
     // 4) formula — 토큰 기반 수식. 변수/숫자/연산자/괄호/함수로 구성
     //    { "type": "formula", "name": "피크임금", "unit": "원",
     //      "tokens": [ {"t":"var","name":"통상임금"}, {"t":"op","op":"*"},
@@ -862,12 +866,18 @@ function withIds(schema: any) {
       if (s.type === "date") {
         if (typeof s.a === "string") addUndef(s.a, { type: "date" });
         if (typeof s.b === "string") addUndef(s.b, { type: "date" });
+        if (typeof s.n === "string") addUndef(s.n, { type: "number" }); // add 모드 가산량 참조
       } else if (s.type === "classify") {
         if (Array.isArray(s.items))
           for (const it of s.items)
             if (it?.ref) addUndef(it.ref, { type: "number" });
       } else if (s.type === "table") {
         if (typeof s.ref === "string") addUndef(s.ref, { type: "number" });
+        // band 경계·값의 이름 참조 (동적 구간표)
+        if (Array.isArray(s.bands))
+          for (const b of s.bands)
+            for (const x of [b?.from, b?.to, b?.v])
+              if (typeof x === "string") addUndef(x, { type: "number" });
       } else if (s.type === "formula") {
         if (Array.isArray(s.tokens))
           for (const tok of s.tokens)
@@ -1042,11 +1052,20 @@ function withIds(schema: any) {
         if (!Array.isArray(out.bands) || out.bands.length === 0) {
           out.bands = [{ from: 0, to: 100, v: 0 }];
         } else {
-          // 각 band 의 from/to/v 가 숫자가 아니면 정리
+          // 각 band 의 from/to/v — 숫자는 숫자로, 이름(변수/산출 참조)은 문자열로 보존 (런타임 동적 조회)
+          const bandField = (x: any): number | string => {
+            if (typeof x === "number") return isNaN(x) ? 0 : x;
+            const str = String(x ?? "").trim();
+            if (!str) return 0;
+            const cleaned = str.replace(/,/g, "");
+            if (/^-?\d+(\.\d+)?$/.test(cleaned)) return Number(cleaned);
+            numberPromote.add(str); // 이름 참조 — 숫자여야 함
+            return str;
+          };
           out.bands = out.bands.map((b: any) => ({
-            from: Number(b?.from) || 0,
-            to: Number(b?.to) || 0,
-            v: Number(b?.v) || 0,
+            from: bandField(b?.from),
+            to: bandField(b?.to),
+            v: bandField(b?.v),
           }));
         }
         if (out.ref) numberPromote.add(out.ref);
@@ -1142,7 +1161,7 @@ function withIds(schema: any) {
         }
         if (typeof out.ref !== "string") out.ref = "";
       } else if (out.type === "date") {
-        if (!["diff", "part"].includes(out.mode)) out.mode = "diff";
+        if (!["diff", "part", "add"].includes(out.mode)) out.mode = "diff";
         if (!out.out) out.out = out.mode === "part" ? "month" : "year";
         // a/b 정규화: '오늘/현재일/현재/금일/today' 류 → "오늘".
         //   날짜 입력은 '날짜 타입 변수' 또는 "오늘" 만 유효 — 숫자 step/미해석 이름을 날짜로 쓰면
@@ -1158,6 +1177,20 @@ function withIds(schema: any) {
         };
         out.a = dateOperand(out.a);
         if (out.mode === "diff") out.b = dateOperand(out.b);
+        if (out.mode === "add") {
+          // n 정규화 — 숫자 또는 이름(숫자 변수/산출 참조). 그 외는 0.
+          if (typeof out.n === "number") {
+            if (isNaN(out.n)) out.n = 0;
+          } else {
+            const nStr = String(out.n ?? "").trim();
+            const cleaned = nStr.replace(/,/g, "");
+            if (/^-?\d+(\.\d+)?$/.test(cleaned)) out.n = Number(cleaned);
+            else if (nStr) {
+              out.n = nStr;
+              numberPromote.add(nStr);
+            } else out.n = 0;
+          }
+        }
       } else if (out.type === "llm") {
         if (!Array.isArray(out.items)) out.items = [];
         if (typeof out.prompt !== "string") out.prompt = "";
@@ -1187,7 +1220,10 @@ function withIds(schema: any) {
     for (const s of steps) {
       if (!s?.name) continue;
       if (s.type === "llm") nonNumericNames.add(s.name);
-      else if (s.type === "branch") {
+      else if (s.type === "date" && s.mode === "add") {
+        // 날짜 가산 출력은 "YYYY-MM-DD" 문자열 — 산식에 넣으면 안 됨
+        nonNumericNames.add(s.name);
+      } else if (s.type === "branch") {
         // 양쪽 다 text 모드면 결과도 텍스트
         if (s.thenT === "text" && s.elsT === "text") nonNumericNames.add(s.name);
         // 한 쪽이라도 calc 면 숫자 출력 가능 — 일단 숫자 취급
@@ -1413,9 +1449,18 @@ function withIds(schema: any) {
       const out: string[] = [];
       const add = (nm: any) => { const n = asRefName(nm); if (n) out.push(n); };
       if (!s || typeof s !== "object") return out;
-      if (s.type === "date") { add(s.a); if (s.mode === "diff") add(s.b); }
+      if (s.type === "date") {
+        add(s.a);
+        if (s.mode === "diff") add(s.b);
+        if (s.mode === "add" && typeof s.n === "string") add(s.n);
+      }
+      else if (s.type === "table") {
+        add(s.ref);
+        // 동적 구간표 — 경계·값의 이름 참조
+        for (const b of s.bands || [])
+          for (const x of [b?.from, b?.to, b?.v]) if (typeof x === "string") add(x);
+      }
       else if (s.type === "classify") for (const it of s.items || []) add(it?.ref);
-      else if (s.type === "table") add(s.ref);
       else if (s.type === "clamp") { add(s.ref); add(s.min); add(s.max); }
       else if (s.type === "formula") for (const t of s.tokens || []) { if (t?.t === "var") add(t.name); }
       else if (s.type === "branch") {
@@ -1476,7 +1521,8 @@ function withIds(schema: any) {
       if (!prev || (prev.type === "number" && hint.type !== "number")) autoVarHints.set(n, hint);
     };
     const hintFor = (s: any, refName: string): TypeHint => {
-      if (s?.type === "date") return { type: "date" };
+      // date 의 n(가산량)·table band 참조는 숫자 — 날짜 힌트는 a/b 에만
+      if (s?.type === "date" && (refName === s.a || refName === s.b)) return { type: "date" };
       if (s?.type === "switch" && s.ref === refName) return { type: "text" };
       return { type: "number" };
     };
@@ -2029,9 +2075,14 @@ function withIds(schema: any) {
         if (!s) continue;
         if (typeof s.a === "string") into.add(s.a);
         if (typeof s.b === "string") into.add(s.b);
+        if (typeof s.n === "string") into.add(s.n); // date add 가산량 참조
         if (typeof s.ref === "string") into.add(s.ref);
         if (typeof s.min === "string") into.add(s.min);
         if (typeof s.max === "string") into.add(s.max);
+        // 동적 구간표 — band 경계·값의 이름 참조
+        if (Array.isArray(s.bands))
+          for (const b of s.bands)
+            for (const x of [b?.from, b?.to, b?.v]) if (typeof x === "string") into.add(x);
         if (Array.isArray(s.items)) {
           for (const it of s.items) {
             if (typeof it === "string") into.add(it);
@@ -2508,9 +2559,11 @@ export interface SpecPreviewStep {
   cases?: { match: string; outputVar?: string; outputNum?: number; outputText?: string }[];
   // formula 의 경우: 사용할 변수명들 (산식 표현은 "A * B + C" 형태로 expression 에)
   vars?: string[];
-  // date 의 경우: 두 날짜와 출력 단위
+  // date 의 경우: 두 날짜와 출력 단위. mode="add" 면 a + n(년/월/일) → 날짜
   a?: string;
   b?: string;
+  mode?: "diff" | "part" | "add";
+  n?: number | string; // mode="add" 전용 — 더할 수량 (숫자 또는 변수/산출 이름)
   out?: "year" | "month" | "day";
   // llm 의 경우: 요약 대상 변수/산출 이름들
   items?: string[];
@@ -3078,10 +3131,13 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   각 결정/계산 단계를 적절한 step type 으로 분해:
   - "회사가 정한 분류별 금액 중 임직원의 분류에 맞는 것을 고르는 결정" → switch
   - "여러 정책값을 합치거나 곱하거나 나누는 계산" → formula
-  - "두 날짜 사이의 경과 일/년/월" → date
-  - "기준 값이 어느 구간에 속하는지" → table
+  - "두 날짜 사이의 경과 일/년/월" → date (mode=diff)
+  - "기준 날짜에 N년/월/일을 더한 날짜" (승진심의일 등) → date (mode=add, n=숫자 또는 변수)
+  - "기준 값이 어느 구간에 속하는지" → table — bands 의 from/to/v 에는 숫자 대신 **변수 이름**도 가능.
+    회사 문서에서 파싱되는 정책값(직급별 하한·상한 등)은 숫자를 굳히지 말고 변수 이름으로 참조하라.
   - "여러 항목의 합/평균/최대/최소" → classify
   - "최저·최고 보정" → clamp
+  - "조건부 산출(조건 만족 시 갭 보전, 아니면 0 등)" → branch(조건→산식/0) + clamp(상·하한) 2단 분해
   - "단순 yes/no 분기 후 두 값 중 하나" → branch
   - "산출 결과를 자연어로 풀어쓰는 안내" → llm
 
@@ -3617,8 +3673,10 @@ async function generateSpecVars(
       ? `\n임직원이 입력/업로드하는 값(성명·사번·생년월일·금액·분류 등). 분기축이 될 분류 변수(예: 경조분류·신청구분)는 **문서에 분류값 후보가 명시된 경우에만** type="select" 로 하고 options 에 그 후보를 그대로 나열 (예: ["사망","결혼","출산","입학"]). 문서에 없는 후보를 지어내지 말 것.
 후보 명시 = 「값: A/B/C」 표기(설명·예시 어느 칸이든) 또는 후보 열거. 예시 칸이 "결혼 ↵ 값: 결혼/사망/출산" 형태면 value="결혼", options=["결혼","사망","출산"] ("값:" 줄은 value 에 넣지 말 것).
 ⚠ 여러 건을 입력하는 **목록 항목**(경력내역·보유자격·품목 목록 등)은 select 금지 — text 로.
+⚠ **목록이 건별 계산에 쓰이는 경우**(예: 경력내역 각 건에 환산율 적용 후 합산): 목록 text 변수와 함께 **계산용 고정 슬롯 변수**를 선언하라 — 예: 경력1_근무년수(number)·경력1_구분(select) … 경력3_… (3~5건, 문서 파싱이 채움). 슬롯이 없으면 그 계산은 앱에서 불가능해진다.
 select 변수의 desc 끝에는 「값: A/B/C」 표기를 포함하라. 그 외 변수도 desc 에 사용자용 한 줄 설명을 채워라.`
       : `\n회사가 정한 정책 값만(기준액·지급액·비율·연령·한도·기한·등급 기준 등). 분류값마다 다른 정책 금액이 있으면 "도메인_분류값" 패턴으로 모두 선언.
+**표 형태 정책**(직급체계표·페이밴드표·환산율표 등)은 표를 통째로 text 변수에 담지 말고, **행·필드별 number 변수로 펼쳐 선언**하라 — 예: 직급1_하한액·직급1_상한액·직급2_하한액… / 동종동일_환산율·타업동일_환산율. 분석 로직의 구간표(table)가 이 변수들을 참조해 회사별 문서 값에 따라 움직인다.
 ⚠ 단, **열린 목록**(자격증·품목·정책코드처럼 회사마다 나열이 달라지는 항목)은 개별 항목을 변수로 펼치지 말 것 — 특정 항목명(예: 정보보안기사)이 변수 정의에 박제됨. 총액/결과 변수 1개(예: 자격수당가산액)로 선언.
 운영 방식 변수(…유형·…방식·…모델 등)는 **문서에 허용값 목록이 명시된 경우에만** type="select" + options (문서의 후보 그대로, 발명 금지 — desc 끝에 「값: A/B/C」 포함). 후보 명시 = 「값: A/B/C」 표기(설명·예시 어느 칸이든). 예시 칸이 "일시금 ↵ 값: 일시금/분할" 형태면 value="일시금", options=["일시금","분할"]. 목록이 없으면 text 로 두되 value 는 문서의 운영 구조를 읽고 판단해 채워라.
 각 변수의 desc 에 사용자용 한 줄 설명을 채워라.`;
@@ -3650,7 +3708,11 @@ async function generateSpecPaths(
 - **공통 사전 계산**(여러 경로가 함께 쓰는 산출 — 예: 만나이·경과일수·기준 평균값 등 도메인 공통 산출)은 \`shared.steps\` 에 **한 번만** 두세요. 경로마다 똑같은 산식을 복제하지 말 것. shared 의 step.name 은 각 경로 step·조건에서 참조 가능.
 - **그 경로에서만 쓰는 산출**(분류별 가산·전용 금액 등)만 \`path.steps\` 에 두세요.
 - **각 경로는 자족적** — 경로의 step·conditions 가 참조할 수 있는 이름은 확정 변수, shared.steps, **같은 경로의 선행 step** 뿐. **다른 경로의 step 참조 절대 금지** (런타임엔 매칭된 경로만 실행되므로 항상 미정의 에러). 여러 경로가 같은 이름의 산출(예: 기본급제안액)을 쓰면 **경로마다 각자 정의**하거나 shared 로 옮겨라.
-- **산식(formula)의 expression 은 사칙연산·괄호·floor/ceil/round 만** — "표에서 조회", IF, 함수 호출 같은 문구를 넣으면 그 step 은 통째로 버려진다. 표 대응값 조회는 **table(구간표) step 으로 bands 를 구체화**해 표현하고(참고 문서의 실제 값 사용), 구간표로도 표현 불가능하면 스스로 판단해 근사 산식(예: 기준값 * 비율)으로 채워라. 참조가 끊긴 이름을 남기지 말 것.
+- **산식(formula)의 expression 은 사칙연산·괄호·floor/ceil/round 만** — "표에서 조회", IF, 함수 호출 같은 문구를 넣으면 그 step 은 통째로 버려진다. 표 대응값 조회는 **table(구간표) step** 으로 표현하라.
+- **구간표(table) 의 bands 는 { "from", "to", "v" } 배열** — from/to/v 에 숫자 대신 **확정 변수 이름**(문자열)을 쓸 수 있다. 회사 문서에서 파싱되는 정책값(직급별 하한·상한·표준액 등)은 숫자를 굳히지 말고 변수 이름으로 참조하라 (회사마다 값이 달라도 표가 따라 움직임). 예: 직급 매핑 = table(경력연차→직급코드 1/2/3) + 금액 = table(직급코드, v="직급1_하한액"…).
+- **조건부 산출(예: 갭 보전 사이닝보너스, 상한 캡)은 2단 분해** — branch(조건 참/거짓 → 산식/0) 다음 clamp(상·하한 보정). 산식 안에 조건 문구를 섞지 말 것.
+- **날짜 가산**은 date step mode="add" ({ a: 기준 날짜 변수, n: 숫자 또는 숫자 변수/산출, out: year/month/day }) — 예: 승진심의일 = 정기인사기준일 + 잔여체류연한.
+- **다건 목록 계산**(경력내역처럼 건별 환산 후 합산): 확정 변수에 슬롯 변수(경력1_근무년수·경력1_구분 등)가 있으면 슬롯별 step(switch 환산율 → formula 곱) + classify(sum) 합산으로 구성하라. 슬롯 변수가 없으면 합산 결과를 담는 확정 변수(예: 유효총경력)를 그대로 입력값으로 사용.
 - 분기축(분류 변수)의 **모든 분류값마다 path 1개씩 빠짐없이** 생성. 하나만 만들고 나머지를 fallback 으로 떠넘기지 말 것.
 출력: { "shared": { "steps": [...] }, "paths": [...], "fallback": {...} }`
   );
@@ -3894,11 +3956,23 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
       case "date": {
         // AI 가 명시한 a/b/out 사용. b 는 날짜 변수/step 으로 해석되면 그 이름, 아니면 "오늘".
         const a = resolveName(s.a) || s.a || "";
+        const out = s.out || "year";
+        if (sa.mode === "add") {
+          // 날짜 가산 — a + n(년/월/일). n 은 숫자 또는 알려진 변수/산출 이름 (동적 조회)
+          const rawN = sa.n;
+          const nStr = String(rawN ?? "").replace(/,/g, "").trim();
+          let n: number | string = 0;
+          if (/^-?\d+(\.\d+)?$/.test(nStr)) n = Number(nStr);
+          else {
+            const rn = resolveName(rawN);
+            if (rn && isKnown(rn)) n = rn;
+          }
+          return { ...base, type: "date", mode: "add", a, n, out };
+        }
         let b = (s.b || "").trim();
         const rb = resolveName(b);
         b = isKnown(rb) ? rb : "오늘";
-        const out = s.out || "year";
-        return { ...base, type: "date", mode: "diff", a, b, out };
+        return { ...base, type: "date", mode: sa.mode === "part" ? "part" : "diff", a, b, out };
       }
       case "classify": {
         // LLM 이 명시한 items 를 그대로 사용 (이전엔 빈 배열로 버렸음). 문자열·{ref} 둘 다 지원.
@@ -3915,19 +3989,28 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
         // ref 는 변수뿐 아니라 step 출력(예: "만나이 계산") 도 허용. bands 는 LLM 출력 그대로 변환.
         const ref = resolveName(s.ref);
         const rawBands = Array.isArray(sa.bands) ? sa.bands : [];
+        // 경계·값이 알려진 변수/산출 이름이면 이름을 보존 — 런타임에 동적 조회 (스냅샷 동결 금지).
+        // 숫자는 숫자로. 미해석 이름만 변환 시점 값으로 폴백 (기존 동작).
+        const bandDyn = (raw: any): number | string => {
+          const str = String(raw ?? "").replace(/,/g, "").trim();
+          if (/^-?\d+(\.\d+)?$/.test(str)) return Number(str);
+          const rn = resolveName(raw);
+          if (rn && isKnown(rn)) return rn;
+          // 미정의지만 식별자 형태면 이름 보존 — withIds 가 변수로 자동 생성해 관리자가 채울 수 있게.
+          // (깨진 수식 조각·문장은 기존 폴백: 변환 시점 값 → 없으면 0)
+          const id = String(raw ?? "").trim();
+          if (/^[가-힣A-Za-z_][가-힣A-Za-z0-9_]*$/.test(id)) return id;
+          return bandValueToNum(raw);
+        };
         const bands = rawBands
           .map((b: any) => {
             const hasRange = b && (b.range != null || b.band != null);
             const { from, to } = hasRange
               ? parseBand(b.range ?? b.band)
-              : { from: Number(b?.from) || 0, to: Number(b?.to) || 0 };
+              : { from: bandDyn(b?.from), to: bandDyn(b?.to) };
             // band 의 값 키는 LLM 마다 다양 — v / value / outputVar / var / outputNum 모두 지원
             const rawV = b?.v ?? b?.value ?? b?.outputVar ?? b?.var ?? b?.outputNum;
-            const vNum =
-              rawV != null && /^-?\d+(\.\d+)?$/.test(String(rawV))
-                ? Number(rawV)
-                : bandValueToNum(rawV);
-            return { from, to, v: vNum };
+            return { from, to, v: bandDyn(rawV) };
           });
         return { ...base, type: "table", ref, bands: bands.length ? bands : [{ from: 0, to: 100, v: 0 }] };
       }

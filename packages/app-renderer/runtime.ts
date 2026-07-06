@@ -1,6 +1,7 @@
 // v5 결정론 런타임 — eval 금지, 자체 토크나이저 + RPN
 import type {
   AppSchema,
+  BandVal,
   CmpOp,
   Disp,
   Judge,
@@ -14,6 +15,21 @@ import type {
   Token,
   Unit,
 } from "./types";
+
+// ----- 구간표 경계·값 해석 -----
+// 숫자면 그대로, 이름이면 변수/산출값(sc)에서 동적 조회 — 회사별 파싱 값에 따라 구간표가 움직이게 한다.
+export function bandNum(x: BandVal | undefined | null, sc?: Sc): number {
+  if (typeof x === "number") return isNaN(x) ? 0 : x;
+  const s = String(x ?? "").trim();
+  if (!s) return 0;
+  const cleaned = s.replace(/,/g, "");
+  if (/^-?\d+(\.\d+)?$/.test(cleaned)) return Number(cleaned);
+  if (sc && s in sc) {
+    const v = Number(sc[s]);
+    return isNaN(v) ? 0 : v;
+  }
+  return 0;
+}
 
 // ----- token <-> string -----
 const OPSYM: Record<string, string> = {
@@ -530,9 +546,11 @@ export function run(
         d = fmtU(r, s.unit);
       } else if (s.type === "table") {
         const a = rv(s.ref);
-        const bd = s.bands.find((b) => a >= b.from && a <= b.to);
+        const bd = s.bands.find(
+          (b) => a >= bandNum(b.from, sc) && a <= bandNum(b.to, sc)
+        );
         if (!bd) throw new Error("구간 없음: " + a);
-        r = bd.v;
+        r = bandNum(bd.v, sc);
         d = fmtU(r, s.unit);
       } else if (s.type === "formula") {
         r = evtok(s.tokens, sc);
@@ -555,6 +573,17 @@ export function run(
               : s.out === "month"
               ? monthsDiff(A, B)
               : Math.round((B.getTime() - A.getTime()) / 86400000);
+          d = fmtU(r, s.unit);
+        } else if (s.mode === "add") {
+          // 기준 날짜 + n(년/월/일) → 날짜 문자열 (예: 승진심의일 = 정기인사기준일 + 잔여 체류연한)
+          const n = Math.round(bandNum(s.n ?? 0, sc));
+          const D = new Date(A.getTime());
+          if (s.out === "year") D.setFullYear(D.getFullYear() + n);
+          else if (s.out === "month") D.setMonth(D.getMonth() + n);
+          else D.setDate(D.getDate() + n);
+          const pad = (x: number) => String(x).padStart(2, "0");
+          r = `${D.getFullYear()}-${pad(D.getMonth() + 1)}-${pad(D.getDate())}`;
+          d = String(r);
         } else {
           r =
             s.out === "year"
@@ -562,8 +591,8 @@ export function run(
               : s.out === "month"
               ? A.getMonth() + 1
               : A.getDate();
+          d = fmtU(r, s.unit);
         }
-        d = fmtU(r, s.unit);
       } else if (s.type === "llm") {
         r = s.lastResult || "";
         d = s.lastResult ? s.lastResult : "(분석 미실행)";
@@ -746,6 +775,9 @@ export function describeStep(s: Step, sc?: Sc): string {
       if (u === "년" && isToday) return `${s.a} 기준으로 산정된 만 나이입니다.`;
       if (isToday) return `${s.a} 부터 오늘까지의 경과 ${u}수입니다.`;
       return `${s.a} 부터 ${s.b} 까지의 ${u}수입니다.`;
+    }
+    if (s.mode === "add") {
+      return `${s.a} 에 ${s.n ?? 0}${u}을(를) 더한 날짜입니다.`;
     }
     return `${s.a} 의 ${u === "년" ? "연도" : u}을(를) 추출한 값입니다.`;
   }

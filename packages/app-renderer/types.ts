@@ -113,10 +113,13 @@ export interface ClassifyStep extends StepBase {
   items: ClassifyItem[];
 }
 
+// 구간 경계·값은 숫자 또는 변수/산출 이름(런타임에 동적 조회).
+// 이름 참조를 쓰면 회사별 규정 문서 파싱 값에 따라 구간표가 움직인다 (하드코딩 방지).
+export type BandVal = number | string;
 export interface Band {
-  from: number;
-  to: number;
-  v: number;
+  from: BandVal;
+  to: BandVal;
+  v: BandVal;
 }
 export interface TableStep extends StepBase {
   type: "table";
@@ -138,9 +141,12 @@ export interface ClampStep extends StepBase {
 
 export interface DateStep extends StepBase {
   type: "date";
-  mode: "diff" | "part";
+  // diff: 두 날짜 차이 · part: 날짜에서 년/월/일 추출 · add: 기준 날짜 + n(년/월/일) → 날짜
+  mode: "diff" | "part" | "add";
   a: string;
   b?: string;
+  // mode="add" 전용 — 더할 수량. 숫자 또는 변수/산출 이름 (out 단위로 가산)
+  n?: number | string;
   out: "year" | "month" | "day";
 }
 

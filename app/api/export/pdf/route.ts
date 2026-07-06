@@ -18,7 +18,7 @@ import {
 } from "@react-pdf/renderer";
 import React from "react";
 import type { AppSchema, Disp, JudgeResult, Sc, Step } from "app-renderer";
-import { activePathOf, migrateSchema, parseListItems, tk2disp, unitOf, fmtU } from "app-renderer";
+import { activePathOf, bandNum, migrateSchema, parseListItems, tk2disp, unitOf, fmtU } from "app-renderer";
 
 export const runtime = "nodejs";
 
@@ -361,8 +361,8 @@ function renderChart(el: any, schema: AppSchema, sc: Sc) {
       if (mn !== null) min = mn;
       if (mx2 !== null) max = mx2;
     } else if (st && st.type === "table" && st.bands.length) {
-      min = Math.min(...st.bands.map((b: any) => b.from));
-      max = Math.max(...st.bands.map((b: any) => b.to));
+      min = Math.min(...st.bands.map((b: any) => bandNum(b.from, sc)));
+      max = Math.max(...st.bands.map((b: any) => bandNum(b.to, sc)));
     } else if (ct === "gauge") {
       max = Math.max(100, val * 1.5 || 100);
     }
@@ -636,18 +636,20 @@ function renderChart(el: any, schema: AppSchema, sc: Sc) {
     ]);
   }
   const cur = sc[st.ref];
-  const mx = Math.max(...st.bands.map((b) => Math.abs(b.v)), 0.0001);
+  // band 경계·값은 숫자 또는 변수 참조 — sc 로 해석
+  const rbnds = st.bands.map((b) => ({ from: bandNum(b.from, sc), to: bandNum(b.to, sc), v: bandNum(b.v, sc) }));
+  const mx = Math.max(...rbnds.map((b) => Math.abs(b.v)), 0.0001);
   const W = 260;
   const H = 70;
 
   if (ct === "bar") {
-    const n = st.bands.length;
+    const n = rbnds.length;
     const barW = (W - 16) / Math.max(n, 1) * 0.7;
     const gap = (W - 16) / Math.max(n, 1) * 0.3;
     return React.createElement(View, { style: styles.card }, [
       React.createElement(Text, { style: styles.lab, key: "l" }, el.label),
       React.createElement(Svg as any, { width: W, height: H + 12, viewBox: `0 0 ${W} ${H + 12}`, key: "s" }, [
-        ...st.bands.map((b, i) => {
+        ...rbnds.map((b, i) => {
           const h = Math.max(4, (Math.abs(b.v) / mx) * H);
           const x = 8 + i * (barW + gap);
           const y = H - h;
@@ -670,28 +672,28 @@ function renderChart(el: any, schema: AppSchema, sc: Sc) {
   }
 
   // step-line
-  const n = st.bands.length;
+  const n = rbnds.length;
   if (!n) {
     return React.createElement(View, { style: styles.card }, [
       React.createElement(Text, { style: styles.lab, key: "l" }, el.label),
       React.createElement(Text, { style: { fontSize: 9, color: COL.sub }, key: "n" }, "구간 없음"),
     ]);
   }
-  const xs = st.bands.map((_, i) => 10 + (i / Math.max(n - 1, 1)) * (W - 20));
-  const ys = st.bands.map((b) => H - 6 - (Math.abs(b.v) / mx) * (H - 16));
+  const xs = rbnds.map((_, i) => 10 + (i / Math.max(n - 1, 1)) * (W - 20));
+  const ys = rbnds.map((b) => H - 6 - (Math.abs(b.v) / mx) * (H - 16));
   let pathD = "";
-  st.bands.forEach((_, i) => {
+  rbnds.forEach((_, i) => {
     if (i === 0) pathD += `M ${xs[i]} ${ys[i]} `;
     else pathD += `L ${xs[i]} ${ys[i - 1]} L ${xs[i]} ${ys[i]} `;
   });
-  const ci = st.bands.findIndex((b) => cur >= b.from && cur <= b.to);
+  const ci = rbnds.findIndex((b) => cur >= b.from && cur <= b.to);
   return React.createElement(View, { style: styles.card }, [
     React.createElement(Text, { style: styles.lab, key: "l" }, el.label),
     React.createElement(Svg as any, { width: W, height: H + 10, viewBox: `0 0 ${W} ${H + 10}`, key: "s" }, [
       React.createElement(Path as any, {
         key: "p", d: pathD, stroke: COL.blue, strokeWidth: "1.6", fill: "none",
       }),
-      ...st.bands.map((b, i) =>
+      ...rbnds.map((b, i) =>
         React.createElement(SvgText as any, {
           key: "x" + i, x: String(xs[i]), y: String(H + 7),
           fontSize: "7", textAnchor: "middle", fill: COL.sub,

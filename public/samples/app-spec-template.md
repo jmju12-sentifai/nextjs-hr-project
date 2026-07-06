@@ -59,7 +59,7 @@
 ## 4. 분석 로직
 
 > 공통 사전 계산(모든 경로 공유) → 경로 1·2…(first-match, 위→아래 첫 매칭 활성) → Fallback(어느 경로도 미매칭)
-> 산출 타입: date(diff/part) · classify(sum/count/avg) · table(구간표) · formula(계산식) · clamp(상하한 보정) · branch(조건 분기) · llm(LLM 요약)
+> 산출 타입: date(diff 차이/part 추출/add 날짜더하기) · classify(sum/count/avg) · table(구간표 — 경계·값에 변수 이름 사용 가능) · formula(계산식) · clamp(상하한 보정) · branch(조건 분기) · llm(LLM 요약)
 
 ### 공통 사전 계산 (모든 경로 진입 전 실행)
 

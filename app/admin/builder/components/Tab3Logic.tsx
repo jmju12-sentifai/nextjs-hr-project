@@ -637,7 +637,7 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                         <ClampEditor step={s} update={(p: any) => updS(s.id, p)} av={av} varsMeta={varsMeta} />
                       )}
                       {s.type === "date" && (
-                        <DateEditor step={s} update={(p: any) => updS(s.id, p)} dn={dn} />
+                        <DateEditor step={s} update={(p: any) => updS(s.id, p)} dn={dn} av={numAv} />
                       )}
                       {s.type === "llm" && (
                         <LlmEditor
@@ -1209,6 +1209,13 @@ function sayStep(s: Step): React.ReactNode {
         </>
       );
     }
+    if (s.mode === "add") {
+      return (
+        <>
+          <b>{s.a || "기준일"}</b> 에 <b>{String(s.n ?? 0)}</b>{u}을(를) 더한 날짜입니다.
+        </>
+      );
+    }
     return (
       <>
         <b>{s.a || "?"}</b> 의 {u === "년" ? "연도" : u}을(를) 추출한 값입니다.
@@ -1502,48 +1509,48 @@ function ClassifyEditor({ step, update, av, varsMeta }: any) {
 }
 
 function TableEditor({ step, update, av, varsMeta }: any) {
-  const inp = "rounded border px-1 py-0.5 text-xs font-mono w-14 text-right";
+  const inp = "rounded border px-1 py-0.5 text-xs font-mono w-20 text-right";
+  const dlId = "band-vars-" + step.id;
+  // 숫자면 number, 아니면 변수/산출 이름(string) 으로 저장 — 이름은 런타임에 동적 조회됨
+  const bandVal = (raw: string): number | string => {
+    const t = raw.trim();
+    if (t === "") return 0;
+    const cleaned = t.replace(/,/g, "");
+    return /^-?\d+(\.\d+)?$/.test(cleaned) ? Number(cleaned) : t;
+  };
+  const bandInput = (b: any, i: number, key: "from" | "to" | "v") => (
+    <input
+      type="text"
+      list={dlId}
+      value={String(b[key] ?? "")}
+      onChange={(e) => {
+        const next = [...step.bands];
+        next[i] = { ...b, [key]: bandVal(e.target.value) };
+        update({ bands: next });
+      }}
+      placeholder="숫자/변수"
+      title="숫자 또는 변수·산출 이름 (이름을 넣으면 회사별 파싱 값에 따라 구간표가 움직입니다)"
+      className={inp + (typeof b[key] === "string" ? " text-blue-700 bg-blue-50/50" : "")}
+    />
+  );
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <datalist id={dlId}>
+        {(av || []).map((n: string) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
       <select value={step.ref} onChange={(e) => update({ ref: e.target.value })} className="rounded border px-2 py-1 text-xs">
         <VarOpts names={av} varsMeta={varsMeta} />
       </select>
       <span className="text-xs text-gray-500">구간 →</span>
       {step.bands.map((b: any, i: number) => (
         <span key={i} className="inline-flex items-center gap-1 rounded border bg-white px-1.5 py-0.5 text-xs font-mono">
-          <input
-            type="number"
-            value={b.from}
-            onChange={(e) => {
-              const next = [...step.bands];
-              next[i] = { ...b, from: parseFloat(e.target.value) || 0 };
-              update({ bands: next });
-            }}
-            className={inp}
-          />
+          {bandInput(b, i, "from")}
           –
-          <input
-            type="number"
-            value={b.to}
-            onChange={(e) => {
-              const next = [...step.bands];
-              next[i] = { ...b, to: parseFloat(e.target.value) || 0 };
-              update({ bands: next });
-            }}
-            className={inp}
-          />
+          {bandInput(b, i, "to")}
           :
-          <input
-            type="number"
-            step="0.01"
-            value={b.v}
-            onChange={(e) => {
-              const next = [...step.bands];
-              next[i] = { ...b, v: parseFloat(e.target.value) || 0 };
-              update({ bands: next });
-            }}
-            className={inp}
-          />
+          {bandInput(b, i, "v")}
           <button
             onClick={() => update({ bands: step.bands.filter((_: any, x: number) => x !== i) })}
             className="text-rose-600 ml-1"
@@ -1558,12 +1565,20 @@ function TableEditor({ step, update, av, varsMeta }: any) {
       >
         + 구간
       </button>
+      <span className="text-[10px] text-gray-400 w-full">
+        경계·값에 숫자 대신 <b className="text-blue-600">변수 이름</b>을 쓰면 (파란 표시) 회사 문서에서 파싱된 값에 따라 구간표가 움직입니다.
+      </span>
     </div>
   );
 }
 
 function ClampEditor({ step, update, av, varsMeta }: any) {
   const inp = "rounded border px-2 py-1 text-xs";
+  // min/max 에 숫자 리터럴이 저장된 경우 — 목록에 없어 "(없음)" 으로 보이던 문제 방지: 고정값 옵션으로 표시
+  const literalOpt = (val: string) =>
+    val && !(av || []).includes(val) ? (
+      <option value={val}>{val} (고정값)</option>
+    ) : null;
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <select value={step.ref} onChange={(e) => update({ ref: e.target.value })} className={inp + " min-w-[120px]"}>
@@ -1573,27 +1588,31 @@ function ClampEditor({ step, update, av, varsMeta }: any) {
       <span>하한</span>
       <select value={step.min} onChange={(e) => update({ min: e.target.value })} className={inp + " min-w-[120px]"}>
         <option value="">(없음)</option>
+        {literalOpt(step.min)}
         <VarOpts names={av} varsMeta={varsMeta} />
       </select>
       <span>상한</span>
       <select value={step.max} onChange={(e) => update({ max: e.target.value })} className={inp + " min-w-[120px]"}>
         <option value="">(없음)</option>
+        {literalOpt(step.max)}
         <VarOpts names={av} varsMeta={varsMeta} />
       </select>
     </div>
   );
 }
 
-function DateEditor({ step, update, dn }: any) {
+function DateEditor({ step, update, dn, av }: any) {
   const inp = "rounded border px-2 py-1 text-xs";
+  const dlId = "date-n-vars-" + step.id;
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="text-gray-600">모드</span>
       <select value={step.mode} onChange={(e) => update({ mode: e.target.value })} className={inp}>
         <option value="diff">두 날짜 차이</option>
         <option value="part">연·월·일 추출</option>
+        <option value="add">날짜 더하기</option>
       </select>
-      <span className="text-gray-600">{step.mode === "diff" ? "시작" : "대상"}</span>
+      <span className="text-gray-600">{step.mode === "diff" ? "시작" : step.mode === "add" ? "기준" : "대상"}</span>
       <select value={step.a} onChange={(e) => update({ a: e.target.value })} className={inp + " min-w-[120px]"}>
         {dn.map((n: string) => (<option key={n}>{n}</option>))}
       </select>
@@ -1605,12 +1624,38 @@ function DateEditor({ step, update, dn }: any) {
           </select>
         </>
       )}
+      {step.mode === "add" && (
+        <>
+          <span className="text-gray-600">+ 수량</span>
+          <datalist id={dlId}>
+            {(av || []).map((n: string) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+          <input
+            type="text"
+            list={dlId}
+            value={String(step.n ?? "")}
+            onChange={(e) => {
+              const t = e.target.value.trim();
+              const cleaned = t.replace(/,/g, "");
+              update({ n: /^-?\d+(\.\d+)?$/.test(cleaned) ? Number(cleaned) : t });
+            }}
+            placeholder="숫자/변수"
+            title="더할 수량 — 숫자 또는 숫자 변수·산출 이름"
+            className={inp + " w-28 font-mono" + (typeof step.n === "string" && step.n ? " text-blue-700 bg-blue-50/50" : "")}
+          />
+        </>
+      )}
       <span className="text-gray-600">단위</span>
       <select value={step.out} onChange={(e) => update({ out: e.target.value })} className={inp}>
-        <option value="year">{step.mode === "diff" ? "년(만나이)" : "연도"}</option>
+        <option value="year">{step.mode === "diff" ? "년(만나이)" : step.mode === "add" ? "년" : "연도"}</option>
         <option value="month">{step.mode === "diff" ? "개월" : "월"}</option>
         <option value="day">일</option>
       </select>
+      {step.mode === "add" && (
+        <span className="text-[10px] text-gray-400">결과는 날짜(YYYY-MM-DD)로 출력됩니다 — 예: 승진심의일 = 기준일 + 잔여연한</span>
+      )}
     </div>
   );
 }

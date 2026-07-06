@@ -16,7 +16,7 @@ import {
   VerticalAlign,
 } from "docx";
 import type { AppSchema, Step } from "app-renderer";
-import { activePathOf, migrateSchema, parseListItems, tk2disp, unitOf, fmtU } from "app-renderer";
+import { activePathOf, bandNum, migrateSchema, parseListItems, tk2disp, unitOf, fmtU } from "app-renderer";
 
 export const runtime = "nodejs";
 
@@ -506,8 +506,8 @@ function elChart(el: any, schema: AppSchema, sc: any, cellDXA: number): (Paragra
       if (mn !== null) min = mn;
       if (mx2 !== null) max = mx2;
     } else if (st && st.type === "table" && st.bands.length) {
-      min = Math.min(...st.bands.map((b: any) => b.from));
-      max = Math.max(...st.bands.map((b: any) => b.to));
+      min = Math.min(...st.bands.map((b: any) => bandNum(b.from, sc)));
+      max = Math.max(...st.bands.map((b: any) => bandNum(b.to, sc)));
     } else if (ct === "gauge") {
       max = Math.max(100, val * 1.5 || 100);
     }
@@ -709,8 +709,10 @@ function elChart(el: any, schema: AppSchema, sc: any, cellDXA: number): (Paragra
     return [lab(el.label), p("구간표 단계 바인딩 필요", { color: COL.sub, size: 18 })];
   const cur = sc[st.ref];
   const u = st.unit || "";
-  const mx = Math.max(...st.bands.map((b) => Math.abs(b.v)), 0.0001);
-  const bars = st.bands.map((b) => {
+  // band 경계·값은 숫자 또는 변수 참조 — sc 로 해석
+  const rbnds = st.bands.map((b) => ({ from: bandNum(b.from, sc), to: bandNum(b.to, sc), v: bandNum(b.v, sc) }));
+  const mx = Math.max(...rbnds.map((b) => Math.abs(b.v)), 0.0001);
+  const bars = rbnds.map((b) => {
     const on = cur >= b.from && cur <= b.to;
     return {
       pct: (Math.abs(b.v) / mx) * 100,

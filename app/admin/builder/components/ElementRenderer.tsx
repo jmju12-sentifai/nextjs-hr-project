@@ -9,7 +9,7 @@ import type {
   Sc,
   Step,
 } from "app-renderer";
-import { describeName, fmtU, migrateSchema, parseListItems, tk2disp, unitOf } from "app-renderer";
+import { bandNum, describeName, fmtU, migrateSchema, parseListItems, tk2disp, unitOf } from "app-renderer";
 import type { Step as RStep } from "app-renderer";
 
 // 새/옛 스키마 모두에서 모든 step 을 평탄화해 검색
@@ -455,8 +455,8 @@ function ChartView({
       if (mn !== null) min = mn;
       if (mx2 !== null) max = mx2;
     } else if (st && st.type === "table" && st.bands.length) {
-      min = Math.min(...st.bands.map((b) => b.from));
-      max = Math.max(...st.bands.map((b) => b.to));
+      min = Math.min(...st.bands.map((b) => bandNum(b.from, sc)));
+      max = Math.max(...st.bands.map((b) => bandNum(b.to, sc)));
     } else {
       max = Math.max(100, val * 1.5 || 100);
     }
@@ -673,13 +673,19 @@ function ChartView({
   if (!st || st.type !== "table")
     return <div className="text-xs text-gray-500">구간표 단계 바인딩 필요</div>;
   const cur = sc[st.ref];
-  const mx = Math.max(...st.bands.map((b) => Math.abs(b.v)), 0.0001);
+  // band 경계·값은 숫자 또는 변수 참조 — sc 로 해석해 숫자화
+  const rb = st.bands.map((b) => ({
+    from: bandNum(b.from, sc),
+    to: bandNum(b.to, sc),
+    v: bandNum(b.v, sc),
+  }));
+  const mx = Math.max(...rb.map((b) => Math.abs(b.v)), 0.0001);
 
   if (ct === "bar") {
     return (
       <div className="h-full w-full flex flex-col min-h-0 overflow-hidden">
         <div className="flex-1 min-h-0 flex items-end gap-1.5 pt-1">
-          {st.bands.map((b, i) => {
+          {rb.map((b, i) => {
             const on = cur >= b.from && cur <= b.to;
             return (
               <div
@@ -702,7 +708,7 @@ function ChartView({
           })}
         </div>
         <div className="flex gap-1.5 mt-1 shrink-0">
-          {st.bands.map((b, i) => (
+          {rb.map((b, i) => (
             <div key={i} className="flex-1 text-center text-[9px] font-mono text-gray-500 truncate">
               {b.from}–{b.to}
             </div>
@@ -713,25 +719,25 @@ function ChartView({
   }
 
   // step-line
-  const n = st.bands.length;
+  const n = rb.length;
   if (!n) return <div className="text-xs text-gray-500">구간 없음</div>;
   const W = 280;
   const H = 84;
-  const xs = st.bands.map((_, i) => 10 + (i / Math.max(n - 1, 1)) * (W - 20));
-  const ys = st.bands.map((b) => H - 10 - (Math.abs(b.v) / mx) * (H - 22));
+  const xs = rb.map((_, i) => 10 + (i / Math.max(n - 1, 1)) * (W - 20));
+  const ys = rb.map((b) => H - 10 - (Math.abs(b.v) / mx) * (H - 22));
   let path = "";
-  st.bands.forEach((_, i) => {
+  rb.forEach((_, i) => {
     if (i === 0) path += `M ${xs[i]} ${ys[i]} `;
     else path += `L ${xs[i]} ${ys[i - 1]} L ${xs[i]} ${ys[i]} `;
   });
-  const ci = st.bands.findIndex((b) => cur >= b.from && cur <= b.to);
+  const ci = rb.findIndex((b) => cur >= b.from && cur <= b.to);
   const u = st.unit || "";
   let dot: React.ReactNode = null;
   if (ci >= 0) {
     const curDisp =
       u === "%"
-        ? Math.round(st.bands[ci].v * 1000) / 10 + "%"
-        : fmtU(st.bands[ci].v, u);
+        ? Math.round(rb[ci].v * 1000) / 10 + "%"
+        : fmtU(rb[ci].v, u);
     dot = (
       <>
         <circle cx={xs[ci]} cy={ys[ci]} r="4" fill="#2563eb" />
@@ -755,7 +761,7 @@ function ChartView({
       style={{ display: "block", width: "100%", maxHeight: "100%" }}
     >
       <path d={path} stroke="#2563eb" strokeWidth="2" fill="none" />
-      {st.bands.map((b, i) => (
+      {rb.map((b, i) => (
         <text
           key={i}
           x={xs[i]}
