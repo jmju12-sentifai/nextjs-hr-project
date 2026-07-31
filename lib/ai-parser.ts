@@ -592,6 +592,17 @@ function fixHangulSpacing(s: any): any {
 // formula 에서 허용하는 단항 함수 — runtime 엔진(evalRpn)이 지원하는 것과 일치해야 한다.
 const FN_NAMES = new Set(["floor", "ceil", "round"]);
 
+// branch 의 rhs 가 "변수 이름" 이 아니라 문자열 리터럴인가?
+//   ==/!= 로 분류값과 비교하는 형태(시험결과 != "불합격", 인사위회부여부 == "아니오")가 그렇다.
+//   런타임 rv() 는 sc 에 없는 문자열을 그대로 리터럴로 쓰므로 변수로 등록할 필요가 없고,
+//   등록하면 값 0 인 빈 변수가 생겨 비교가 항상 거짓이 된다.
+function isLiteralRhs(s: any): boolean {
+  if (!s || (s.op !== "==" && s.op !== "!=")) return false;
+  const rhs = typeof s.rhs === "string" ? s.rhs.trim() : "";
+  if (!rhs) return false;
+  return !/^-?\d+(\.\d+)?$/.test(rhs); // 숫자면 리터럴 숫자 — 어차피 변수 아님
+}
+
 function withIds(schema: any) {
   const uid = () =>
     Math.random().toString(36).slice(2, 7) + Date.now().toString(36).slice(-3);
@@ -908,6 +919,8 @@ function withIds(schema: any) {
         if (typeof s.max === "string") addUndef(s.max, { type: "number" });
       } else if (s.type === "branch") {
         if (typeof s.ref === "string") addUndef(s.ref);
+        // rhs 는 여기서 등록하지 않는다 — ==/!= 의 rhs 는 대개 문자열 리터럴이라
+        // 변수로 만들면 값 0 인 빈 변수가 생겨 비교가 깨진다 (isLiteralRhs 주석 참고).
       } else if (s.type === "llm") {
         if (Array.isArray(s.items))
           for (const nm of s.items) addUndef(nm);
@@ -1613,7 +1626,10 @@ function withIds(schema: any) {
       else if (s.type === "formula") for (const t of s.tokens || []) { if (t?.t === "var") add(t.name); }
       else if (s.type === "branch") {
         add(s.ref);
-        if (typeof s.rhs === "string") add(s.rhs);
+        // ⚠ ==/!= 의 rhs 가 정의된 이름이 아니면 **문자열 리터럴**이다 (예: 시험결과 != "불합격").
+        //   이걸 변수로 등록하면 그 이름의 빈 변수(값 0)가 생겨 비교가 항상 거짓이 된다
+        //   (실사례: 인사위회부여부 == "아니오" 가 "아니오"(=0) 와 비교돼 판정이 늘 미충족).
+        if (typeof s.rhs === "string" && !isLiteralRhs(s)) add(s.rhs);
         if (s.thenT === "calc") for (const t of s.thenTok || []) { if (t?.t === "var") add(t.name); }
         if (s.elsT === "calc") for (const t of s.elsTok || []) { if (t?.t === "var") add(t.name); }
       } else if (s.type === "switch") {
