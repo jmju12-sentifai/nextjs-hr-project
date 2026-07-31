@@ -1430,11 +1430,16 @@ function withIds(schema: any) {
       if (typeof s.ref !== "string" || s.ref.trim() === "") return false;
       if (looksLikeText(s.ref) && !["==", "!=", "eq", "neq"].includes(s.op)) return false;
       // 양쪽 출력값 검증 — 한 쪽이라도 의미 있는 값이 없으면 분기 자체가 무용지물 → 제거
+      // 상수 0 만 내는 쪽(예: "미충족이면 0", "대상 아니면 0") — 한쪽만이면 유효한 출력이다.
+      const isZeroConst = (typ: string, toks: any[]) =>
+        typ === "calc" &&
+        Array.isArray(toks) &&
+        toks.length === 1 &&
+        toks[0]?.t === "num" &&
+        toks[0]?.v === 0;
       const sideHasValue = (typ: string, txt: any, toks: any[]) => {
         if (typ === "calc") {
-          if (!Array.isArray(toks) || toks.length === 0) return false;
-          if (toks.length === 1 && toks[0]?.t === "num" && toks[0]?.v === 0) return false;
-          return true;
+          return Array.isArray(toks) && toks.length > 0;
         }
         // text 모드 — 불리언/placeholder(참·거짓·true·false 등)만이면 사용자에게 무의미한 값 → 무효
         //   (출생반기 같은 분류는 "상반기"/"하반기" 처럼 이해되는 라벨이어야 함. true/false 노출 차단.)
@@ -1447,6 +1452,8 @@ function withIds(schema: any) {
       const thenOk = sideHasValue(s.thenT, s.then, s.thenTok);
       const elsOk = sideHasValue(s.elsT, s.els, s.elsTok);
       if (!thenOk || !elsOk) return false;
+      // 양쪽 다 상수 0 이면 어느 쪽으로 가도 0 → 분기 의미 없음
+      if (isZeroConst(s.thenT, s.thenTok) && isZeroConst(s.elsT, s.elsTok)) return false;
       return true;
     }
     if (s.type === "date") {
