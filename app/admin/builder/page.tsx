@@ -639,6 +639,41 @@ function BuilderInner() {
     URL.revokeObjectURL(url);
   };
 
+  // 현재 스키마를 JSON 파일로 — 발행 결과가 의도와 다를 때 원인을 확인하는 진단용.
+  // (어떤 산출이 안 만들어졌는지, 어떤 이름이 변수로 잡혔는지 화면만으로는 알 수 없다.)
+  const downloadSchemaJson = () => {
+    const stepNames = new Set<string>();
+    const collect = (steps: any[] = []) => {
+      for (const s of steps) if (s?.name) stepNames.add(s.name);
+    };
+    collect(schema.shared?.steps as any[]);
+    for (const p of schema.paths || []) collect(p.steps as any[]);
+    collect(schema.fallback?.steps as any[]);
+    const diagnosis = {
+      변수수: schema.vars?.length || 0,
+      산출수: stepNames.size,
+      // 변수이면서 동시에 산출인 이름 — 정상이면 비어 있어야 한다
+      변수_산출_이름중복: (schema.vars || [])
+        .filter((v) => stepNames.has(v.name))
+        .map((v) => v.name),
+      // 산식·조건이 참조하지만 변수·산출 어디에도 없는 이름
+      개인변수목록: (schema.vars || [])
+        .filter((v) => v.grp === "개인")
+        .map((v) => `${v.name}(${v.type}${v.req ? ",필수" : ""})`),
+      산출목록: [...stepNames],
+    };
+    const blob = new Blob([JSON.stringify({ diagnosis, schema }, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const base = (schema.meta?.appName || "앱스키마").replace(/[\\/:*?"<>|]/g, "_");
+    a.download = `${base}_스키마.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // 프리뷰(JSON) → AppSchema 로 즉시 변환해 빌더에 채움 — LLM 호출 없음, 빠름.
   // 프리뷰가 없으면(레거시 markdown 경로) 기존 uploadSpec 파이프라인으로 폴백.
   const fillBuilderFromSpec = async () => {
@@ -758,6 +793,13 @@ function BuilderInner() {
                 >
                   ⬇ 기획서 다운로드
                 </a>
+                <button
+                  onClick={downloadSchemaJson}
+                  className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                  title="현재 빌더 내용을 JSON 으로 내려받습니다 — 산출이 빠지거나 변수가 잘못 잡힐 때 원인 확인용"
+                >
+                  🔍 스키마 JSON
+                </button>
                 <button
                   disabled={busy}
                   onClick={() => save(false)}
