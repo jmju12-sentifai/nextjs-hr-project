@@ -2880,6 +2880,13 @@ export interface SpecPreviewStep {
   map?: { col: string; cases: { match: string; value: number | string }[]; default?: number | string };
   // llm 의 경우: 요약 대상 변수/산출 이름들
   items?: string[];
+  // branch 의 경우: 조건과 참/거짓 출력. 조건은 expression 에 적어도 된다(둘 다 인식).
+  //   출력을 비워 두면 숫자 플래그(1/0)로 — 요건별 충족 판정을 합계로 세는 표준 형태.
+  condition?: string;
+  trueText?: string;
+  falseText?: string;
+  trueVar?: string;
+  falseVar?: string;
 }
 export interface SpecPreviewPath {
   label: string;
@@ -3677,6 +3684,13 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   💡 정책 변수 이름은 "{도메인}_{분류값}" 또는 "{도메인}_{분류값}_{종류}" 패턴이어야 다중분기 자동 매칭 가능.
 
 - step 의 type 은 정확히 다음 중 하나: date | classify | table | formula | clamp | branch | switch | llm
+- **branch step 은 condition 에 조건식 하나를 적어라** (expression 에 적어도 인식됨).
+    { "type":"branch", "name":"평가충족", "condition":"가중평가점수 >= 평가기준점수",
+      "trueText":"1", "falseText":"0" }
+  · 요건 충족 여부처럼 **뒤에서 합계를 내는 중간 판정**이면 trueText="1", falseText="0" (숫자 플래그).
+    비워 두면 1/0 으로 자동 처리된다.
+  · 화면에 그대로 보여줄 라벨이면 도메인 언어로 — 예: trueText="당해 7월 1일", falseText="익년 1월 1일".
+  · condition 이 비면 그 branch 는 삭제된다 — 반드시 채울 것.
 - switch step 의 cases 는 분류 변수의 모든 분류값에 대해 빠짐없이 — 누락하면 빌더가 자동 삭제.
 - 참고 문서가 부족한 부분은 도메인 상식으로 메꾸되 source 를 "도메인 상식" 으로 명시.
 - rationale.others 에는 기타로 뺀 변수/요소를 모두 나열하고 각각 이유 명시.
@@ -4501,7 +4515,15 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
       }
       case "branch": {
         // condition("만나이 >= 최초적용연령") 을 ref/op/rhs 로 파싱. then/els 는 trueVar/falseVar.
-        const cond = parseSimpleCondition(sa.condition || "", new Set(knownNames));
+        // ⚠ condition/trueVar 는 프리뷰 스키마에 없던 필드라 AI 가 채우지 못한다.
+        //   AI 는 조건을 expression 에 적으므로(모든 step 공통 필드) 거기서도 읽는다.
+        //   이게 없으면 ref 가 빈값이 되어 isUsableStep 이 branch 를 통째로 삭제한다
+        //   (실사례: 요건별 충족 판정 branch 가 전부 사라지고 그 이름들이 입력 변수로 생성됨).
+        //   "A >= B 이면 1, 아니면 0" 처럼 출력이 붙은 서술이면 조건부만 잘라 쓴다.
+        const condSrc = String(sa.condition || s.expression || "").trim();
+        // ⚠ 접속어는 "이면/이라면/일 때" 만 — 단독 "면" 을 넣으면 "면접평균점수" 의 면에 걸린다.
+        const condHead = condSrc.split(/\s*(?:이면|이라면|일\s*때)\s/)[0].trim() || condSrc;
+        const cond = parseSimpleCondition(sa.condition || condHead, new Set(knownNames));
         const ref = cond ? resolveName(cond.a) || cond.a : resolveName(s.ref) || "";
         const op = cond?.op || ">=";
         const rhs = cond ? (cond.bMode === "val" ? cond.b : resolveName(cond.b) || cond.b) : 0;
@@ -4527,8 +4549,17 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
           const txt = typeof textVal === "string" && textVal.trim() ? textVal.trim() : primary;
           return { t: "text", tok: [], text: txt };
         };
-        const th = sideOf(sa.trueVar, sa.trueText ?? sa.then);
-        const el = sideOf(sa.falseVar, sa.falseText ?? sa.els);
+        // 출력이 서술에 붙어 있으면("… 이면 1, 아니면 0") 거기서 뽑는다.
+        const outM = condSrc.match(
+          /(?:이면|이라면|일\s*때)\s*["']?([^,"']+?)["']?\s*[,·]?\s*(?:아니면|그\s*외|else)\s*["']?([^,"']+?)["']?\s*$/
+        );
+        // 양쪽 다 지정이 없으면 숫자 플래그(1/0) — 요건 충족 개수를 합계로 세는 표준 형태.
+        //   (지정 없이 두면 repairSteps 가 "참"/"거짓" placeholder 를 넣고 그 branch 가 삭제된다.)
+        const hasSide = sa.trueVar || sa.trueText || sa.then || sa.falseVar || sa.falseText || sa.els;
+        const thRaw = sa.trueText ?? sa.then ?? outM?.[1]?.trim() ?? (hasSide ? "" : "1");
+        const elRaw = sa.falseText ?? sa.els ?? outM?.[2]?.trim() ?? (hasSide ? "" : "0");
+        const th = sideOf(sa.trueVar, thRaw);
+        const el = sideOf(sa.falseVar, elRaw);
         return {
           ...base, type: "branch", ref, op, rhs,
           then: th.text, thenT: th.t, thenTok: th.tok,
