@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { trackedGenerate } from "@/lib/llm-usage";
 import { APP_SPEC_TEMPLATE_MD } from "@/lib/spec-template";
 interface Slot {
   name: string;
@@ -179,7 +180,7 @@ async function generate(
     }
   }
 
-  const res = await model.generateContent({
+  const res = await trackedGenerate(model, {
     contents: [{ role: "user", parts }],
   });
   const candidate = res.response.candidates?.[0];
@@ -358,7 +359,7 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
     // 6종 타입:
     // 1) date    — 두 날짜 차이(diff) / 연·월·일 추출(part) / 날짜 더하기(add)
     //    { "type": "date", "name": "만나이", "unit": "년", "mode": "diff", "a": "생년월일", "b": "오늘", "out": "year" }
-    //    { "type": "date", "name": "승진심의일", "mode": "add", "a": "정기인사기준일", "n": "잔여체류연한", "out": "year" }
+    //    { "type": "date", "name": "지급예정일", "mode": "add", "a": "신청일", "n": "처리소요일", "out": "day" }
     //    out ∈ year|month|day.  add 의 n 은 숫자 또는 숫자 변수/산출 이름, 결과는 날짜(YYYY-MM-DD)
     // 2) classify — 항목 집계 (sum/count/avg/max/min)
     //    { "type": "classify", "name": "통상임금", "unit": "원", "agg": "sum",
@@ -519,6 +520,8 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
   - ❌ 절대 금지: "규정_최초적용연령", "개인_생년월일", "var_만나이" 같이 prefix·접두사를 붙이지 말 것.
     grp 정보(규정/개인)는 vars 의 grp 필드로만 표시하고, 이름 자체에는 포함하지 않는다.
   - ❌ 금지: "최초적용연령(년)", "기본급 (원)" 같이 단위·괄호를 이름에 붙이지 말 것 — 단위는 unit 필드로만.
+  - ❌ 금지: "recent_disciplinary_date", "finalDecision" 같은 **영문 식별자** — 모든 이름은 **한글**로
+    ("최근징계일자", "최종판정"). 사용자가 빌더 화면에서 그대로 읽는 이름이다.
   - ✅ 정의: { name: "최초적용연령", grp: "규정", unit: "년" }
   - ✅ 참조: { a: "만나이", op: ">=", b: "최초적용연령" }  (b 는 vars 의 name 과 동일)
   - ✅ 산출 token 참조: { t: "var", name: "통상임금기준액" }  (vars 또는 앞선 step name)
@@ -564,7 +567,7 @@ const APP_SPEC_PROMPT = `당신은 인사 분석 앱 빌더의 자동 설정 도
   유사 요소가 함께 체크돼 있어도 자체 판단으로 합치지 말고 모두 별도 요소로 추가하라.
   예: '구간 계단선'과 '포함/제외 도넛'이 둘 다 체크돼 있으면 chart.step 1개 + chart.donut 1개
   두 요소를 만들어라.
-- 기획서가 임금피크제·정년·퇴직금·승진 자격 등 인사 판정 주제면 그 도메인 변수/로직을 구성.
+- 기획서가 임금피크제·정년·퇴직금·자격 판정 등 인사 판정 주제면 그 도메인 변수/로직을 구성.
 - 정보 부족 시 합리적 기본값으로 채우되, 추측 불가능한 부분은 빈 문자열/빈 배열.
 
 # 다중 경로 예시 (참고)
@@ -1297,6 +1300,15 @@ function withIds(schema: any) {
             ...(out.map.default != null ? { default: numOrName(out.map.default) } : {}),
           };
           if (out.map.cases.length === 0) delete out.map;
+          // ⚠ 행 산식이 **매핑 기준 컬럼(텍스트)** 을 그대로 참조하는 오배선이 잦다.
+          //   예: map={col:"면접등급", cases:[A→90,B→80,C→60]} 인데 tokens 가 [면접등급].
+          //   면접등급 값은 "B" 라 계산에서 0 이 되고 빌더에 "▲ 식 오류" 가 뜬다.
+          //   매핑을 걸어둔 컬럼을 산식에서 쓰려는 의도는 **그 매핑 결과**이므로 "매핑값" 으로 교체한다.
+          if (out.map?.col) {
+            out.tokens = (out.tokens || []).map((t: any) =>
+              t?.t === "var" && t.name === out.map.col ? { ...t, name: "매핑값" } : t
+            );
+          }
         } else {
           delete out.map;
         }
@@ -1371,9 +1383,52 @@ function withIds(schema: any) {
   // (numberPromote 반영은 repair 가 끝난 후 별도로 처리 — 이 시점에는 아직 빔)
 
   // 빈 껍데기 step 제거 — 산식·분류·구간표 등이 실제 내용 없으면 차라리 삭제
+  // ⚠ 이름이 텍스트성이어도 **실제로 숫자를 내는 step** 이면 숫자로 취급해야 한다.
+  //   0/1 플래그에 "…여부" 를 붙이는 건 매우 흔한데(branch then=1/els=0 → 영업여부),
+  //   TEXT_HINTS 의 /여부$/ 에 걸려 그걸 참조하는 산식이 통째로 제거된다.
+  //   (실사례: branch 영업여부 → formula 성과충족점 이 삭제되고, 성과충족점이 "개인 입력 변수" 로
+  //    둔갑해 사용자가 판정 결과를 직접 입력하는 앱이 됐다)
+  //   ⚠ 채우는 시점이 중요하다 — branch 의 thenT/elsT 는 repair 단계에서 "calc" 로 정규화되므로,
+  //     repair 전에 수집하면 branch 가 전부 누락된다. 아래 collectNumericStepNames() 를
+  //     **repair 완료 후 · isUsableStep 필터 직전**에 호출한다.
+  const numericStepNames = new Set<string>();
+  const collectNumericStepNames = () => {
+    const producesNumber = (st: any): boolean => {
+      if (!st || typeof st !== "object") return false;
+      switch (st.type) {
+        case "formula":
+        case "clamp":
+        case "table":
+        case "date":
+        case "classify":
+          return true;
+        case "rowcalc":
+          // pick 은 텍스트 컬럼일 수 있어 제외 — 집계만 숫자로 확정
+          return ["sum", "avg", "max", "min", "count"].includes(st.out);
+        case "branch":
+          return st.thenT === "calc" && st.elsT === "calc";
+        case "switch":
+          return (
+            Array.isArray(st.cases) &&
+            st.cases.length > 0 &&
+            st.cases.every((c: any) => c?.t === "calc")
+          );
+        default:
+          return false;
+      }
+    };
+    for (const arr of [
+      schema.shared?.steps,
+      ...(schema.paths || []).map((p: any) => p?.steps),
+      schema.fallback?.steps,
+    ])
+      for (const st of arr || []) if (st?.name && producesNumber(st)) numericStepNames.add(st.name);
+  };
   // + 비숫자 변수를 숫자로 다루려는 잘못된 step 제거 (runtime "숫자 아님" 에러 방지)
   const isNonNumeric = (name: string) =>
-    typeof name === "string" && (nonNumericNames.has(name) || looksLikeText(name));
+    typeof name === "string" &&
+    !numericStepNames.has(name) &&
+    (nonNumericNames.has(name) || looksLikeText(name));
   const isUsableStep = (s: any): boolean => {
     if (!s || typeof s !== "object") return false;
     if (s.type === "formula") {
@@ -1550,6 +1605,100 @@ function withIds(schema: any) {
   for (const n of numberPromote) {
     if (!looksLikeText(n) && !hasNonNumericValue(n)) nonNumericNames.delete(n);
   }
+  // ── 텍스트/선택형 변수를 산식에 직접 쓴 경우 자동 복구 (환산표 조회 step 삽입) ──
+  // 빌더가 "▲ 식 오류 — 숫자가 아닌 변수를 계산식에 사용했습니다" 로 잡아내는 설계 결함.
+  // 예: formula 에 면접등급("B") 을 그대로 넣음 → 면접등급환산표에서 점수를 뽑는 rowcalc 를
+  //     앞에 끼워 넣고 토큰을 그 산출 이름으로 교체한다. (등급·구분·유형 계열에서 반복 발생)
+  // ⚠ 반드시 isUsableStep 필터 **앞**에서 실행해야 한다 — 뒤에 두면 그 step 이 이미 제거된 뒤라
+  //   복구할 대상이 없고, 산출이 통째로 사라진다.
+  if (Array.isArray(schema.vars)) {
+    const varByName = new Map<string, any>();
+    for (const v of schema.vars) if (v?.name) varByName.set(v.name, v);
+    const isTextVar = (n: any) => {
+      const v = typeof n === "string" ? varByName.get(n) : null;
+      return !!v && (v.type === "select" || v.type === "text");
+    };
+    // 그 텍스트 변수를 숫자로 바꿔 줄 규정 표 찾기 — (분류 컬럼 + 숫자 컬럼) 을 가진 rows 변수
+    const findLookup = (varName: string) => {
+      const opts: any[] = varByName.get(varName)?.options || [];
+      for (const v of schema.vars || []) {
+        if (v?.type !== "rows" || !Array.isArray(v.cols)) continue;
+        // (1) 컬럼명이 변수명과 같거나 (2) 컬럼 허용값이 변수 옵션과 겹치면 그 컬럼이 조인 키
+        const key =
+          v.cols.find((c: any) => c?.name === varName) ||
+          (opts.length
+            ? v.cols.find(
+                (c: any) =>
+                  Array.isArray(c?.options) && c.options.some((o: any) => opts.includes(o))
+              )
+            : null);
+        if (!key?.name) continue;
+        const num = v.cols.find((c: any) => c?.type === "number");
+        if (!num?.name) continue;
+        return { ref: v.name, keyCol: key.name, numCol: num.name };
+      }
+      return null;
+    };
+    const takenNames = new Set<string>();
+    for (const arr of [
+      schema.shared?.steps,
+      ...(schema.paths || []).map((p: any) => p?.steps),
+      schema.fallback?.steps,
+    ])
+      for (const st of arr || []) if (st?.name) takenNames.add(st.name);
+
+    const fixSteps = (steps: any[]): any[] => {
+      if (!Array.isArray(steps) || !steps.length) return steps;
+      const inserts: any[] = [];
+      const renamed = new Map<string, string>(); // 원래 변수명 → 삽입한 산출명
+      const fixTokens = (toks: any[]) => {
+        if (!Array.isArray(toks)) return;
+        for (const t of toks) {
+          if (t?.t !== "var" || !isTextVar(t.name)) continue;
+          const orig = t.name as string;
+          let outName = renamed.get(orig);
+          if (!outName) {
+            const lk = findLookup(orig);
+            if (!lk) continue; // 바꿔 줄 표가 없으면 손대지 않는다 (기존대로 step 제거됨)
+            outName = `${orig}환산값`;
+            let n = 2;
+            while (takenNames.has(outName)) outName = `${orig}환산값${n++}`;
+            takenNames.add(outName);
+            renamed.set(orig, outName);
+            nonNumericNames.delete(outName); // 삽입한 산출은 숫자 — isUsableStep 통과용
+            inserts.push({
+              id: uid(),
+              type: "rowcalc",
+              name: outName,
+              unit: "",
+              out: "pick",
+              ref: lk.ref,
+              tokens: [{ t: "var", name: lk.numCol }],
+              filters: [{ col: lk.keyCol, op: "==", val: orig }],
+            });
+          }
+          t.name = outName;
+        }
+      };
+      for (const st of steps) {
+        if (!st || typeof st !== "object") continue;
+        if (st.type === "formula") fixTokens(st.tokens);
+        else if (st.type === "branch") {
+          if (st.thenT === "calc") fixTokens(st.thenTok);
+          if (st.elsT === "calc") fixTokens(st.elsTok);
+        }
+        // rowcalc 의 tokens 는 "행 컬럼명" 이라 전역 변수가 아니다 — 건드리지 않는다.
+      }
+      return inserts.length ? [...inserts, ...steps] : steps;
+    };
+    if (schema.shared) schema.shared.steps = fixSteps(schema.shared.steps || []);
+    for (const p of schema.paths || []) p.steps = fixSteps(p.steps || []);
+    if (schema.fallback) schema.fallback.steps = fixSteps(schema.fallback.steps || []);
+  }
+
+  // repair 가 끝난 지금 시점에야 branch 의 thenT/elsT 가 확정된다 — 여기서 숫자 산출 step 수집
+  collectNumericStepNames();
+
   // 필터링 (무효 step 제거)
   if (schema.shared) schema.shared.steps = (schema.shared.steps || []).filter(isUsableStep);
   if (Array.isArray(schema.paths)) {
@@ -2468,6 +2617,14 @@ function withIds(schema: any) {
     //   (c) 보편 식별 항목 (성명/사번/부서/직급/생년월일/입사일)
     schema.vars = schema.vars.map((v: any) => {
       if (!v || typeof v !== "object" || typeof v.name !== "string") return v;
+      // ⭐ 문서(기획서)가 「필수」 칸으로 명시했으면 그것을 그대로 존중한다.
+      //   자동 추론은 "어디서 참조되나" 만 보므로, 경로가 1개인 앱에서는 모든 변수가 필수가 된다.
+      //   실제로는 "영업직만 입력", "심의대상자만 입력" 처럼 조건부인 항목이 많고,
+      //   그 판단은 규정을 읽은 문서 쪽이 더 정확하다.
+      if (v.reqDeclared === true) {
+        const { reqDeclared, ...rest } = v;
+        return { ...rest, req: !!v.req };
+      }
       const referencedHit = referencedRequired(v.name);
       const metaHit = mentionedInMeta.has(v.name);
       const universalHit = v.grp === "개인" && isUniversal(v.name);
@@ -2788,7 +2945,8 @@ const SPEC_GEN_PROMPT = `당신은 인사 자동화 마이크로 SaaS 앱의 "�
   각 경로의 **조건**과 산출 단계(타입·결과변수·단위·내용)를 구체적으로 채우세요.
   각 적용 경로에는 마지막에 LLM 요약(llm) 단계를 두세요.
 - "처리 흐름 4단계"는 반드시 4단계로, 1) 기준 지식화 2) 개인 정보 파싱 3) 적용 판단 4) 산출·안내 구조를 도메인화하세요.
-- 참고 문서에 없는 값은 도메인 상식에 맞게 합리적으로 보완하되, 사실과 모순되지 않게 하세요.
+- 참고 문서에 없는 값은 **원칙적으로 만들지 마세요.** 문서가 요구한 계산에 반드시 필요한 최소 항목만 보완하고,
+  그때도 source 를 "도메인 상식" 으로 명시해 어디가 추론인지 드러내세요.
 
 # [표준 템플릿]
 ${APP_SPEC_TEMPLATE_MD}
@@ -2823,7 +2981,7 @@ export async function generateAppSpecDoc(
     parts.push(...sub);
   }
 
-  const res = await model.generateContent({
+  const res = await trackedGenerate(model, {
     contents: [{ role: "user", parts }],
   });
   const candidate = res.response.candidates?.[0];
@@ -2867,6 +3025,9 @@ export interface SpecPreviewVar {
   source: string; // 어느 문서에서 가져온 것 (예: "참고 문서 1: 취업규칙.docx" 또는 "도메인 상식")
   reason: string; // 왜 이 변수를 선언했는지 / 왜 기타로 분류했는지
   desc?: string; // 사용자에게 보여줄 한 줄 설명
+  // 문서(기획서)의 「필수」 칸 선언. 지정되면 자동 추론보다 **우선**한다.
+  // (미지정이면 withIds 가 참조 관계로 추론 — 경로가 1개면 전부 필수가 되는 한계가 있다)
+  req?: boolean;
   options?: string[]; // type="select" 전용 — 허용값 목록
   // type="rows" 전용 — 컬럼 구조 (여러 건 목록: 경력내역·신청내역 등)
   cols?: { name: string; type: "number" | "text" | "select"; unit?: string; options?: string[] }[];
@@ -2963,12 +3124,26 @@ const SPEC_PREVIEW_PROMPT = `당신은 인사 자동화 마이크로 SaaS 앱 �
 - 문서의 실제 도메인이 무엇인지 (예: 임금피크제·승진심사·휴가신청 등) 를 먼저 파악한 뒤 그 도메인 용어·구조로 결과를 채워라.
 - "경조이벤트유형", "대상자관계" 같은 용어는 경조 도메인에만 의미가 있음 — 다른 도메인에는 그 도메인의 자연스러운 용어 사용.
 
+# 🚫 이름은 무조건 한글 — 영문 식별자 절대 금지 (매우 중요)
+
+\`vars[].name\`, \`steps[].name\`, \`cols[].name\`, \`conditions\`·\`bind\`·\`ref\`·\`outputVar\` 등
+**모든 이름은 한국어**로 써라. 사용자(인사담당자)가 빌더 화면에서 그대로 읽는 이름이다.
+
+❌ \`recent_disciplinary_date\` · \`finalDecision\` · \`examScore\` · \`isEligible\` · \`base_salary\`
+✅ \`최근징계일자\` · \`최종판정\` · \`평가점수\` · \`자격충족점\` · \`기본급\`
+
+- snake_case·camelCase·영문 약어 모두 금지. 문서에 쓰인 **한국어 용어를 그대로** 쓰는 게 원칙이다.
+- 문서가 영문 표기를 쓰는 항목이라도 **한국어로 옮겨서** 이름을 지어라 (원문은 desc 에 남겨도 됨).
+- 예외: 단위·통화 기호처럼 관용적으로 영문인 값은 \`unit\` 필드에만 (이름에는 넣지 않는다).
+- ⚠ 이름이 영문이면 뒤 단계(조건·리포트 bind)가 한글 이름으로 참조하면서 어긋나 **그 요소가 통째로 사라진다.**
+
 # 핵심 원칙
 
 1. **문서 간 공통성 우선** — 핵심 분류의 1차 기준은 **참고 문서 여러 개에 (의미적으로) 공통 등장** 하는지.
    - **2개 이상 문서에 등장** → 핵심
    - **1개 문서에만 등장하는 부수 항목** → 기타 (의미상 진짜 도메인 핵심이라도 보수적으로 기타)
-   - **인사 도메인 보편 필수 항목** (성명·사번·기본정보 등) → 단 1개 문서에만 있어도 핵심 (도메인 상식 보강 가능)
+   - **인사 도메인 보편 필수 항목** (성명·사번 등 식별 키) → 단 1개 문서에만 있어도 핵심.
+     단 **문서에 흔적이 있을 때만** — 어디에도 없는 항목을 "보통 있으니까" 로 추가하지는 말 것.
    기준이 흔들릴 때는 **"여러 문서에 동시에 등장한 패턴인가?"** 를 먼저 묻고, 아니면 기타로 보내라.
    사용자는 너무 광범위한 핵심보다 **핵심은 적고 정확하게, 기타로 자유롭게 빼는 것** 을 선호한다.
 
@@ -3202,24 +3377,31 @@ const SPEC_PREVIEW_PROMPT = `당신은 인사 자동화 마이크로 SaaS 앱 �
 #  - 모든 개인 변수 value 가 **서로 일관된 한 사람의 케이스**여야 한다 (한 시나리오로).
 #  - 규정 변수 value 는 문서의 정책값 그대로.
 
-## 임직원 기본 식별·인사정보 (개인 · 핵심)
-- **성명, 사번** — 거의 모든 앱의 식별 키. 누락 금지.
-- **부서/소속, 직급/직위** — 거의 모든 앱에서 분류·표시에 사용.
-- **생년월일, 입사일** — 만나이·근속 계산에 자주 사용. 도메인이 명백히 무관해도 일단 포함.
+## ⛔ 문서에 근거가 없으면 만들지 마라 (가장 강한 제약)
 
-## 임직원 급여·평가 (개인 · 도메인에 따라 핵심)
-- **기본급, 통상임금** — 금액 산출 도메인이면 핵심.
-- **평가점수, 등급** — 인사평가·성과 도메인이면 핵심.
-- **연차/근속년수** — 휴가·근태·승진 도메인이면 핵심.
+아래 목록은 **"문서에 있으면 놓치지 말라"** 는 회수 체크리스트지, **"없으면 만들어 넣으라"** 는 뜻이 아니다.
+문서에 흔적이 없는 변수·컬럼·산출 단계는 **선언하지 않는다.** 빈 앱이 되는 게, 쓰지 않는 입력칸으로
+채워진 앱보다 낫다. 회사가 나중에 빌더에서 직접 추가할 수 있다.
 
-## 신청·증빙 (개인 · 적용 도메인이면 핵심)
-- **신청일, 발생일, 신청금액, 대상자관계** — 복리후생/경조/지원금 신청 도메인이면 핵심.
+- ✅ 만들어도 되는 것: 문서에 **값·표·조문·양식 칸**으로 존재하는 항목
+- ✅ 만들어도 되는 것: 문서가 요구한 계산을 하려면 **반드시 있어야 하는 최소 입력**
+  (예: 문서가 "발생일로부터 30일 이내"를 요구하면 \`발생일\`·\`신청일\` 은 양식에 없어도 필요)
+  → 이 경우 reason 에 **"문서가 요구한 계산의 필수 입력"** 이라고 명시하라.
+- ❌ 만들지 말 것: "인사 앱이면 보통 있으니까" 로 넣는 항목
+- ❌ 만들지 말 것: 문서가 **결과값 한 칸**으로 주는 것을 **여러 칸으로 쪼개는** 것
+  (양식에 "면접 55점" 한 칸이면 숫자 1개로 받는다 — 규정에 등급 체계가 있어도 위원별 입력 목록으로 바꾸지 마라)
+- ❌ 만들지 말 것: 문서에 없는 **분류축·경로·정책 컬럼**을 "범용성" 명목으로 추가하는 것
 
-## 회사 정책 기준값 (규정 · 핵심)
-- **기준액·기준일·한도·최저·최고** — 도메인 금액·기간 계산이 있으면 반드시.
-- **연령 기준, 근속 기준, 정년** — 자격 판단이 있으면.
-- **률·비율·감액률·가산율** — 차등 적용이 있으면.
-- **운영모델·등급기준** — 회사별 정책 분기.
+⚖ **양식 vs 규정이 어긋나면 양식(입력 형태)을 따르고**, 불일치는 rationale 에 기록하라.
+   양식은 "실제로 회사가 무엇을 손에 쥐고 있는지" 를 보여주는 증거다.
+
+## 회수 체크리스트 — **문서에 있을 때만** 담는다
+
+- 임직원 식별: 성명·사번·부서/소속·직급 (양식에 있으면 담기. 없으면 성명·사번만)
+- 날짜: 생년월일·입사일 — **그 도메인 계산에 실제로 쓰일 때만**
+- 급여·평가: 기본급·통상임금·평가점수·등급 — 금액/평가 산출이 있을 때만
+- 신청·증빙: 신청일·발생일·신청금액·대상자관계 — 신청 도메인일 때만
+- 회사 정책 기준값: 기준액·한도·연령/근속 기준·률·등급기준 — 그 계산이 문서에 있을 때만
 
 ## 처리 흐름 (paths) — 공통 패턴
 - 경로 개수는 **분기축의 분류값 개수에 맞춘다**: 이벤트유형/신청구분 등 경로 분기축이
@@ -3329,6 +3511,7 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
       "category": "핵심" | "기타",
       "source": "참고 문서 N: 파일명 또는 도메인 상식",
       "reason": "이 변수를 선언한 이유 — 1~2 문장. 기타면 왜 핵심이 아닌지.",
+      "req": true | false,
       "desc": "사용자에게 보여줄 한 줄 설명 — 이 변수가 무엇인지 (예: '기본급 산정 방식(분기축)')",
       "options": ["select 타입 전용 — 허용값 목록. 예: \\"밴드\\",\\"호봉\\",\\"표준액\\",\\"미운영\\""],
       "cols": [{ "name": "근무년수", "type": "number", "unit": "년" }],
@@ -3472,7 +3655,7 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   - "회사가 정한 분류별 금액 중 임직원의 분류에 맞는 것을 고르는 결정" → switch
   - "여러 정책값을 합치거나 곱하거나 나누는 계산" → formula
   - "두 날짜 사이의 경과 일/년/월" → date (mode=diff)
-  - "기준 날짜에 N년/월/일을 더한 날짜" (승진심의일 등) → date (mode=add, n=숫자 또는 변수)
+  - "기준 날짜에 N년/월/일을 더한 날짜" (지급예정일·적용개시일 등) → date (mode=add, n=숫자 또는 변수)
   - "기준 값이 어느 구간에 속하는지" → table — bands 의 from/to/v 에는 숫자 대신 **변수 이름**도 가능.
     회사 문서에서 파싱되는 정책값(직급별 하한·상한 등)은 숫자를 굳히지 말고 변수 이름으로 참조하라.
   - "여러 항목의 합/평균/최대/최소" → classify
@@ -3584,17 +3767,17 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
 
   위 금지는 **판정이 하나뿐인 도메인**(적용/미적용)에만 해당한다.
   문서가 **독립된 요건 여러 개를 나열하고 그 충족 개수·조합으로 결론이 갈리면**
-  (예: "시험 합격 + 평가 기준 이상 + 실적 기준 이상 + 면접 합격 + 결격사유 없음 을 모두 충족해야 통과"),
+  (예: "재직요건 + 소득요건 + 기한 내 신청 + 증빙 제출 + 결격사유 없음 을 모두 충족해야 지급"),
   경로 진입조건만으로는 표현할 수 없다. 경로는 이미 다른 축(직군·유형 등)을 가르는 데 쓰이고,
   "어느 요건에서 미달했는지" 를 사용자에게 보여주려면 요건별 결과가 값으로 남아야 한다.
 
   이때는 다음 구조로 만든다.
     1) 요건마다 branch 1개 — then="1", els="0"  (숫자 출력. 라벨 아님)
-       branch "평가충족"  condition="가중평가점수 >= 평가기준점수"  then="1"  els="0"
-       branch "면접충족"  condition="면접평균점수 >= 면접합격선"    then="1"  els="0"
-    2) formula 로 합계 — "평가충족 + 면접충족 + …"  → 충족한 요건 개수
+       branch "재직충족"  condition="재직년수 >= 최소재직년수"   then="1"  els="0"
+       branch "기한충족"  condition="경과일수 <= 신청가능기한"   then="1"  els="0"
+    2) formula 로 합계 — "재직충족 + 기한충족 + …"  → 충족한 요건 개수
     3) branch 로 최종 결론 — condition="충족항목수 >= 요건수", then/els 는 도메인 라벨
-       branch "종합판정"  condition="충족항목수 >= 5"  then="승진심의 통과"  els="기준 미달"
+       branch "종합판정"  condition="충족항목수 >= 5"  then="지급 대상"  els="기준 미달"
 
   ⚠ 이 구조에서 1) 의 1/0 은 "발명한 라벨" 이 아니라 **합계를 내기 위한 숫자**다. 금지 대상이 아니다.
   ⚠ 산식 토큰에는 비교 연산자가 없으므로, 조건을 숫자로 바꾸는 방법은 branch 뿐이다. 생략하면 합계를 낼 수 없다.
@@ -3708,7 +3891,8 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
   · 화면에 그대로 보여줄 라벨이면 도메인 언어로 — 예: trueText="당해 7월 1일", falseText="익년 1월 1일".
   · condition 이 비면 그 branch 는 삭제된다 — 반드시 채울 것.
 - switch step 의 cases 는 분류 변수의 모든 분류값에 대해 빠짐없이 — 누락하면 빌더가 자동 삭제.
-- 참고 문서가 부족한 부분은 도메인 상식으로 메꾸되 source 를 "도메인 상식" 으로 명시.
+- 참고 문서가 부족해도 **빈 채로 두는 것이 기본**이다. 문서가 요구한 계산의 필수 입력만 보완하고,
+  그때는 source 를 "도메인 상식" 으로 명시해 회사가 검토할 수 있게 하라.
 - rationale.others 에는 기타로 뺀 변수/요소를 모두 나열하고 각각 이유 명시.
 - 처음 출력 후 스스로 다음을 검토 — 보강·교정 뒤 최종 JSON:
   (1) **인사 도메인 보편 필수 항목(성명·사번 등) 이 핵심에 모두 있나?**
@@ -3751,7 +3935,7 @@ report 배열 순서: fields → note → card → 나머지 (compare/chart/calc
 
 // 단일 Gemini 호출 → JSON 파싱 + finishReason 에러 처리 (단계형/단일형 공용)
 async function genSpecJson(model: any, parts: any[]): Promise<any> {
-  const res = await model.generateContent({ contents: [{ role: "user", parts }] });
+  const res = await trackedGenerate(model, { contents: [{ role: "user", parts }] });
   const candidate = res.response.candidates?.[0];
   const finishReason = candidate?.finishReason;
   const text = (res.response.text() || "").trim();
@@ -3936,6 +4120,48 @@ function getSpecJsonModel() {
   });
 }
 
+// 앱 목적을 이후 단계(paths·report)에 주입할 짧은 텍스트로.
+// ⚠ 이게 없으면 리포트 설계의 출발점("이 경로가 활성화됐을 때 단 하나만 알린다면?")이 작동하지 않는다.
+function metaBrief(meta: any): string {
+  const m = meta || {};
+  const lines = [
+    m.appName ? `- 앱 이름: ${m.appName}` : "",
+    m.tagline ? `- 한 줄 설명: ${m.tagline}` : "",
+    m.purpose ? `- 구축 목적: ${String(m.purpose).slice(0, 400)}` : "",
+    m.users ? `- 대상 사용자: ${m.users}` : "",
+  ].filter(Boolean);
+  return lines.join("\n") || "(없음)";
+}
+
+// 확정된 경로/공통 사전 계산의 step 목록을 report 단계에 주입.
+// ⚠ 라벨만 넘기면 리포트가 "어떤 산출이 있는지" 모른 채 bind 를 지어내고,
+//   결국 아는 것(=입력 변수)만 field 로 깔아 놓는 화면이 된다.
+function pathStepsText(shared: any, paths: any[], fallback: any): string {
+  const fmt = (st: any) =>
+    `    · ${st?.name}${st?.unit ? ` (${st.unit})` : ""} [${st?.type}]`;
+  const out: string[] = [];
+  const sh = (shared?.steps || []).filter((s: any) => s?.name);
+  if (sh.length) out.push(`[공통 사전 계산 — 모든 경로에서 bind 가능]\n${sh.map(fmt).join("\n")}`);
+  for (const p of paths || []) {
+    const sts = (p?.steps || []).filter((s: any) => s?.name);
+    const conds = (p?.conditions || [])
+      .map((c: any) => (typeof c === "string" ? c : `${c?.a} ${c?.op} ${c?.b}`))
+      .join(" AND ");
+    out.push(
+      `[경로 "${p?.label}"]\n  진입조건: ${conds || "(없음)"}\n  이 경로의 산출:\n${
+        sts.length ? sts.map(fmt).join("\n") : "    (없음)"
+      }`
+    );
+  }
+  const fb = (fallback?.steps || []).filter((s: any) => s?.name);
+  out.push(
+    `[경로 "${fallback?.label || "미적용"}" (fallback)]\n  이 경로의 산출:\n${
+      fb.length ? fb.map(fmt).join("\n") : "    (없음)"
+    }`
+  );
+  return out.join("\n\n");
+}
+
 // 확정 변수 목록을 프롬프트에 주입할 텍스트로 — 이후 단계가 이 name 만 참조하도록
 function varListText(vars: any[]): string {
   return (
@@ -3962,6 +4188,24 @@ const DIGEST_PROMPT = `당신은 인사 자동화 앱 기획을 위한 "문서 �
 - **계산 로직·판정 규칙**: 금액 산식, 구간표, 조건 분기, 신청 자격/기한 규칙.
 - 각 정보가 **어느 문서에서** 왔는지 표시.
 
+# ⭐ 입력이 "앱 기획서" 인 경우 — 요약하지 말고 원문 보존 (최우선)
+
+첨부물 중 **이미 완성된 앱 기획서**(장 제목이 "앱 개요 / 규정 변수 / 개인 변수 / 분석 로직 / 리포트 구성"
+이거나 \`★ 분기축:\` · \`진입조건:\` 표기가 보이는 문서)가 있으면, 그 문서는 **정보 추출 대상이 아니라
+이미 확정된 설계도**다. 다음 항목은 **한 글자도 요약·재구성하지 말고 원문 그대로** 정리본에 옮겨라.
+
+- \`★ 분기축: [변수명] / 가능한 값: …\` 선언 줄 — **줄 전체를 그대로**. 이 앱의 경로 축은 이것으로 확정이다.
+- \`### 경로 N — [라벨] · 진입조건: [조건식]\` 헤더 — **라벨과 조건식을 그대로**.
+  조건식이 \`기본자격충족여부 = 1 AND 상위요건충족여부 = 0\` 처럼 **계산으로 도출되는 값**을 참조해도
+  그대로 옮겨라. "분류값 비교로 바꿔 쓰기" 금지.
+- \`### 공통 사전 계산\` · 각 경로의 **산출 표(변수 / 단위 / 내용) 전 행** — 행을 합치거나 생략하지 말 것.
+  행이 50개면 50개 다 옮긴다.
+- 2·3장 변수 표의 **변수명** — 개명 금지 (\`소속구분\` 을 \`직군\` 으로 바꾸는 식의 치환 금지).
+- **목록형(rows) 변수의 컬럼 정의와 초기 행** — 개인 목록형(경력내역·평가내역 등)도 빠짐없이.
+
+⚠ 기획서에 **없는** 변수를 도메인 상식으로 추가하지 마라. 특히 분기축 변수가 기획서 변수 표에 없으면
+   그건 **판정으로 도출되는 값**이라 일부러 뺀 것이다 — 입력 변수로 되살리지 말 것.
+
 # 형식
 - 순수 마크다운 텍스트 (JSON 아님, 코드블록 금지).
 - 스캔/이미지 문서의 표·숫자는 OCR 로 정확히 읽되 값이 깨지지 않게 주의 (예: 생년월일·금액).
@@ -3984,7 +4228,7 @@ async function generateDigest(files: SpecRefFile[]): Promise<string> {
     const sub = await fileToParts(files[i], `참고 문서 ${i + 1}`);
     parts.push(...sub);
   }
-  const res = await model.generateContent({ contents: [{ role: "user", parts }] });
+  const res = await trackedGenerate(model, { contents: [{ role: "user", parts }] });
   const candidate = res.response.candidates?.[0];
   const finishReason = candidate?.finishReason;
   const text = (res.response.text() || "").trim();
@@ -4070,13 +4314,57 @@ select 변수의 desc 끝에는 「값: A/B/C」 표기를 포함하라. 그 외
     digest,
     [`\n\n[확정 meta]\n${metaBrief}`],
     `\n\n# ⚠ 이번 호출 = [${grp} 변수] 단계. **오직 \`vars\` 키만**, 그리고 **grp='${grp}' 변수만** 담아라 (다른 grp 는 넣지 말 것).
-문서(기획서)에 변수 타입이 명시돼 있으면 그대로 따르라 — "선택형" 표기 = type "select" (설명의 「값: …」 이 options).${extra}\n출력: { "vars": [ ...위 스키마, 모두 grp="${grp}"... ] }`
+문서(기획서)에 변수 타입이 명시돼 있으면 그대로 따르라 — "선택형" 표기 = type "select" (설명의 「값: …」 이 options).
+🚫 **name 은 반드시 한글.** \`recent_disciplinary_date\`·\`examScore\` 같은 영문 식별자 금지 → \`최근징계일자\`·\`평가점수\`.
+   rows 의 cols[].name 도 마찬가지. (영문이면 뒤 단계가 한글로 참조해 어긋나고 그 요소가 사라진다)
+
+## ✅ req(필수 여부) — 반드시 채워라
+- 문서(기획서)에 **「필수」 칸**이 있으면 **그대로** 따르라: "필수"→\`req: true\`, "선택"→\`req: false\`.
+- 칸이 없으면 아래 기준으로 스스로 판단해 채워라 —
+  · **모든 대상자가 반드시 입력** (식별 정보·판정에 항상 쓰이는 값) → \`req: true\`
+  · **일부 대상자만 해당** → \`req: false\`. 예:
+      - 특정 직군·분류에만 필요 (영업직만 쓰는 실적달성율)
+      - 특정 이력이 있을 때만 존재 (징계이력일자 — 이력 없으면 빈 값)
+      - 앞 단계 통과자만 입력 (2차심사점수 — 1차 통과자만 생기는 값)
+      - 해당자만 존재 (부양가족이 없는 사람의 가족수당 대상자 정보)
+- ⚠ 조건부 항목을 \`req: true\` 로 두면 **입력할 수 없는 값을 요구**해 앱을 못 쓰게 된다.
+  \`req: false\` 인 항목은 desc 에 조건을 적어라 (예: "영업직군만 입력").
+
+## ⚠ 정리본이 기획서(변수 표가 있는 문서)인 경우 — 표를 그대로 옮길 것
+- **변수명 개명 금지**: 표에 \`소속구분\` 이면 \`직군\` 으로 바꾸지 마라. 뒤 단계가 이 이름으로 참조한다.
+- **표에 없는 변수 추가 금지**: 도메인 상식으로 보충하지 말 것.
+- **분기축 변수를 입력 변수로 되살리지 마라 (매우 중요)**: 정리본에 \`★ 분기축: X\` 가 있는데
+  X 가 변수 표에 **없으면**, X 는 앱이 **판정으로 도출할 결론**이라 일부러 뺀 것이다.
+  X 를 select 개인 변수로 만들면 **사용자가 정답을 직접 고르는 앱**이 된다. 절대 만들지 마라.
+- 표의 목록형(rows) 변수는 **개인·규정 양쪽 다** 컬럼 정의와 초기 행까지 그대로 옮겨라
+  (경력내역·부양가족내역 같은 개인 목록형을 select 몇 개로 평탄화하지 말 것).${extra}\n출력: { "vars": [ ...위 스키마, 모두 grp="${grp}"... ] }`
   );
   const arr = Array.isArray(parsed.vars) ? parsed.vars : [];
   // 다른 grp 가 섞여 들어오면 제외하고, 요청 grp 로 태깅
-  return arr
+  const out = arr
     .filter((v: any) => !v?.grp || v.grp === grp)
     .map((v: any) => ({ ...v, grp }));
+  warnAsciiNames(`vars(${grp})`, out);
+  return out;
+}
+
+// 영문 식별자로 나온 이름 경고 — 뒤 단계는 한글로 참조하므로 어긋나 그 요소가 조용히 사라진다.
+// 자동 번역은 위험해서 하지 않고, 어디서 새는지 로그로 드러낸다.
+function warnAsciiNames(where: string, items: any[]): void {
+  const ascii: string[] = [];
+  const scan = (n: any) => {
+    if (typeof n === "string" && n.trim() && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n.trim()))
+      ascii.push(n.trim());
+  };
+  for (const it of items || []) {
+    scan(it?.name);
+    for (const c of it?.cols || []) scan(c?.name);
+    for (const st of it?.steps || []) scan(st?.name);
+  }
+  if (ascii.length)
+    console.warn(
+      `[spec] ${where}: 영문 이름 ${ascii.length}개 — ${[...new Set(ascii)].slice(0, 10).join(", ")}`
+    );
 }
 
 // 3단계 — paths/fallback(분석 로직). 확정 vars 잠금 참조.
@@ -4088,6 +4376,7 @@ async function generateSpecPaths(
   const parsed = await runJsonStage(
     digest,
     [
+      `\n\n[확정 앱 목적 — 이 앱이 사용자에게 최종적으로 알려주려는 것]\n${metaBrief(meta)}`,
       `\n\n[확정 변수 — conditions·steps 는 이 name 과 글자 그대로 일치, 새 변수 발명 금지 (step.name 신규 산출은 허용)]\n${varListText(vars)}`,
     ],
     `\n\n# ⚠ 이번 호출 = [paths — 분석 로직] 단계. **오직 \`shared\`·\`paths\`·\`fallback\` 키만**.
@@ -4095,9 +4384,14 @@ async function generateSpecPaths(
 - **그 경로에서만 쓰는 산출**(분류별 가산·전용 금액 등)만 \`path.steps\` 에 두세요.
 - **각 경로는 자족적** — 경로의 step·conditions 가 참조할 수 있는 이름은 확정 변수, shared.steps, **같은 경로의 선행 step** 뿐. **다른 경로의 step 참조 절대 금지** (런타임엔 매칭된 경로만 실행되므로 항상 미정의 에러). 여러 경로가 같은 이름의 산출(예: 기본급제안액)을 쓰면 **경로마다 각자 정의**하거나 shared 로 옮겨라.
 - **산식(formula)의 expression 은 사칙연산·괄호·floor/ceil/round 만** — "표에서 조회", IF, 함수 호출 같은 문구를 넣으면 그 step 은 통째로 버려진다. 표 대응값 조회는 **table(구간표) step** 으로 표현하라.
+- 🚫 **select/text 변수를 formula 에 넣지 마라** — 값이 글자라 런타임에서 0 이 되고 그 step 은 제거된다.
+  등급·구분·유형이 계산에 관여하면 **환산표(rows) + rowcalc(out="pick")** 로 숫자를 먼저 뽑고, formula 는 그 산출을 참조하라.
+  예: 평가등급("B") → rowcalc \`환산점수\` = 등급환산표에서 filters[{col:"평가등급",op:"==",val:"평가등급"}], expression "환산점수"
+      → formula "환산점수 * 성과단가".
+  select/text 를 그대로 써도 되는 곳은 **conditions·branch 의 비교 대상, rowcalc filters 의 val, switch 의 ref** 뿐이다.
 - **구간표(table) 의 bands 는 { "from", "to", "v" } 배열** — from/to/v 에 숫자 대신 **확정 변수 이름**(문자열)을 쓸 수 있다. 회사 문서에서 파싱되는 정책값(직급별 하한·상한·표준액 등)은 숫자를 굳히지 말고 변수 이름으로 참조하라 (회사마다 값이 달라도 표가 따라 움직임). 예: 직급 매핑 = table(경력연차→직급코드 1/2/3) + 금액 = table(직급코드, v="직급1_하한액"…).
 - **조건부 산출(예: 갭 보전 사이닝보너스, 상한 캡)은 2단 분해** — branch(조건 참/거짓 → 산식/0) 다음 clamp(상·하한 보정). 산식 안에 조건 문구를 섞지 말 것.
-- **날짜 가산**은 date step mode="add" ({ a: 기준 날짜 변수, n: 숫자 또는 숫자 변수/산출, out: year/month/day }) — 예: 승진심의일 = 정기인사기준일 + 잔여체류연한.
+- **날짜 가산**은 date step mode="add" ({ a: 기준 날짜 변수, n: 숫자 또는 숫자 변수/산출, out: year/month/day }) — 예: 적용개시일 = 기준일 + 잔여연한.
 - **다건 목록 계산**(rows 변수 — 경력내역처럼 건별 계산 후 합산)은 **rowcalc** step 으로:
   { "type":"rowcalc", "name":"유효총경력", "ref":"경력내역",
     "filters":[{"col":"환산구분","op":"!=","val":"제외"}]  ← 선택 (없으면 전체 행),
@@ -4121,37 +4415,128 @@ async function generateSpecPaths(
   그 컬럼으로 매핑하라. (컬럼 2개로는 map 을 걸 수 없다.)
 - ⚠ **clamp(보정)의 ref 는 이미 정의된 선행 산출을 그대로 참조** — 예: 사이닝보너스 = 희망연봉갭을 0~최대사이닝보너스로 보정.
   "사이닝보너스판단" 같은 **정의한 적 없는 새 이름을 ref 로 만들지 말 것** (유령 변수 0 이 되어 결과가 틀려진다).
-- ⚠ 승진심의일처럼 **미래 시점 산출은 반드시 date mode="add"** (기준일 + n) — diff(두 날짜 차이·나이) 를 쓰지 말 것.
+- ⚠ 적용개시일·지급예정일처럼 **미래 시점 산출은 반드시 date mode="add"** (기준일 + n) — diff(두 날짜 차이·나이) 를 쓰지 말 것.
 - 조회(pick)는 **텍스트 컬럼도 가능** (예: expression "직급명" → "대리"). 텍스트 조회 결과는 표시·필터 비교(== )에만 쓰고 산식에는 넣지 말 것.
 - **단수처리**: 유효총경력 → 최종경력연차 확정은 round/floor/ceil 산식으로 (예: formula "round(유효총경력)". 단수처리방식 select 변수가 있으면 switch 의 case 별 산식으로 round/floor/ceil 분기).
 - **date add 의 out 단위는 더하는 수량의 단위와 일치** — 체류연한이 '년' 이면 out="year" (일 아님).
 - **주기 환산**: 표에 지급주기(월/년) 컬럼이 있으면 연간 환산을 map 으로 — map={"col":"지급주기","cases":[{"match":"월","value":12},{"match":"년","value":1}]}, expression "지급액 * 매핑값".
-- 분기축(분류 변수)의 **모든 분류값마다 path 1개씩 빠짐없이** 생성. 하나만 만들고 나머지를 fallback 으로 떠넘기지 말 것.
+
+## 🧭 경로 축 결정 — 아래 순서대로. 위에서 정해지면 아래는 보지 말 것.
+
+**(1순위) 정리본에 \`★ 분기축: …\` 선언이 있으면 그 선언을 따른다.**
+   선언에 \`처리:\` 가 붙어 있으면 그대로 지켜라 —
+   · \`처리: 표 흡수\` → **이 축으로 path 를 만들지 마라.** 규정 목록(rows) + rowcalc(out="pick") 로 처리한다.
+   · \`처리: 경로 분리\` → 그 분류값 개수만큼 path 를 만들고, path.label 은 **그 분류값 그대로**.
+   \`처리:\` 표기가 없으면 \`경로 분리\` 로 간주한다.
+   분기축 선언이 여러 줄이면 \`경로 분리\` 로 표시된 축만 경로가 된다.
+   ⚠ 분기축 변수가 [확정 변수] 목록에 **없어도 된다** — 판정으로 도출되는 축(적용유형·판정결과 등)은
+     입력 변수가 아니다. 이때 경로를 가르는 것은 **진입조건**이지 변수 존재 여부가 아니다.
+   ⚠ 확정 변수 중에 다른 select 변수가 있다는 이유로 축을 바꾸지 마라 (그건 경로 안에서 쓸 분류 변수다).
+
+**(2순위) 정리본에 \`### 경로 N — … 진입조건: …\` 헤더가 있으면 그 경로 구성을 그대로 옮긴다.**
+   라벨·조건식·경로 순서(first-match)를 바꾸지 말 것.
+
+## 🚫 conditions 는 단항 비교의 AND 배열 — OR·괄호 절대 금지
+
+\`conditions\` 배열의 각 원소는 **\`"A op B"\` 단항 비교 하나**다 (배열 전체가 AND).
+\`"(X == \\"영업\\" && (a <= b || c >= d)) || (…)"\` 같은 **복합식을 문자열 하나로 넣지 마라** —
+파서가 단항으로만 읽어서 그 경로는 **항상 거짓**이 된다.
+
+정리본의 진입조건에 OR·괄호가 있으면 **네가 shared.steps 에서 0/1 로 분해**한 뒤,
+conditions 에는 그 결과만 \`"성과충족점 == 1"\` 형태로 넣어라.
+- OR  = branch 2개(then 1 / els 0) → formula 합 → clamp(0~1)
+- AND = formula \`A * B\`
+- NOT = formula \`1 - A\`
+- 분류별 이원 판정(영업/비영업처럼 **보는 지표 자체가 다른** 경우) =
+  branch \`영업여부\`(1/0) 후 formula \`영업여부 * 영업충족 + (1 - 영업여부) * 비영업충족\`
+
+예) 정리본 진입조건이
+\`기간요건충족여부 == "충족" AND ((영업구분=="영업" AND (가중상위율<=상위율기준 OR 달성율>=달성율기준)) OR (영업구분=="비영업" AND 평가점수>=기준점수))\`
+이면 →
+  shared.steps 에 \`상대충족점\`·\`절대충족점\`(branch) → \`영업합계\`(formula) → \`영업충족점\`(clamp 0~1)
+  → \`비영업충족점\`(branch) → \`영업여부\`(branch) → \`성과충족점\`(formula 마스킹)
+  conditions: [\`"기간요건충족여부 == \\"충족\\""\`, \`"성과충족점 == 1"\`]
+
+**(3순위) 위 둘 다 없을 때만** 분기축을 스스로 찾는다. 이때 축마다 다음을 판정하라 —
+   · **값만 달라지고 계산 절차는 같은 축**(분류별 기준액·기준율 등) → **path 로 펼치지 마라.**
+     규정 목록(rows) + rowcalc(out="pick") 로 흡수한다. 회사마다 분류값 개수가 달라도 표가 따라 움직인다.
+     🚩 냄새 테스트: 만들려는 path 들의 steps 가 **분류값 이름만 다르고 절차가 동일**하면 그건 표로 흡수할 축이다.
+   · **산출 항목·리포트 구성 자체가 다른 축**, 또는 **앱이 판정해 알려줄 결론 축**(적용/미적용 등) → path 로 분리.
+     이때는 그 **모든 분류값마다 path 1개씩 빠짐없이** 생성. 하나만 만들고 나머지를 fallback 으로 떠넘기지 말 것.
+   ⚠ 대부분의 인사 앱은 **적용 path 1~2개 + fallback** 이면 충분하다. path 가 4개 이상 나왔다면
+     표로 흡수할 축을 잘못 펼친 것은 아닌지 다시 보라.
+
+## 🔑 진입조건에 계산값을 쓰는 것은 정상이다
+
+conditions 는 \`직군 == "영업"\` 같은 **분류 리터럴 비교로 한정되지 않는다.**
+\`기본자격충족여부 == 1\`, \`상위요건충족여부 == 0\` 처럼 **산출된 0/1 판정값 비교도 1급 조건**이다.
+- 이때 그 판정값은 **반드시 \`shared.steps\` 에 정의**하라 (conditions 는 경로 step 실행 **전**에 평가된다).
+  경로 안에 두면 항상 미계산 → 모든 경로가 fallback 으로 빠진다.
+- 문서가 캐스케이드(\`A충족=1\` → \`A충족=0 AND B충족=1\` → …)를 쓰면 **순서 그대로** paths 에 옮겨라.
+  이 순서 자체가 판정 결과다. 축을 다른 분류 변수로 갈아끼우면 앱이 답해야 할 결론이 사라진다.
+- 분류(직군·계열 등)에 따라 **참조 변수나 부등호 방향이 다른** 판정은 경로로 가르지 말고
+  shared 에서 마스킹으로 흡수하라 —
+  \`영업여부\` = branch(소속구분 == "영업" → 1/0),
+  \`성과충족여부\` = formula \`영업여부 * 영업성과충족 + (1 - 영업여부) * 비영업성과충족\`.
+
+## 📋 정리본의 산출 표는 행 단위로 전부 옮긴다
+
+정리본에 \`### 공통 사전 계산\` 이나 경로별 산출 표(변수/단위/내용)가 있으면 **모든 행을 step 으로** 만들어라.
+행이 50개면 step 도 50개다. 임의로 합치거나 "핵심만" 추려서 버리지 말 것 — 빠진 행은 뒤 단계에서
+미정의 참조가 되어 판정이 통째로 무너진다. 표기 대응은 다음과 같다:
+  \`날짜계산:\`→date · \`합산:\`/\`계산식:\`→formula · \`표조회:\`→rowcalc(out="pick") · \`구간조회:\`→table
+  \`행집계:\`→rowcalc · \`상하한보정:\`→clamp · \`조건분기:\`→branch · \`분류선택:\`→switch · \`안내문:\`→llm
+
 출력: { "shared": { "steps": [...] }, "paths": [...], "fallback": {...} }`
   );
-  return {
+  const res = {
     shared: { steps: Array.isArray(parsed.shared?.steps) ? parsed.shared.steps : [] },
     paths: Array.isArray(parsed.paths) ? parsed.paths : [],
     fallback: parsed.fallback || { label: "미적용", reason: "" },
   };
+  warnAsciiNames("shared.steps", res.shared.steps);
+  warnAsciiNames("paths.steps", res.paths);
+  return res;
 }
 
 // 4단계 — report/rationale(리포트 구성). 확정 vars/paths 참조.
+// ⚠ shared/fallback 까지 함께 받아야 한다 — 리포트는 "분석 로직이 만든 값을 보여주는 화면" 이므로
+//   산출 step 목록을 모르면 bind 를 지어내고 결국 입력 변수만 나열하는 화면이 된다.
 async function generateSpecReport(
   digest: string,
   meta: any,
   vars: any[],
-  paths: any[]
+  paths: any[],
+  shared?: any,
+  fallback?: any
 ): Promise<{ report: any[]; rationale: any }> {
-  const pathLabels = (paths || []).map((p: any) => `- ${p?.label}`).join("\n") || "(없음)";
   const parsed = await runJsonStage(
     digest,
     [
+      `\n\n[확정 앱 목적 — 리포트가 최종적으로 답해야 할 것]\n${metaBrief(meta)}`,
       `\n\n[확정 변수]\n${varListText(vars)}`,
-      `\n\n[확정 경로]\n${pathLabels}`,
+      `\n\n[확정 경로·산출 — bind 는 아래 이름 중에서만 고른다]\n${pathStepsText(shared, paths, fallback)}`,
     ],
     `\n\n# ⚠ 이번 호출 = [report — 리포트 구성] 단계. **오직 \`report\`·\`rationale\` 키만**.
 각 경로 report 는 그 경로의 step.name 또는 확정 변수만 bind. report 는 경로별 { pathLabel, elements, reason } 배열.
+
+## 🎯 리포트의 중심은 "산출" 이다 (매우 중요)
+- **입력 변수 나열이 리포트가 아니다.** 위 [확정 경로·산출] 의 step 들이 주인공이고,
+  개인 변수는 그 결과를 이해시키는 보조다. field 만 열 몇 개 깔아 놓지 마라.
+- **진입조건에 쓰인 판정값은 반드시 노출하라** — 사용자가 "왜 이 경로로 판정됐는지" 알아야 한다.
+  진입조건이 \`기한충족점 == 1 AND 자격충족점 == 1\` 이면 그 두 산출을
+  **각각 별도 \`field\` 또는 \`card\` 요소로** 빠짐없이 담아라 (bind = 그 산출 이름 하나).
+  ⚠ \`incexc\` 는 **classify(구성요소 표) step 전용**이다. 0/1 판정값을 콤마로 묶어
+    \`incexc bind="A,B,C"\` 로 넣지 마라 — 렌더링되지 않고 통째로 사라진다.
+- **그 앞단의 근거 산출도 함께** — 판정값이 무엇에서 나왔는지(예: 경과일수 vs 신청가능기한)를
+  \`compare\` 로 짝지어 보여주면 "왜" 가 해결된다.
+
+## ⚖ compare / 비교 차트는 반드시 **두 값 쌍**
+- \`compare\` 와 비교형 차트(comparison·delta·bullet·ratio)는 **\`bind\`(기준값) + \`bind2\`(실제값)** 를 **둘 다** 채워라.
+  한쪽만 있으면 비교가 성립하지 않아 화면에서 의미 없는 요소가 된다.
+  ❌ compare bind=신청가능기한          ← 기준만 있고 대상이 없음
+  ✅ compare bind=신청가능기한, bind2=경과일수
+- 짝지을 상대 값이 없으면 \`compare\` 를 쓰지 말고 \`card\` 나 \`field\` 로 두라.
 - 차트 요소(kind="chart")는 **반드시 \`ctype\` 명시**: gauge/bar/step/donut/ratio/bullet/stacked/comparison/delta.
 - 두 값을 비교하는 차트(comparison=이중막대 · delta=증감 · bullet=목표대비 · ratio=달성률)는 **\`bind\` 와 \`bind2\` 에 각각 한 값씩** (예: bind=기준값, bind2=결과값 — 두 산출/변수를 비교). 콤마로 묶지 말 것.
 - **여러 건이 한 값에 담기는 목록 텍스트 변수**(경력내역·보유자격·품목 목록 등)는 kind="list" 로 (bind=그 변수) — 항목이 줄 단위로 정리되어 표시됨. field/card 로 두면 통짜 텍스트가 되니 금지.
@@ -4175,6 +4560,8 @@ export async function runSpecStage(input: {
   meta?: any;
   vars?: any[];
   paths?: any[];
+  shared?: any; // report 단계 — 공통 사전 계산 step 목록 (bind 후보)
+  fallback?: any; // report 단계 — fallback 경로의 라벨·step
 }): Promise<any> {
   const { stage } = input;
   if (stage === "digest") {
@@ -4189,7 +4576,14 @@ export async function runSpecStage(input: {
     return { vars: await generateSpecVars(digest, input.meta, "개인") };
   if (stage === "paths") return generateSpecPaths(digest, input.meta, input.vars || []);
   if (stage === "report")
-    return generateSpecReport(digest, input.meta, input.vars || [], input.paths || []);
+    return generateSpecReport(
+      digest,
+      input.meta,
+      input.vars || [],
+      input.paths || [],
+      input.shared,
+      input.fallback
+    );
   throw new Error(`알 수 없는 stage: ${stage}`);
 }
 
@@ -4240,7 +4634,8 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
         name: v.name,
         type: "rows",
         unit: "",
-        req: false,
+        // 문서가 선언한 필수 여부를 실어 나른다 (미선언이면 undefined → withIds 가 추론)
+        ...(typeof v.req === "boolean" ? { req: v.req, reqDeclared: true } : { req: false }),
         test,
         cols,
         desc: typeof v.desc === "string" ? v.desc.trim() : "",
@@ -4259,7 +4654,7 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
       name: v.name,
       type,
       unit: v.unit || "",
-      req: false,
+      ...(typeof v.req === "boolean" ? { req: v.req, reqDeclared: true } : { req: false }),
       test,
       desc: typeof v.desc === "string" ? v.desc.trim() : "",
       ...(type === "select" ? { options: opts } : {}),
@@ -4390,6 +4785,11 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
   // 이름이 변수/step 으로 해석되거나 숫자 리터럴이면 그 값을, 아니면 "" (engine 에서 NaN/오류 나는 미해석 수식·토큰 차단)
   const isKnown = (n: string) => allCoreNames.has(n) || allStepNames.has(n);
   const asKnownOrNum = (raw: any): string => {
+    // ⚠ AI 는 숫자 경계를 문자열이 아닌 **number** 로 내놓는다 (min: 0, max: 1).
+    //   resolveName 이 non-string 을 "" 로 떨어뜨려서 clamp 의 상·하한이 통째로 비었고,
+    //   런타임은 min/max 가 "" 면 보정을 건너뛰므로 0/1 플래그가 2·3 그대로 흘렀다.
+    //   (실사례: 시험요건충족점 = 시험요건합계 = 3 — 참/거짓 분류가 아예 안 됨)
+    if (typeof raw === "number" && isFinite(raw)) return String(raw);
     const r = resolveName(raw);
     if (r && (isKnown(r) || /^-?\d+(\.\d+)?$/.test(r.replace(/,/g, "")))) return r;
     return "";
@@ -4444,7 +4844,39 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
         const out = ["list", "sum", "avg", "max", "min", "count", "pick"].includes(sa.out as any)
           ? sa.out
           : "sum";
-        return { ...base, type: "rowcalc", ref, filters, tokens, ...(map ? { map } : {}), out };
+        // ⚠ 행 산식이 **텍스트 컬럼**(등급·구분 등)을 그대로 참조하는데 map 이 없는 경우 —
+        //   값이 "B" 라서 계산에서 0 이 되고 빌더에 "▲ 식 오류" 가 뜬다.
+        //   같은 컬럼을 가진 **환산표(rows 규정 변수)** 를 찾아 map 을 합성하고 토큰을 "매핑값" 으로 교체.
+        let map2 = map;
+        let tokens2 = tokens;
+        if (!map2 && out !== "list" && out !== "pick") {
+          const refVar = allPreviewVars.find((v: any) => v?.name === ref && v.type === "rows");
+          const textCols = new Set(
+            (refVar?.cols || []).filter((c: any) => c?.type !== "number").map((c: any) => c.name)
+          );
+          const bad = tokens.find((t: any) => t?.t === "var" && textCols.has(t.name));
+          if (bad) {
+            for (const v of allPreviewVars) {
+              if (v?.type !== "rows" || v.name === ref || !Array.isArray(v.cols)) continue;
+              const key = v.cols.find((c: any) => c?.name === bad.name);
+              const num = v.cols.find((c: any) => c?.type === "number");
+              if (!key?.name || !num?.name) continue;
+              const cases = (Array.isArray(v.value) ? v.value : [])
+                .map((r: any) => ({ match: String(r?.[key.name] ?? ""), value: Number(r?.[num.name]) }))
+                .filter((c: any) => c.match && isFinite(c.value));
+              if (!cases.length) continue;
+              map2 = { col: bad.name, cases };
+              tokens2 = tokens.map((t: any) =>
+                t?.t === "var" && t.name === bad.name ? { ...t, name: "매핑값" } : t
+              );
+              break;
+            }
+          }
+        }
+        return {
+          ...base, type: "rowcalc", ref, filters, tokens: tokens2,
+          ...(map2 ? { map: map2 } : {}), out,
+        };
       }
       case "date": {
         // AI 가 명시한 a/b/out 사용. b 는 날짜 변수/step 으로 해석되면 그 이름, 아니면 "오늘".
@@ -4524,9 +4956,32 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
       }
       case "clamp": {
         // ref 는 변수·step, min/max 는 변수·step·숫자만 허용 (수식·미해석 문자열은 ""— 런타임 NaN 방지).
-        const ref = resolveName(s.ref);
-        const min = asKnownOrNum(sa.min);
-        const max = asKnownOrNum(sa.max);
+        // ⚠ AI 는 ref/min/max 대신 expression 에 자연어로만 적는 경우가 훨씬 흔하다
+        //   ("시험요건합계를 0 이상 1 이하로"). 그때 ref 가 비면 isUsableStep 이 이 step 을
+        //   통째로 버려서 **상·하한 보정이 사라진다** — 0/1 플래그가 2·3 이 되는 사고의 원인.
+        //   (실사례: 시험면제점·시험요건충족점 clamp 2개가 동시에 증발해 진입조건이 항상 거짓)
+        let refRaw: any = s.ref;
+        let minRaw: any = sa.min;
+        let maxRaw: any = sa.max;
+        const cexpr = typeof s.expression === "string" ? s.expression.trim() : "";
+        if (cexpr) {
+          const blank = (x: any) => x === undefined || x === null || String(x).trim() === "";
+          if (blank(refRaw)) {
+            const m = cexpr.match(/^\s*(.+?)\s*(?:을|를)[\s,]/);
+            if (m) refRaw = m[1].trim();
+          }
+          if (blank(minRaw)) {
+            const m = cexpr.match(/([^\s]+?)\s*이상/);
+            if (m) minRaw = m[1];
+          }
+          if (blank(maxRaw)) {
+            const m = cexpr.match(/([^\s]+?)\s*이하/);
+            if (m) maxRaw = m[1];
+          }
+        }
+        const ref = resolveName(refRaw);
+        const min = asKnownOrNum(minRaw);
+        const max = asKnownOrNum(maxRaw);
         return { ...base, type: "clamp", ref, min, max };
       }
       case "branch": {
@@ -4691,12 +5146,17 @@ export function previewToAppSchema(preview: AppSpecPreview): any {
         lastAt: "",
       });
     }
+    const conds = parseConditionList(p.conditions || [], allCoreNames);
+    // 진입조건 좌변(판정값) — 리포트에 반드시 노출시키기 위해 이름만 뽑는다
+    const condRefs = conds
+      .filter((c: any) => c && c.aMode !== "val" && typeof c.a === "string")
+      .map((c: any) => c.a);
     return {
       id: "auto",
       label: p.label || "경로",
-      conditions: (p.conditions || []).map((c) => parseSimpleCondition(c, allCoreNames)).filter(Boolean),
+      conditions: conds,
       steps: combined,
-      report: pathReportFromPreview(preview, p.label, p.steps || []),
+      report: pathReportFromPreview(preview, p.label, p.steps || [], condRefs),
     };
   });
   // ── 분석이 명시한 공통 사전 계산(shared.steps) 변환 + 경로에서 중복 제거 ──
@@ -5053,17 +5513,90 @@ function inferMatchValue(varName: string, subGroupKey: string, candidates: strin
   return name || varName;
 }
 
+// 조건 문자열 연산자 정규화 — 단일 '=' 를 '==' 로 (>= <= != == 는 보존)
+// ⚠ 기획서·프롬프트가 관행적으로 `A = "충족"` 처럼 단일 '=' 를 쓴다. 정규화하지 않으면
+//   parseSimpleCondition 이 null 을 반환하고 그 조건이 통째로 사라져 **경로가 무조건 매칭**된다.
+function normalizeCondOps(s: string): string {
+  return s
+    .replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/＝/g, "==")
+    .replace(/([^<>!=])=(?!=)/g, "$1==");
+}
+
+// 최상위(괄호 depth 0) AND / && 로 분할. 괄호 안의 AND 는 건드리지 않는다.
+// conditions 는 스키마상 AND 배열이므로 최상위 AND 분할은 항상 안전하다.
+function splitTopLevelAnd(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0, buf = "", inStr: string | null = null;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) { buf += ch; if (ch === inStr) inStr = null; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") { inStr = ch; buf += ch; continue; }
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (depth === 0) {
+      if (ch === "&" && s[i + 1] === "&") { out.push(buf); buf = ""; i++; continue; }
+      const rest = s.slice(i);
+      const m = rest.match(/^(?:\s+AND\s+|\s+and\s+|\s+그리고\s+)/);
+      if (m) { out.push(buf); buf = ""; i += m[0].length - 1; continue; }
+    }
+    buf += ch;
+  }
+  out.push(buf);
+  return out.map((t) => t.trim()).filter(Boolean);
+}
+
+// 이 스키마로 표현할 수 없는 조건인가 — OR / 중첩 괄호 / 괄호 불균형
+function isUnrepresentableCond(s: string): boolean {
+  if (/\|\||\bOR\b|\bor\b|\s또는\s/.test(s)) return true;
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    else if (ch === ")") { depth--; if (depth < 0) return true; }
+  }
+  return depth !== 0;
+}
+
+// 표현 불가 조건을 만났을 때 심는 "항상 거짓" 센티널.
+// ⚠ aMode/bMode 를 모두 'val' 로 둬야 한다 — 변수명으로 두면 미정의 참조 복구 로직이
+//   그 이름을 개인 변수로 자동 생성해 버린다(noteAutoVar). 리터럴끼리면 그 경로를 타지 않는다.
+// 조건을 조용히 버리면(=null) 그 경로가 **무조건 매칭**되어 더 위험하므로, 명시적으로 죽인다.
+const IMPOSSIBLE_COND = { id: "auto", a: "0", aMode: "val", op: "==", b: "1", bMode: "val" };
+
+// 경로 conditions 배열 파싱 — 최상위 AND 분할 + 표현 불가 검출
+function parseConditionList(conds: any[], definedNames?: Set<string>): any[] {
+  const out: any[] = [];
+  let impossible = false;
+  for (const raw of conds || []) {
+    if (typeof raw !== "string" || !raw.trim()) continue;
+    const normalized = normalizeCondOps(raw.trim());
+    for (const frag of splitTopLevelAnd(normalized)) {
+      // 전체를 감싼 괄호는 벗겨서 단항 비교로 만들어 본다
+      let f = frag;
+      while (/^\(.*\)$/.test(f) && !isUnrepresentableCond(f.slice(1, -1))) f = f.slice(1, -1).trim();
+      if (isUnrepresentableCond(f)) { impossible = true; continue; }
+      const parsed = parseSimpleCondition(f, definedNames);
+      if (parsed) out.push(parsed);
+      else impossible = true;
+    }
+  }
+  if (impossible) out.push({ ...IMPOSSIBLE_COND });
+  return out;
+}
+
 // 자연어 조건 → 단순 condition 객체 (best-effort)
 // 입력 예시:
 //   "만나이 >= 56"              → a="만나이", op=">=", b="56", bMode="val"
 //   "경조분류 == \"결혼\""      → a="경조분류", op="==", b="결혼", bMode="val"
 //   "경조분류 == 결혼"          → a="경조분류", op="==", b="결혼", bMode="val" (정의된 변수 아니면 리터럴 취급)
 //   "만나이 >= 최초적용연령"     → a="만나이", op=">=", b="최초적용연령", bMode="var"
+// ⚠ 단항 비교 하나만 받는다. AND/OR/괄호가 섞인 복합식은 null (예전에는 첫 연산자에서 끊어
+//   a="((영업구분" 같은 쓰레기를 만들어 조건이 항상 거짓이 됐다).
 function parseSimpleCondition(cond: string, definedNames?: Set<string>): any | null {
   if (typeof cond !== "string" || !cond.trim()) return null;
-  let c = cond.trim()
-    .replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/＝/g, "==")
+  let c = normalizeCondOps(cond.trim())
     .replace(/이상$/, ">= 0").replace(/이하$/, "<= 0"); // 단순화
+  if (isUnrepresentableCond(c)) return null;
+  if (splitTopLevelAnd(c).length > 1) return null;
   // 따옴표 안의 공백을 보존하기 위해 "A op B" 패턴을 좀 더 유연하게 매칭
   // - b 부분이 따옴표로 감싸진 경우(예: "결혼") 도 처리
   const m = c.match(/^(.+?)\s*(>=|<=|==|!=|>|<)\s*(.+)$/);
@@ -5092,7 +5625,8 @@ function parseSimpleCondition(cond: string, definedNames?: Set<string>): any | n
 function pathReportFromPreview(
   preview: AppSpecPreview,
   label: string,
-  pathSteps: any[] = []
+  pathSteps: any[] = [],
+  condRefs: string[] = []
 ): any[] {
   const hit = (preview.report || []).find((r) => r.pathLabel === label);
   let out: any[] = [];
@@ -5111,6 +5645,10 @@ function pathReportFromPreview(
           if (ee.bind2) item.bind2 = ee.bind2;
         } else {
           item.bind = e.bind;
+          // ⚠ compare 등 비교 요소는 bind2(대상 값) 가 있어야 비교가 성립한다.
+          //   예전에는 chart 일 때만 bind2 를 옮겨서, AI 가 제대로 채워 보내도
+          //   compare 가 "기준값만 있는 반쪽 요소" 로 변환됐다.
+          if (ee.bind2) item.bind2 = ee.bind2;
         }
       } else if (ee.bind2) {
         item.bind2 = ee.bind2;
@@ -5238,6 +5776,19 @@ function pathReportFromPreview(
     }
     const newFields = unused.map((v) => ({ id: "auto", kind: "field", label: v.name, bind: v.name }));
     out.splice(insertAt, 0, ...newFields);
+  }
+
+  // ── 진입조건에 쓰인 판정값은 반드시 노출 (없으면 "왜 이 경로인지" 를 알 수 없다) ──
+  // AI 가 이 값들을 incexc 에 콤마로 묶어 넣는 오배선이 잦은데, incexc 는 classify step 전용이라
+  // 렌더링되지 않고 스코프 정리에서 제거된다 → 근거가 통째로 사라진다. 여기서 개별 field 로 보장.
+  if (condRefs.length) {
+    collectShown();
+    const missing = condRefs.filter((n) => n && !shown.has(n));
+    if (missing.length) {
+      const noteAt = out.findIndex((e) => e.kind === "note");
+      const els = missing.map((n) => ({ id: "auto", kind: "field", label: n, bind: n }));
+      out.splice(noteAt >= 0 ? noteAt + 1 : out.length, 0, ...els);
+    }
   }
 
   // ── 참고 문서의 표/그래프를 파싱한 step 으로부터 재현 (최대한 반영) ──
