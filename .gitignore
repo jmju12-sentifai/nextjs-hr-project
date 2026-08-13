@@ -7,3 +7,8 @@ build
 dist
 *.log
 .DS_Store
+
+# 대용량 문서/샘플 (pdf·docx) — 저장소에 넣지 않음
+docs/
+public/samples/
+tsconfig.tsbuildinfo

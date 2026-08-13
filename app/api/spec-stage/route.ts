@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSpecStage, type SpecRefFile, type SpecStage } from "@/lib/ai-parser";
 import { requireAdmin } from "@/lib/api-auth";
+import { withUsage } from "@/lib/llm-usage";
 
 export const runtime = "nodejs";
 // 각 단계가 별도 요청 — Hobby 60초 캡은 요청당 적용되므로 단계마다 이 안에 들어옴.
@@ -38,14 +39,27 @@ export async function POST(req: NextRequest) {
         );
       }
     }
-    const result = await runSpecStage({
-      stage,
-      files: body?.files as SpecRefFile[] | undefined,
-      digest: body?.digest,
-      meta: body?.meta,
-      vars: body?.vars,
-      paths: body?.paths,
-    });
+    const result = await withUsage(
+      {
+        userId: auth.user.id,
+        userEmail: auth.user.email ?? null,
+        isAdmin: true, // requireAdmin 통과 = 관리자 확정
+        surface: "builder",
+        operation: "spec_stage",
+        appId: null,
+      },
+      () =>
+        runSpecStage({
+          stage,
+          files: body?.files as SpecRefFile[] | undefined,
+          digest: body?.digest,
+          meta: body?.meta,
+          vars: body?.vars,
+          paths: body?.paths,
+          shared: body?.shared,
+          fallback: body?.fallback,
+        })
+    );
     return NextResponse.json(result);
   } catch (e: any) {
     return NextResponse.json(

@@ -203,6 +203,9 @@ export default function AppPage() {
                   meta: liveSchema.meta,
                   context,
                   prompt: s.prompt || "",
+                  // 토큰 사용량을 앱별로 집계하기 위한 힌트 (llm_usage)
+                  appId: params.appId,
+                  surface: "app",
                 }),
               });
               if (await handleAuthError(res, window.location.pathname)) return null;
@@ -441,6 +444,7 @@ export default function AppPage() {
           {pvtab === "msaas" && <MSaaS meta={m} />}
           {pvtab === "f1" && (
             <ParseFrame
+              appId={params.appId}
               schema={schema}
               grp="규정"
               upTitle="취업규칙 / 인사규정 업로드"
@@ -452,6 +456,7 @@ export default function AppPage() {
           )}
           {pvtab === "f2" && (
             <ParseFrame
+              appId={params.appId}
               schema={schema}
               grp="개인"
               upTitle="1인 인사 데이터 업로드"
@@ -767,10 +772,13 @@ function ParseFrame({
   setFilled,
   upload,
   setUpload,
+  appId,
 }: {
   schema: AppSchema;
   grp: Grp;
   upTitle: string;
+  /** 토큰 사용량을 앱별로 집계하기 위해 파싱 요청에 실어 보냄 (llm_usage) */
+  appId: string;
   filled: Record<string, any>;
   setFilled: (f: Record<string, any>) => void;
   upload: { fname: string; ok: boolean } | undefined;
@@ -799,6 +807,9 @@ function ParseFrame({
         body: JSON.stringify({
           fileBase64,
           mimeType: file.type,
+          // 토큰 사용량을 앱별로 집계하기 위한 힌트 (llm_usage)
+          appId,
+          surface: "app",
           slots: vs.map((s) => ({
             name: s.name,
             type: s.type,

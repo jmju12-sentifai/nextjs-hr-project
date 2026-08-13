@@ -17,6 +17,8 @@ const uid = () => Math.random().toString(36).slice(2, 7);
 interface Props {
   schema: AppSchema;
   onChange: (s: AppSchema) => void;
+  /** 토큰 사용량을 앱별로 집계하기 위한 힌트 (llm_usage). 저장 전이면 null */
+  appId?: string | null;
 }
 
 const OPS: CmpOp[] = [">=", "<=", ">", "<", "==", "!="];
@@ -105,7 +107,7 @@ function newPath(): Path {
   };
 }
 
-export default function Tab3Logic({ schema, onChange }: Props) {
+export default function Tab3Logic({ schema, onChange, appId }: Props) {
   // 다중 경로 모델로 보장
   const m = migrateSchema(schema);
   const paths = m.paths || [];
@@ -662,6 +664,7 @@ export default function Tab3Logic({ schema, onChange }: Props) {
                           av={av}
                           disp={result.disp}
                           meta={schema.meta}
+                          appId={appId}
                         />
                       )}
                     </div>
@@ -1963,7 +1966,7 @@ function DateEditor({ step, update, dn, av }: any) {
   );
 }
 
-function LlmEditor({ step, update, av, disp, meta }: any) {
+function LlmEditor({ step, update, av, disp, meta, appId }: any) {
   const inp = "rounded border px-2 py-1 text-xs";
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
@@ -1979,7 +1982,14 @@ function LlmEditor({ step, update, av, disp, meta }: any) {
       const res = await fetch("/api/llm-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meta, context, prompt: step.prompt || "" }),
+        // surface=builder — 관리자 테스트 실행 비용을 사용자 앱 비용과 분리 집계 (llm_usage)
+        body: JSON.stringify({
+          meta,
+          context,
+          prompt: step.prompt || "",
+          surface: "builder",
+          appId: appId ?? null,
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "요청 실패");

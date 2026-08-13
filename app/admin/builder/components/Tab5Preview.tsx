@@ -30,9 +30,11 @@ const PVTABS = [
 
 interface Props {
   schema: AppSchema;
+  /** 토큰 사용량을 앱별로 집계하기 위한 힌트 (llm_usage). 저장 전이면 null */
+  appId?: string | null;
 }
 
-export default function Tab5Preview({ schema: rawSchema }: Props) {
+export default function Tab5Preview({ schema: rawSchema, appId }: Props) {
   const [pvtab, setPvtab] = useState<string>("msaas");
   const [extraVars, setExtraVars] = useState<ExtraVar[]>([]);
   const [extraJudge, setExtraJudge] = useState<ExtraJudge[]>([]);
@@ -101,7 +103,14 @@ export default function Tab5Preview({ schema: rawSchema }: Props) {
               const r = await fetch("/api/llm-summary", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ meta: schema.meta, context, prompt: s.prompt || "" }),
+                // surface=builder — 관리자 미리보기 비용을 사용자 앱 비용과 분리 집계 (llm_usage)
+                body: JSON.stringify({
+                  meta: schema.meta,
+                  context,
+                  prompt: s.prompt || "",
+                  surface: "builder",
+                  appId: appId ?? null,
+                }),
               });
               const j = await r.json();
               if (!r.ok) throw new Error(j.error || "요청 실패");

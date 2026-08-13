@@ -600,8 +600,11 @@ function BuilderInner() {
       const { shared, paths, fallback } = await run("paths", { digest, meta, vars });
       setSpecPreview((p: any) => ({ ...(p || {}), shared, paths, fallback }));
 
-      // 4단계 — report
-      const { report, rationale } = await run("report", { digest, meta, vars, paths });
+      // 4단계 — report. shared/fallback 까지 넘겨야 리포트가 "산출 step" 을 알고 bind 한다
+      // (라벨만 넘기면 입력 변수만 나열하는 화면이 된다)
+      const { report, rationale } = await run("report", {
+        digest, meta, vars, paths, shared, fallback,
+      });
       setSpecPreview((p: any) => ({ ...(p || {}), report, rationale }));
 
       setSpecRunningStage(null);
@@ -874,9 +877,9 @@ function BuilderInner() {
             onChange={(vars) => setSchema({ ...schema, vars })}
           />
         )}
-        {tab === "lg" && <Tab3Logic schema={schema} onChange={setSchema} />}
+        {tab === "lg" && <Tab3Logic schema={schema} onChange={setSchema} appId={appId} />}
         {tab === "rp" && <Tab4Report schema={schema} onChange={setSchema} />}
-        {tab === "pv" && <Tab5Preview schema={schema} />}
+        {tab === "pv" && <Tab5Preview schema={schema} appId={appId} />}
         <footer className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-center gap-3 text-xs text-gray-500 flex-wrap">
           <div>
             {appId && (

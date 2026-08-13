@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { requireUser } from "@/lib/api-auth";
+import { isAdminEmail } from "@/lib/admin";
+import {
+  withUsage,
+  trackedGenerate,
+  sanitizeAppId,
+  sanitizeSurface,
+} from "@/lib/llm-usage";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -11,7 +18,7 @@ export async function POST(req: NextRequest) {
   const auth = await requireUser();
   if ("error" in auth) return auth.error;
   try {
-    const { meta, context, prompt } = await req.json();
+    const { meta, context, prompt, appId, surface } = await req.json();
     const key = process.env.GEMINI_API_KEY;
     if (!key) {
       return NextResponse.json(
@@ -70,11 +77,21 @@ ${prompt ? `[추가 지시]\n${prompt}\n` : ""}위 [본인 산출 값] 을 임�
       // thinking off — 서버리스 타임아웃 방지 (gemini-2.5-flash 기본 thinking 으로 지연)
       generationConfig: { thinkingConfig: { thinkingBudget: 0 } } as any,
     });
-    const r = await model.generateContent(user);
-    const raw = (r.response.text() || "").trim();
+    const r = await withUsage(
+      {
+        userId: auth.user.id,
+        userEmail: auth.user.email ?? null,
+        isAdmin: isAdminEmail(auth.user.email),
+        surface: sanitizeSurface(surface),
+        operation: "llm_summary",
+        appId: sanitizeAppId(appId),
+      },
+      () => trackedGenerate(model, user)
+    );
+    const raw: string = (r.response.text() || "").trim();
     const outLines = raw
       .split("\n")
-      .map((l) => l.replace(/^\s*[-*\d.)\s]+/, "").trim())
+      .map((l: string) => l.replace(/^\s*[-*\d.)\s]+/, "").trim())
       .filter(Boolean)
       .slice(0, 3);
     const text = outLines.join("\n");

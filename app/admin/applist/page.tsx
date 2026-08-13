@@ -97,6 +97,12 @@ export default function BuilderTempPage() {
               ↻ 새로고침
             </button>
             <Link
+              href="/admin/usage"
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+            >
+              📊 토큰 사용량
+            </Link>
+            <Link
               href="/admin/builder"
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 shadow-sm transition"
             >
