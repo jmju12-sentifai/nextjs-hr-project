@@ -5,53 +5,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { checkSubscription } from "@/lib/subscription";
 
-type Tool = {
-  no: number;
-  category: string;
-  code: string;
-  name: string;
-  definition: string;
-  oldTime: string;
-  aiOutput: string;
-  aiTime: string;
-  note: string;
-};
-
-const TOOLS: Tool[] = [
-  { no: 1, category: "직무", code: "A01", name: "직무분석/직무기술서 생성기", definition: "현업관리자/인사담당이 직무 업무유형 질문에 맞게 답변을 하고, 회사기준을 업로드하면 자동으로 직무분석 결과 및 직무 기술서를 생성함 (성과책임 및 역량모델, 직무평가 포함)", oldTime: "2박3일", aiOutput: "직무분석결과 및 직무기술서", aiTime: "12분", note: "" },
-  { no: 2, category: "채용", code: "B02", name: "지원자 직무적합도 ATS 레포트 생성기", definition: "직무 모집요강과 지원자 이력서를 업로드하면, 지원자 개인에 대한 직무 적합도 평가기준별 점수와 채용가부 의견 등 종합레포트를 자동 제공함", oldTime: "인당 10분", aiOutput: "직무적합도 ATS레포트", aiTime: "2분", note: "인기" },
-  { no: 3, category: "평가", code: "C02", name: "조직별 평가결과 현황표 도출기", definition: "본부단위 구성원 평가표를 업로드하면, 평가등급 배분 전체 현황과 직급별·팀별·직무별 분포도 수준에 대한 레포트를 제공", oldTime: "3시간", aiOutput: "조직별 평가레포트", aiTime: "5분", note: "" },
-];
-
-const CATEGORY_STYLES: Record<string, { bg: string; text: string }> = {
-  "직무": { bg: "bg-blue-50", text: "text-blue-600" },
-  "채용": { bg: "bg-emerald-50", text: "text-emerald-600" },
-  "평가": { bg: "bg-violet-50", text: "text-violet-600" },
-  "인력운영": { bg: "bg-orange-50", text: "text-orange-600" },
-  "보상/복지": { bg: "bg-sky-50", text: "text-sky-600" },
-  "교육": { bg: "bg-teal-50", text: "text-teal-600" },
-  "조직문화": { bg: "bg-rose-50", text: "text-rose-500" },
-  "기타": { bg: "bg-gray-100", text: "text-gray-500" },
-};
-
-type DifyTool = "report-summary";
-type Activation = { kind: "dify"; tool: DifyTool } | { kind: "ats" } | { kind: "eval" };
-
-const DIFY_CONFIG: Record<DifyTool, { title: string; src: string; helper: string }> = {
-  "report-summary": {
-    title: "보고서/자료 요약기",
-    src: "https://udify.app/workflow/wiiyddzOMb3Wq8QA",
-    helper: "요약할 보고서/자료 파일을 업로드한 후 실행을 눌러 주세요.",
-  },
-};
-
-const TOOL_ACTIVATION: Record<number, Activation> = {
-  1: { kind: "dify", tool: "report-summary" },
-  2: { kind: "ats" },
-  3: { kind: "eval" },
-};
-
-const NEW_BADGE_TOOLS = new Set([2, 3]);
+// 카탈로그는 lib/catalog.ts 로 옮겼다 — 메인 Quick Search 와 같은 원본을 봐야 하기 때문.
+import {
+  CATEGORY_STYLES,
+  DIFY_CONFIG,
+  NEW_BADGE_TOOLS,
+  TOOLS,
+  TOOL_ACTIVATION,
+  type DifyTool,
+} from "@/lib/catalog";
 
 export default function AIToolList() {
   const router = useRouter();
@@ -111,16 +73,16 @@ export default function AIToolList() {
   const filtered = TOOLS;
 
   return (
-    <div className="bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200/70">
-    <section className="mx-auto max-w-6xl px-6 pb-48 pt-32">
+    <div className="section-invert border-y border-[var(--sec-line)] bg-[var(--sec-bg-alt)]">
+    <section className="site-wrap pb-24 pt-20">
       <div className="mb-8 text-center">
-        <h2 className="mb-3 text-2xl font-bold text-gray-900 sm:text-3xl">
+        <h2 className="mb-3 text-[30px] font-bold tracking-[-0.045em] text-[var(--sec-heading)] sm:text-[34px]">
           전체 AI 도구 리스트{" "}
-          <span className="text-gray-500">- 인사 전 영역의</span>{" "}
-          <span className="text-blue-700">3개 AIA 엔진</span>
-          <span className="text-gray-500">을 한눈에</span>
+          <span className="text-[var(--sec-muted)]">- 인사 전 영역의</span>{" "}
+          <span className="text-[var(--accent)]">3개 AIA 엔진</span>
+          <span className="text-[var(--sec-muted)]">을 한눈에</span>
         </h2>
-        <p className="mx-auto max-w-2xl text-sm text-gray-500">
+        <p className="mx-auto max-w-2xl text-[14px] text-[var(--sec-muted)]">
           직무·채용·평가·인력운영·보상·교육·조직문화 등 모든 인사업무를 자동화하는 AI 도구 라인업입니다.
         </p>
       </div>
@@ -157,64 +119,64 @@ export default function AIToolList() {
           return (
             <div
               key={`${tool.code}-${idx}`}
-              className={`group relative flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-all ${
+              className={`group relative flex flex-col overflow-hidden rounded-[var(--card-radius)] border border-[var(--card-line)] bg-[var(--card-bg)] p-6 transition-all ${
                 isClickable
-                  ? "cursor-pointer hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl"
+                  ? "cursor-pointer hover:-translate-y-1 hover:border-[var(--accent)] hover:shadow-[var(--card-shadow)]"
                   : ""
               }`}
               onClick={isClickable ? handleClick : undefined}
             >
               {isClickable && (
-                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-400 via-emerald-500 to-violet-400 opacity-0 transition-opacity group-hover:opacity-100" />
+                <div className="absolute inset-x-0 top-0 h-1 bg-[var(--accent)] opacity-0 transition-opacity group-hover:opacity-100" />
               )}
               <div className="mb-4 flex items-center gap-2">
                 <span
-                  className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ${cat.bg} ${cat.text}`}
+                  className="inline-block whitespace-nowrap rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-[11px] font-bold text-[var(--accent)]"
                 >
                   {tool.category}
                 </span>
                 {NEW_BADGE_TOOLS.has(tool.no) && (
-                  <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                  <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-[var(--accent-on)]">
                     NEW
                   </span>
                 )}
                 {tool.note === "인기" && (
-                  <span className="rounded bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  <span className="rounded bg-[var(--band-accent)] px-1.5 py-0.5 text-[10px] font-black text-[var(--band-bg)] mix-blend-normal">
                     HOT
                   </span>
                 )}
               </div>
 
               <h3
-                className={`mb-2 text-base font-bold leading-snug ${
+                className={`mb-2 text-[16px] font-bold leading-snug ${
                   isClickable
-                    ? "text-blue-600 group-hover:underline"
-                    : "text-gray-900 transition-colors group-hover:text-blue-600"
+                    ? "text-[var(--accent)] group-hover:underline"
+                    : "text-[var(--sec-heading)] transition-colors group-hover:text-[var(--accent)]"
                 }`}
               >
                 {tool.name}
               </h3>
 
-              <p className="mb-5 text-xs leading-relaxed text-gray-500">
+              <p className="mb-5 text-[12px] leading-relaxed text-[var(--sec-muted)]">
                 {tool.definition}
               </p>
 
-              <div className="mt-auto space-y-2 border-t border-gray-100 pt-4 text-xs">
+              <div className="mt-auto space-y-2 border-t border-[var(--sec-line)] pt-4 text-[12px]">
                 <div className="flex items-center justify-between">
-                  <span className="font-medium text-gray-400">기존 시간</span>
-                  <span className="font-medium text-gray-500 line-through">
+                  <span className="font-medium text-[var(--sec-muted)]">기존 시간</span>
+                  <span className="font-medium text-[var(--sec-muted)] line-through">
                     {tool.oldTime}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="font-medium text-gray-400">AI 시간</span>
-                  <span className="rounded-md bg-blue-50 px-2 py-0.5 font-bold text-blue-700">
+                  <span className="font-medium text-[var(--sec-muted)]">AI 시간</span>
+                  <span className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 font-bold text-[var(--accent)]">
                     {tool.aiTime}
                   </span>
                 </div>
                 <div className="flex items-start justify-between gap-3">
-                  <span className="shrink-0 font-medium text-gray-400">산출물</span>
-                  <span className="text-right font-medium text-gray-700">
+                  <span className="shrink-0 font-medium text-[var(--sec-muted)]">산출물</span>
+                  <span className="text-right font-medium text-[var(--sec-heading)]">
                     {tool.aiOutput}
                   </span>
                 </div>
@@ -224,10 +186,10 @@ export default function AIToolList() {
         })}
       </div>
 
-      <p className="mt-6 text-center text-xs leading-relaxed text-gray-500">
+      <p className="mt-8 text-center text-[12.5px] leading-relaxed text-[var(--sec-muted)]">
         위 리스트는 현재 제공 중인 핵심 인사 도구들입니다.
         <br />
-        K Prime HR은 이외에도 조직 관리, 성과 평가, 보상 체계 등 100개 이상의 AIA를 개발하고 있습니다.
+        K Prime HR은 인사 전 영역에 걸쳐 70개 앱을 목표로 라인업을 넓혀가고 있습니다.
       </p>
 
       {activeDify && (
@@ -283,9 +245,9 @@ export default function AIToolList() {
                     구독 후 사용 가능
                   </h3>
                   <p className="mb-5 text-sm leading-relaxed text-gray-600">
-                    이 도구는 Coach 이상 구독자에게 제공됩니다.
+                    이 도구는 구독자에게 제공됩니다.
                     <br />
-                    한 번 구독으로 40+ 도구 모두 사용 가능.
+                    연 30만 원 SME 플랜 하나로 전체 앱을 이용하실 수 있습니다.
                   </p>
                   <button
                     type="button"

@@ -1,3 +1,5 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.css");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -45,3 +47,509 @@
 .builder-shell .rounded { border-radius: 6px; }
 .builder-shell .rounded-md { border-radius: 8px; }
 .builder-shell h2 { letter-spacing: -0.01em; }
+
+/* ── 홈페이지 디자인 토큰 ────────────────────────────────── */
+:root {
+  --brand-blue: #1858f2;
+  --brand-blue2: #0e42d9;
+  --brand-ink: #071a3b;
+  --brand-sky: #80d8f7;
+  --brand-lime: #d8ff22;
+  --brand-line: #d9e3ef;
+  --brand-muted: #718099;
+  --brand-shell: #eaf0f7;
+}
+
+/* 히어로 3안 공통 — 큰 한글 타이포는 자간을 좁혀야 시안과 같은 밀도가 난다 */
+.hero-title {
+  letter-spacing: -0.078em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+.hero-kicker::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-lime);
+  box-shadow: 0 0 0 5px rgba(216, 255, 34, 0.17);
+}
+
+/* 3안 — 유리 카드 앞면 평면에 워드마크를 얹는다.
+   앞면 네 꼭짓점 실측: TL(357.5,154.4) TR(862.3,254.5) BR(850.1,931.3) BL(357.5,794.0)
+   좌측 모서리가 수직이고 가로축만 기울어 skewY, 각도는 면 중앙선 기울기 13.38deg */
+.stack-frame {
+  position: relative;
+  width: 100%;
+  max-height: 100%;
+  aspect-ratio: 1448 / 1086;
+}
+.stack-logo {
+  position: absolute;
+  left: 41.9%;
+  top: 49.1%;
+  width: 14.2%;
+  opacity: 0.94;
+  transform: translate(-50%, -50%) skewY(13.38deg);
+  transform-origin: center;
+}
+
+/* ── 히어로 3안 ──────────────────────────────────────────
+   docs/homepage-refs/HRcoach_히어로_V6_칩통합.html 에서 이식.
+   시안의 .wrap(1320px) 은 사이트 공통 폭(max-w-6xl)에 맞춰 조정했다. */
+.hero-wrap,
+.site-wrap {
+  width: 100%;
+  /* 시안의 콘텐츠 폭이 1320px 이었다. padding 을 더해 안쪽 폭을 그대로 맞춘다 —
+     이게 어긋나면 히어로 헤드라인이 한 줄 더 접힌다. */
+  max-width: calc(1320px + 3rem);
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+.hero-desc {
+  max-width: 520px;
+  margin-top: 25px;
+  color: var(--brand-muted);
+  font-size: 14.5px;
+  line-height: 1.78;
+}
+.hero-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 52px;
+  padding: 0 24px;
+  border: 1px solid var(--brand-line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.hero-btn-primary {
+  border-color: var(--brand-blue);
+  background: var(--brand-blue);
+  color: #fff;
+}
+.hero-btn-dark {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+/* 01 Object Stage */
+.hero-a {
+  position: relative;
+  min-height: 735px;
+  overflow: hidden;
+  background: #03154b url("/hero/atmosphere-cobalt.png") center / cover no-repeat;
+}
+.hero-a::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(2, 14, 55, 0.96) 0%, rgba(2, 17, 67, 0.82) 50%, rgba(5, 36, 138, 0.2) 100%);
+}
+.a-body {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: 1.04fr 0.96fr;
+  align-items: center;
+  height: 570px;
+}
+.a-visual {
+  position: relative;
+  height: 100%;
+}
+.a-visual::before {
+  content: "";
+  position: absolute;
+  inset: 52px 5% 22px;
+  border: 1px solid rgba(168, 219, 255, 0.18);
+  border-radius: 36px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(16, 76, 220, 0.06));
+  box-shadow: inset 0 0 80px rgba(114, 200, 255, 0.06);
+}
+.a-visual img {
+  position: absolute;
+  inset: 5px 0 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 42px 42px rgba(0, 7, 42, 0.45));
+}
+.a-search {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 25px;
+  width: min(920px, calc(100% - 80px));
+  transform: translateX(-50%);
+}
+
+/* 02 Connected Hub */
+.hero-b {
+  position: relative;
+  padding-bottom: 32px;
+  background: linear-gradient(180deg, #fff 0 78%, #f6f9fd 100%);
+}
+.b-body {
+  display: grid;
+  grid-template-columns: 0.83fr 1.17fr;
+  align-items: center;
+  height: 600px;
+}
+.b-visual {
+  position: relative;
+  align-self: stretch;
+  min-width: 0;
+}
+.b-visual > img:first-child {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 8px 5px 8px 20px;
+}
+.ring-logo {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 51%;
+  width: 132px;
+  transform: translate(-50%, -50%);
+}
+
+/* 03 App Layers */
+.hero-c {
+  position: relative;
+  padding-bottom: 30px;
+  background: #fff;
+}
+.c-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 0.86fr 1.14fr;
+  align-items: center;
+  height: 600px;
+  overflow: hidden;
+}
+.c-body::before {
+  content: "";
+  position: absolute;
+  left: -120px;
+  top: 40px;
+  width: 52%;
+  height: 520px;
+  border-radius: 0 260px 260px 0;
+  background: #f2f6fc;
+}
+.c-visual {
+  position: relative;
+  align-self: stretch;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0 2px 8px;
+  background: #fff;
+}
+
+/* 솔루션 특징 — 2안은 검색 밑 작은 필, 3안은 이미지 위 떠 있는 카드 */
+.feat {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.feat-ico {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.feat b {
+  display: block;
+  letter-spacing: -0.01em;
+}
+.feat small {
+  display: block;
+  margin-top: 3px;
+  color: #7b8a9f;
+}
+.b-features {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-width: 535px;
+  margin-top: 27px;
+  padding-top: 20px;
+  border-top: 1px solid #e8eef6;
+}
+.b-features::before {
+  content: "SOLUTION FEATURES";
+  position: absolute;
+  left: 1px;
+  top: -6px;
+  padding-right: 10px;
+  background: #fff;
+  color: #6d8099;
+  font-size: 7px;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+}
+.b-features .feat {
+  gap: 8px;
+  padding: 6px 15px 6px 6px;
+  border: 1px solid #dfe8f2;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 12px 24px -20px rgba(7, 28, 68, 0.55);
+}
+.b-features .feat-ico { width: 29px; height: 29px; }
+.b-features .feat-ico img { width: 25px; height: 25px; }
+.b-features b { font-size: 10px; }
+.b-features small { display: none; }
+
+.c-float {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+.c-float .feat {
+  position: absolute;
+  gap: 9px;
+  max-width: 34%;
+  padding: 9px 14px 9px 10px;
+  white-space: nowrap;
+  border: 1px solid rgba(193, 212, 239, 0.85);
+  border-radius: 14px;
+  background: linear-gradient(150deg, rgba(247, 250, 254, 0.96), rgba(231, 240, 251, 0.94));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.95) inset, 0 16px 32px -20px rgba(20, 54, 120, 0.45);
+  backdrop-filter: blur(13px) saturate(1.08);
+}
+.c-float .feat::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 26px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(24, 88, 242, 0.42), rgba(24, 88, 242, 0));
+}
+.c-float .feat::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: var(--brand-blue);
+  box-shadow: 0 0 0 3px rgba(24, 88, 242, 0.14);
+}
+.c-float .feat:nth-child(1) { left: 1%; top: 13%; }
+.c-float .feat:nth-child(2) { left: 3%; top: 65%; }
+.c-float .feat:nth-child(3) { right: 1%; top: 45%; }
+.c-float .feat:nth-child(4) { right: 3%; top: 80%; }
+.c-float .feat:nth-child(1)::after,
+.c-float .feat:nth-child(2)::after { right: -26px; }
+.c-float .feat:nth-child(1)::before,
+.c-float .feat:nth-child(2)::before { right: -28px; }
+.c-float .feat:nth-child(3)::after,
+.c-float .feat:nth-child(4)::after { left: -26px; transform: scaleX(-1); }
+.c-float .feat:nth-child(3)::before,
+.c-float .feat:nth-child(4)::before { left: -28px; }
+.c-float .feat:nth-child(3),
+.c-float .feat:nth-child(4) {
+  text-align: right;
+  flex-direction: row-reverse;
+  padding: 9px 10px 9px 14px;
+}
+.c-float .feat-ico { width: 34px; height: 34px; }
+.c-float .feat-ico img { width: 29px; height: 29px; }
+.c-float b { font-size: 9.5px; }
+.c-float small { font-size: 7.5px; margin-top: 2px; }
+
+/* 모바일에서는 떠 있는 카드를 접고 2×2 그리드로 내린다 */
+.c-features { display: none; }
+
+@media (max-width: 1120px) {
+  .hero-title { font-size: 62px; }
+  .c-float .feat { padding: 8px 11px 8px 8px; }
+  .c-float .feat-ico { width: 30px; height: 30px; }
+  .c-float .feat-ico img { width: 26px; height: 26px; }
+  .c-float small { display: none; }
+}
+@media (max-width: 820px) {
+  .hero-a { min-height: 1040px; }
+  .a-body, .b-body, .c-body { display: block; height: 900px; }
+  .b-body { height: 1035px; }
+  .a-copy, .b-copy, .c-copy { position: relative; z-index: 5; padding: 72px 0 0; }
+  .hero-title { font-size: 56px; }
+  .a-visual, .c-visual { position: absolute; left: 5%; right: 5%; top: 420px; height: 420px; }
+  .b-visual { position: absolute; left: 5%; right: 5%; top: 618px; height: 400px; }
+  .a-visual::before { inset: 20px; }
+  .b-visual > img:first-child, .c-visual > img:first-child { padding: 0; }
+  .ring-logo { width: 105px; }
+  .a-search { bottom: 22px; width: calc(100% - 40px); }
+  .b-features { max-width: none; margin-top: 24px; }
+  .c-body::before { left: -90px; top: 30px; width: 100%; height: 390px; }
+  .c-float { display: none; }
+  .c-features {
+    display: grid;
+    width: 100%;
+    margin-top: 30px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px 0;
+  }
+  .c-features .feat { padding: 0 16px; border-left: 1px solid #ebf1f8; }
+  .c-features .feat:first-child, .c-features .feat:nth-child(3) { padding-left: 0; border-left: 0; }
+  .c-features .feat-ico { width: 40px; height: 40px; }
+  .c-features .feat-ico img { width: 34px; height: 34px; }
+  .c-features b { font-size: 11px; }
+  .c-features small { font-size: 8px; }
+}
+@media (max-width: 560px) {
+  .hero-a { min-height: 1000px; }
+  .b-body { height: 975px; }
+  .a-copy, .b-copy, .c-copy { padding-top: 62px; }
+  .hero-title { font-size: 44px; }
+  .hero-desc { font-size: 11px; margin-top: 20px; }
+  .a-visual, .c-visual { top: 385px; height: 400px; }
+  .b-visual { top: 570px; height: 380px; }
+  .b-features { gap: 6px; margin-top: 22px; }
+  .b-features .feat { padding: 5px 12px 5px 5px; gap: 7px; }
+  .b-features .feat-ico { width: 26px; height: 26px; }
+  .b-features .feat-ico img { width: 22px; height: 22px; }
+  .b-features b { font-size: 9px; }
+  .c-features { margin-top: 26px; gap: 14px 0; }
+  .c-features .feat { padding: 0 10px; }
+  .c-features .feat-ico { width: 36px; height: 36px; }
+  .c-features .feat-ico img { width: 31px; height: 31px; }
+  .c-features b { font-size: 9.5px; }
+  .c-features small { font-size: 7px; }
+  .ring-logo { width: 91px; }
+}
+
+/* ── 시안별 테마 토큰 ────────────────────────────────────
+   <html data-hero="a|b|c"> 에 따라 히어로 아래 전 섹션과 푸터가 함께 바뀐다.
+   각 섹션은 이 토큰만 참조하므로 여기서만 손보면 세 벌이 일관되게 따라온다. */
+:root,
+:root[data-hero="c"] {
+  /* 03 App Layers — 에디토리얼. 흰 바탕 + 얇은 헤어라인 + 각진 라운드 */
+  --sec-bg: #ffffff;
+  --sec-bg-alt: #f2f6fc;
+  --sec-heading: #071a3b;
+  --sec-fg: #3c4a63;
+  --sec-muted: #718099;
+  --sec-line: #dfe7f1;
+  --card-bg: #ffffff;
+  --card-line: #e4ebf5;
+  --card-shadow: 0 26px 48px -34px rgba(7, 28, 68, 0.4);
+  --card-radius: 14px;
+  --accent: #1858f2;
+  --accent-on: #ffffff;
+  --accent-soft: #eef4ff;
+  --band-bg: #071a3b;
+  --band-fg: #ffffff;
+  --band-accent: #8adfff;
+  --band-radius: 18px;
+  --chip-radius: 999px;
+}
+
+:root[data-hero="b"] {
+  /* 02 Connected Hub — 밝고 둥근 플랫폼. 푸른 기운을 넓게 깔고 라운드를 키운다 */
+  --sec-bg: #ffffff;
+  --sec-bg-alt: #eef4ff;
+  --sec-heading: #071a3b;
+  --sec-fg: #3c4a63;
+  --sec-muted: #6f7f98;
+  --sec-line: #dde8f8;
+  --card-bg: #ffffff;
+  --card-line: #dde8f8;
+  --card-shadow: 0 30px 60px -38px rgba(15, 62, 160, 0.45);
+  --card-radius: 24px;
+  --accent: #1858f2;
+  --accent-on: #ffffff;
+  --accent-soft: #e6efff;
+  --band-bg: linear-gradient(135deg, #1858f2, #0e42d9);
+  --band-fg: #ffffff;
+  --band-accent: #d8ff22;
+  --band-radius: 28px;
+  --chip-radius: 999px;
+}
+
+:root[data-hero="a"] {
+  /* 01 Object Stage — 어두운 무대. 히어로의 딥 네이비를 페이지 끝까지 끌고 간다 */
+  --sec-bg: #061537;
+  --sec-bg-alt: #0a1f4d;
+  --sec-heading: #ffffff;
+  --sec-fg: rgba(255, 255, 255, 0.74);
+  --sec-muted: rgba(255, 255, 255, 0.52);
+  --sec-line: rgba(255, 255, 255, 0.1);
+  --card-bg: rgba(255, 255, 255, 0.05);
+  --card-line: rgba(255, 255, 255, 0.13);
+  --card-shadow: 0 30px 60px -40px rgba(0, 6, 30, 0.9);
+  --card-radius: 18px;
+  --accent: #8adfff;
+  --accent-on: #062458;
+  --accent-soft: rgba(138, 223, 255, 0.13);
+  --band-bg: #ffffff;
+  --band-fg: #071a3b;
+  --band-accent: #1858f2;
+  --band-radius: 20px;
+  --chip-radius: 999px;
+}
+
+/* 1안은 페이지 전체가 어두우므로 바탕도 함께 내린다 */
+:root[data-hero="a"] body {
+  background: var(--sec-bg);
+}
+
+/* 워드마크는 바탕에 따라 교체한다 — 1안은 페이지 전체가 딥 네이비 */
+.wordmark-light { display: none; }
+:root[data-hero="a"] .wordmark-dark { display: none; }
+:root[data-hero="a"] .wordmark-light { display: block; }
+
+/* 어두운 테마 안에서도 흰 카드 위에 얹히는 영역은 밝은 팔레트로 되돌린다
+   (1안 히어로의 떠 있는 헤더 카드) */
+.theme-light {
+  --sec-heading: #071a3b;
+  --sec-fg: #3c4a63;
+  --sec-muted: #718099;
+  --sec-line: #e3ebf5;
+  --card-bg: #ffffff;
+  --card-line: #e3ebf5;
+  --accent: #1858f2;
+  --accent-on: #ffffff;
+  --accent-soft: #eaf1ff;
+}
+
+/* 밴드(로드맵·CTA) — background-color 가 아니라 background 로 받아야 한다.
+   2안의 --band-bg 는 그라디언트여서 bg-[var(--band-bg)] 로는 무효값이 되어 투명해진다. */
+.band {
+  background: var(--band-bg);
+  color: var(--band-fg);
+  border-radius: var(--band-radius);
+}
+.band-accent { color: var(--band-accent); }
+
+/* 1안 — 딥 네이비 일변도면 답답하다. 중간 구간을 흰 패널로 끊어 리듬을 준다.
+   2·3안에서는 아무 일도 하지 않고 기존 --sec-bg-alt 를 그대로 쓴다. */
+:root[data-hero="a"] .section-invert {
+  --sec-bg: #ffffff;
+  --sec-bg-alt: #ffffff;
+  --sec-heading: #071a3b;
+  --sec-fg: #3c4a63;
+  --sec-muted: #718099;
+  --sec-line: #e3ebf5;
+  --card-bg: #ffffff;
+  --card-line: #e3ebf5;
+  --card-shadow: 0 26px 48px -34px rgba(7, 28, 68, 0.35);
+  --accent: #1858f2;
+  --accent-on: #ffffff;
+  --accent-soft: #eaf1ff;
+  background: #ffffff;
+  color: var(--sec-fg);
+  border-color: transparent;
+}

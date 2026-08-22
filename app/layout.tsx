@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import Footer from "./components/Footer";
+import HeroTheme from "./components/home/HeroTheme";
 
 const geistSans = Inter({
   subsets: ["latin"],
@@ -23,9 +24,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="bg-white text-gray-900 min-h-full flex flex-col font-sans">
-        <div className="flex-1">{children}</div>
-        <Footer />
+      <body className="min-h-full flex flex-col bg-[var(--sec-bg)] font-sans text-[var(--sec-fg)]">
+        <HeroTheme>
+          <div className="flex-1">{children}</div>
+          <Footer />
+        </HeroTheme>
       </body>
     </html>
   );

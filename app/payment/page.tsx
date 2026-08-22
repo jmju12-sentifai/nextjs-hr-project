@@ -5,35 +5,12 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
 import { createClient } from "@/lib/supabase/client";
+// 플랜 정의는 lib/plans.ts 가 단일 소스 — 확인 라우트도 같은 표를 본다.
+import { PLANS, isPlanKey, makeOrderId, type PlanKey } from "@/lib/plans";
 
 const CLIENT_KEY =
   process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ??
   "test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm";
-
-type PlanKey = "coach" | "coach-plus";
-
-const PLANS: Record<
-  PlanKey,
-  { badge: string; title: string; sub: string; amount: number }
-> = {
-  coach: {
-    badge: "Coach",
-    title: "HRcoach Coach 플랜",
-    sub: "40+ AI 도구 전체 · 자소서 진단 무제한 · 모의면접 월 5회",
-    amount: 19900,
-  },
-  "coach-plus": {
-    badge: "Coach+",
-    title: "HRcoach Coach+ 플랜",
-    sub: "Coach 모든 기능 · 1:1 전문가 컨설팅 월 1회 · 모의면접 무제한 · 전담 매니저 배정",
-    amount: 49900,
-  },
-};
-
-function generateOrderId(planKey: PlanKey) {
-  const rand = Math.random().toString(36).slice(2, 10);
-  return `order_${planKey}_${Date.now()}_${rand}`;
-}
 
 export default function PaymentPage() {
   return (
@@ -46,8 +23,8 @@ export default function PaymentPage() {
 function PaymentInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const planKey: PlanKey =
-    searchParams.get("plan") === "coach-plus" ? "coach-plus" : "coach";
+  const raw = searchParams.get("plan");
+  const planKey: PlanKey = isPlanKey(raw) ? raw : "sme";
   const plan = PLANS[planKey];
 
   const widgetsRef = useRef<Awaited<
@@ -117,7 +94,7 @@ function PaymentInner() {
     setError("");
     setBusy(true);
     try {
-      const orderId = generateOrderId(planKey);
+      const orderId = makeOrderId(planKey);
       await widgetsRef.current.requestPayment({
         orderId,
         orderName: plan.title,

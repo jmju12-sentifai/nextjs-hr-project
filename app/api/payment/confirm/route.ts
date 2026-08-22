@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { PLANS, planFromOrderId } from "@/lib/plans";
 
 const TOSS_API = "https://api.tosspayments.com/v1/payments/confirm";
 
 // 결제 최소 금액 검증 (도용·치환 방지 이중 안전망). Toss도 검증하지만 서버에서 한번 더.
 const MIN_AMOUNT = 1000;
-const KNOWN_PLANS = new Set([
-  { plan: "coach", min: 1000 },
-  { plan: "coach-plus", min: 40000 },
-] as any);
 
 export async function POST(req: Request) {
   const { paymentKey, orderId, amount } = await req.json();
@@ -77,10 +74,21 @@ export async function POST(req: Request) {
     );
   }
 
-  // 5) 구독 행 생성 — service-role 키로 RLS 우회. 사용자가 직접 만들 수 없게 함.
+  // 5) 플랜 확정 — orderId 에 심어둔 플랜 키를 정본으로 삼는다.
+  //    금액만 보고 되짚으면 연 단위 플랜을 월 단위로 오인해 기간을 잘못 부여한다.
+  //    키를 못 읽는 옛 orderId 는 종전 동작(coach, 1개월)으로 떨어뜨려 진행 중 결제를 깨지 않는다.
+  const resolved = planFromOrderId(orderId) ?? PLANS.coach;
+  if (resolved.amount !== amount) {
+    return NextResponse.json(
+      { message: "플랜 금액이 일치하지 않습니다" },
+      { status: 400 }
+    );
+  }
+  const plan = resolved.key;
   const expiresAt = new Date();
-  expiresAt.setMonth(expiresAt.getMonth() + 1);
-  const plan = amount >= 40000 ? "coach-plus" : "coach";
+  expiresAt.setMonth(expiresAt.getMonth() + resolved.months);
+
+  // 6) 구독 행 생성 — service-role 키로 RLS 우회. 사용자가 직접 만들 수 없게 함.
 
   const { error: insErr } = await admin.from("subscriptions").insert({
     user_id: user.id,
