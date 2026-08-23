@@ -6,7 +6,7 @@ import { LISTED_PLANS } from "@/lib/plans";
 
 export const metadata = {
   title: "요금 및 구독 — HRcoach",
-  description: "연 30만 원 고정 구독으로 인사기능별 앱 전체를.",
+  description: "월 3만 원 정기결제로 인사기능별 앱 전체를.",
 };
 
 export default async function PricingPage() {
@@ -27,10 +27,10 @@ export default async function PricingPage() {
             PRICING
           </p>
           <h2 className="mb-3 text-3xl font-bold text-brand-ink">
-            연 30만 원, 하나의 고정 구독
+            월 3만 원, 하나의 정기결제
           </h2>
           <p className="text-sm text-brand-muted">
-            중소기업(SME) 플랜 · 구독 기간 중 추가되는 앱까지 그대로 포함됩니다.
+            HR Pro 플랜 · 구독 기간 중 추가되는 앱까지 그대로 포함됩니다.
           </p>
         </div>
 
@@ -57,6 +57,9 @@ export default async function PricingPage() {
                 >
                   구독 시작하기 →
                 </Link>
+                <p className="mt-3 text-[11px] leading-relaxed text-brand-muted">
+                  매월 자동결제 · 언제든 해지 가능
+                </p>
               </div>
               <ul className="flex-1 space-y-3 border-t border-[#eef2f8] pt-6 sm:border-l sm:border-t-0 sm:pl-8 sm:pt-0">
                 {plan.features.map((f) => (
@@ -78,6 +81,48 @@ export default async function PricingPage() {
             </div>
           ))}
         </div>
+
+        {/*
+          카드사 심사 필수 요건 — 구매자가 서비스 제공기간·갱신·해지 조건을
+          상품 페이지에서 바로 확인할 수 있어야 한다.
+          (토스페이먼츠 계약심사 안내 "판매정책 기재" 항목)
+        */}
+        <section className="mx-auto mt-10 max-w-3xl rounded-2xl border border-brand-line bg-white p-8">
+          <h3 className="mb-5 text-base font-bold text-brand-ink">판매 및 이용 정책</h3>
+          <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+            {[
+              ["상품 구분", "온라인 서비스 이용권 (디지털 콘텐츠)"],
+              ["결제 방식", "신용카드 정기결제 (빌링)"],
+              ["결제 금액", "월 30,000원 (VAT 포함)"],
+              ["서비스 제공기간", "결제일로부터 1개월"],
+              ["제공 시점", "결제 완료 즉시 이용 가능"],
+              ["갱신 방식", "매월 같은 날 등록된 카드로 자동 결제"],
+              [
+                "해지 방법",
+                "고객센터(besthrcoach@naver.com / 010-9041-9930)로 신청",
+              ],
+              [
+                "해지 효력",
+                "다음 회차부터 청구 중단, 결제된 기간은 만료일까지 이용 가능",
+              ],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <dt className="mb-1 text-[11px] font-bold tracking-wide text-brand-muted">
+                  {k}
+                </dt>
+                <dd className="text-[13px] leading-relaxed text-brand-ink">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-6 border-t border-[#eef2f8] pt-5 text-[12px] leading-relaxed text-brand-muted">
+            환불은{" "}
+            <Link href="/legal/refund" className="font-semibold text-brand-blue underline">
+              환불정책
+            </Link>
+            에 따라 처리됩니다. 본 서비스는 온라인으로 제공되는 디지털 콘텐츠로
+            별도의 배송 절차가 없습니다.
+          </p>
+        </section>
 
         <div className="mt-10 flex flex-col items-start justify-between gap-4 rounded-2xl bg-slate-800 px-8 py-7 text-white md:flex-row md:items-center">
           <div>

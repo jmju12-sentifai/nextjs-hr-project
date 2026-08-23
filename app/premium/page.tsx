@@ -11,7 +11,7 @@ export default async function PremiumPage() {
       isAdmin={viewer.isAdmin}
       eyebrow="PREMIUM APPS"
       title="제휴·연동이 필요한 고단가 앱."
-      lead="연 30만 원 SME 구독과 별도로, 건별 결제 및 크레딧으로 운영되는 앱입니다."
+      lead="월 3만 원 HR Pro 구독과 별도로, 건별 결제 및 크레딧으로 운영되는 앱입니다."
     >
       <PlannedList
         items={[

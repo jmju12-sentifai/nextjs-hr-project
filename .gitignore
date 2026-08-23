@@ -12,3 +12,4 @@ dist
 docs/
 public/samples/
 tsconfig.tsbuildinfo
+captures/
