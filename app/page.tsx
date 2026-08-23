@@ -693,8 +693,8 @@ export default async function Home() {
       >
         <div className="mb-10 text-center">
           <h2 className="mb-3 text-2xl font-bold text-gray-900 sm:text-3xl">
-            연 30만 원,{" "}
-            <span className="text-blue-700">하나의 고정 구독</span>
+            월 3만 원,{" "}
+            <span className="text-blue-700">하나의 정기결제</span>
           </h2>
           <p className="mx-auto max-w-2xl text-sm text-gray-500">
             앱을 하나씩 결제하지 않습니다. 한 번 구독하면 인사기능별 앱 전체와 이후 추가되는 앱까지

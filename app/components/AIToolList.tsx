@@ -247,7 +247,7 @@ export default function AIToolList() {
                   <p className="mb-5 text-sm leading-relaxed text-gray-600">
                     이 도구는 구독자에게 제공됩니다.
                     <br />
-                    연 30만 원 SME 플랜 하나로 전체 앱을 이용하실 수 있습니다.
+                    월 3만 원 HR Pro 플랜 하나로 전체 앱을 이용하실 수 있습니다.
                   </p>
                   <button
                     type="button"

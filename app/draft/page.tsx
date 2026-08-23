@@ -197,14 +197,14 @@ export default async function DraftHome() {
         </div>
       </section>
 
-      {/* 요금 — 엑셀 "중소기업(SME) 플랜 · 연 30만 원 고정 구독제" */}
+      {/* 요금 — 엑셀 "HR Pro · 월 30,000원(전체 앱)" (앱 회원 및 과금정책.xlsx) */}
       <section id="pricing" className="site-wrap scroll-mt-20 pb-24">
         <div className="mb-10 text-center">
           <p className="mb-2 text-[11px] font-black tracking-[0.18em] text-[var(--accent)]">
             PRICING
           </p>
           <h2 className="text-[30px] font-bold tracking-[-0.045em] text-[var(--sec-heading)] sm:text-[34px]">
-            연 30만 원, 하나의 고정 구독
+            월 3만 원, 하나의 정기결제
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-[14px] text-[var(--sec-muted)]">
             앱을 하나씩 결제하지 않습니다. 한 번 구독하면 인사기능별 앱 전체와 이후 추가되는 앱까지
