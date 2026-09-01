@@ -193,16 +193,9 @@ export default async function AppsPage({
               <p className="mt-2 line-clamp-3 break-keep text-[12px] leading-relaxed text-[var(--sec-muted)]">
                 {it.summary}
               </p>
-              {it.flow && it.flow.length > 0 ? (
+              {it.flow && it.flow.length > 0 && (
                 <div className="mt-auto border-t border-[var(--sec-line)] pt-3">
                   <FlowSteps flow={it.flow} />
-                </div>
-              ) : (
-                <div className="mt-auto flex items-center justify-between border-t border-[var(--sec-line)] pt-4">
-                  <span className="text-[11px] text-[var(--sec-muted)]">산출물</span>
-                  <span className="max-w-[70%] truncate text-right text-[12px] font-bold text-[var(--sec-heading)]">
-                    {it.output}
-                  </span>
                 </div>
               )}
             </Link>

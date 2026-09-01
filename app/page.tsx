@@ -8,10 +8,10 @@ import {
   type SearchItem,
 } from "@/lib/catalog";
 import { LISTED_PLANS } from "@/lib/plans";
-import AIToolList from "./components/AIToolList";
 import CurationBoard from "./components/home/CurationBoard";
 import FunctionFinder from "./components/home/FunctionFinder";
 import Hero from "./components/home/Hero";
+import ToolLauncher from "./components/home/ToolLauncher";
 
 /**
  * 메인 구성은 HRcoach_Menu_Structure_20260810.xlsx 의 Home 행을 따른다.
@@ -103,6 +103,8 @@ export default async function Home() {
         searchItems={searchItems}
       />
 
+      <ToolLauncher />
+
       <CurationBoard recommended={recommended} updated={updated} />
 
       {/* 인사기능별 앱 — 위는 필터 칩, 아래는 그 필터가 적용된 목록 */}
@@ -148,8 +150,6 @@ export default async function Home() {
           <FunctionFinder items={searchItems} />
         </div>
       </section>
-
-      <AIToolList />
 
       {/* 엑셀 Home > Hero Section 의 로드맵 배너.
           목표 앱 수는 확정된 자료가 없어 하드코딩하지 않고, 현재 보유 수와

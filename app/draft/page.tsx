@@ -8,9 +8,9 @@ import {
   type SearchItem,
 } from "@/lib/catalog";
 import { LISTED_PLANS } from "@/lib/plans";
-import AIToolList from "../components/AIToolList";
 import CurationBoard from "../components/home/CurationBoard";
 import Hero from "../components/home/Hero";
+import ToolLauncher from "../components/home/ToolLauncher";
 
 export const metadata = {
   title: "메인 리디자인 시안 — HRcoach",
@@ -112,6 +112,8 @@ export default async function DraftHome() {
         showSwitcher
       />
 
+      <ToolLauncher />
+
       <CurationBoard recommended={recommended} updated={updated} />
 
       {/* 인사기능별 앱 — 엑셀 비고 "통합검색 메뉴에서 기능별로만 구분" */}
@@ -162,8 +164,6 @@ export default async function DraftHome() {
           </div>
         </div>
       </section>
-
-      <AIToolList />
 
       {/* 엑셀 Home > Hero Section 의 로드맵 배너.
           목표 앱 수는 확정된 자료가 없어 하드코딩하지 않고, 현재 보유 수와
