@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   HR_CATEGORIES,
+  filterSearchItems,
   toolsToSearchItems,
   type HrCategory,
   type SearchItem,
@@ -49,7 +50,7 @@ function guessCategory(name: string, explicit?: unknown): HrCategory {
 export default async function AppsPage({
   searchParams,
 }: {
-  searchParams: { cat?: string };
+  searchParams: { cat?: string; q?: string };
 }) {
   const viewer = await getViewer();
   const supabase = await createClient();
@@ -76,29 +77,49 @@ export default async function AppsPage({
 
   const all = [...appItems, ...toolsToSearchItems()];
   const active = HR_CATEGORIES.find((c) => c === searchParams.cat);
-  const shown = active ? all.filter((it) => it.category === active) : all;
+  // 홈 검색창의 "앱 검색" 버튼이 ?q= 로 넘어온다. 같은 필터 함수를 그대로 쓴다.
+  const q = (searchParams.q ?? "").trim();
+  const byQuery = q ? filterSearchItems(all, q) : all;
+  const shown = active ? byQuery.filter((it) => it.category === active) : byQuery;
 
   const countBy = new Map<HrCategory, number>();
-  for (const it of all) countBy.set(it.category, (countBy.get(it.category) ?? 0) + 1);
+  for (const it of byQuery) countBy.set(it.category, (countBy.get(it.category) ?? 0) + 1);
 
   return (
     <SectionShell
       userEmail={viewer.email}
       isAdmin={viewer.isAdmin}
-      eyebrow="BY HR FUNCTION"
-      title="인사기능별 앱."
-      lead="필요한 업무 영역을 고르면 바로 실행할 수 있는 앱과 도구가 나옵니다."
+      eyebrow={q ? "SEARCH RESULTS" : "BY HR FUNCTION"}
+      title={q ? `‘${q}’ 검색 결과` : "인사기능별 앱."}
+      lead={
+        q
+          ? `제목·설명·산출물·카테고리에서 찾았습니다. ${byQuery.length}건.`
+          : "필요한 업무 영역을 고르면 바로 실행할 수 있는 앱과 도구가 나옵니다."
+      }
     >
+      {q && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-[var(--card-radius)] border border-[var(--card-line)] bg-[var(--sec-bg-alt)] px-5 py-4">
+          <span className="text-[12.5px] text-[var(--sec-muted)]">
+            검색어 <b className="text-[var(--sec-heading)]">{q}</b>
+          </span>
+          <Link
+            href="/apps"
+            className="ml-auto text-[12px] font-bold text-[var(--accent)] underline"
+          >
+            검색 해제
+          </Link>
+        </div>
+      )}
       <div className="mb-8 flex flex-wrap gap-2">
         <Link
-          href="/apps"
+          href={q ? `/apps?q=${encodeURIComponent(q)}` : "/apps"}
           className={`rounded-[var(--chip-radius)] border px-4 py-2.5 text-[12.5px] font-bold transition ${
             active
               ? "border-[var(--card-line)] bg-[var(--card-bg)] text-[var(--sec-heading)] hover:border-[var(--accent)]"
               : "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-on)]"
           }`}
         >
-          전체 {all.length}
+          전체 {byQuery.length}
         </Link>
         {HR_CATEGORIES.map((cat) => {
           const n = countBy.get(cat) ?? 0;
@@ -106,7 +127,7 @@ export default async function AppsPage({
           return (
             <Link
               key={cat}
-              href={`/apps?cat=${encodeURIComponent(cat)}`}
+              href={`/apps?cat=${encodeURIComponent(cat)}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
               className={`flex items-center gap-2 rounded-[var(--chip-radius)] border px-4 py-2.5 text-[12.5px] font-bold transition ${
                 on
                   ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-on)]"
@@ -135,7 +156,7 @@ export default async function AppsPage({
       {shown.length === 0 ? (
         <div className="rounded-[var(--card-radius)] border border-dashed border-[var(--card-line)] bg-[var(--sec-bg-alt)] px-6 py-16 text-center">
           <p className="text-sm font-bold text-[var(--sec-heading)]">
-            {active ?? "이"} 영역의 앱은 아직 준비 중입니다.
+            {q ? `‘${q}’ 에 해당하는 앱이 없습니다.` : `${active ?? "이"} 영역의 앱은 아직 준비 중입니다.`}
           </p>
           <p className="mt-2 text-[13px] text-[var(--sec-muted)]">
             필요한 앱을{" "}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SearchItem } from "@/lib/catalog";
 
 /** 엑셀 Home > Curation Board — "이달의 추천 앱, 신규 업데이트 앱 슬라이드 제공" */
@@ -19,6 +19,37 @@ export default function CurationBoard({ recommended, updated }: Props) {
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("rec");
   const items = tab === "rec" ? recommended : updated;
 
+  // 가로 레일 — 스크롤바만으로는 더 있는지 모르니 좌우 버튼을 붙인다.
+  const railRef = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState({ start: true, end: false });
+
+  const sync = useCallback(() => {
+    const el = railRef.current;
+    if (!el) return;
+    setEdge({
+      start: el.scrollLeft <= 2,
+      end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 2,
+    });
+  }, []);
+
+  useEffect(() => {
+    sync();
+    const el = railRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", sync, { passive: true });
+    window.addEventListener("resize", sync);
+    return () => {
+      el.removeEventListener("scroll", sync);
+      window.removeEventListener("resize", sync);
+    };
+  }, [sync, items]);
+
+  const nudge = (dir: -1 | 1) => {
+    const el = railRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.max(320, el.clientWidth * 0.8), behavior: "smooth" });
+  };
+
   return (
     <section className="site-wrap py-20">
       <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
@@ -30,7 +61,7 @@ export default function CurationBoard({ recommended, updated }: Props) {
             지금 바로 쓸 수 있는 앱
           </h2>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-1.5">
           {TABS.map((t) => {
             const on = t.key === tab;
             return (
@@ -49,6 +80,26 @@ export default function CurationBoard({ recommended, updated }: Props) {
               </button>
             );
           })}
+          <div className="ml-2 hidden gap-1.5 sm:flex">
+            {([-1, 1] as const).map((d) => {
+              const disabled = d === -1 ? edge.start : edge.end;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => nudge(d)}
+                  disabled={disabled}
+                  aria-label={d === -1 ? "이전" : "다음"}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--card-line)] bg-[var(--card-bg)] text-[var(--sec-heading)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-30 disabled:hover:border-[var(--card-line)] disabled:hover:text-[var(--sec-heading)]"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+                    strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+                    <path d={d === -1 ? "m15 6-6 6 6 6" : "m9 6 6 6-6 6"} />
+                  </svg>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -61,7 +112,7 @@ export default function CurationBoard({ recommended, updated }: Props) {
           해 주세요.
         </p>
       ) : (
-        <div className="-mx-6 flex snap-x gap-4 overflow-x-auto px-6 pb-2">
+        <div ref={railRef} className="rail -mx-6 flex snap-x gap-4 overflow-x-auto px-6 pb-2">
           {items.map((it, i) => (
             <Link
               key={it.id}

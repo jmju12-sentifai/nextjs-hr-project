@@ -109,52 +109,67 @@ export default async function RequestsPage() {
               </p>
             </div>
           ) : (
-            <ul className="space-y-3">
-              {rows.map((r) => {
+            <div className="overflow-hidden rounded-[var(--card-radius)] border border-[var(--card-line)] bg-[var(--card-bg)]">
+              {/* 게시판 머리행 — 좁은 화면에서는 감춘다 */}
+              <div className="hidden items-center gap-4 border-b border-[var(--sec-line)] bg-[var(--sec-bg-alt)] px-5 py-3 text-[11px] font-black tracking-[0.1em] text-[var(--sec-muted)] md:flex">
+                <span className="w-12 shrink-0 text-center">번호</span>
+                <span className="w-[70px] shrink-0 text-center">상태</span>
+                <span className="min-w-0 flex-1">제목</span>
+                <span className="w-[130px] shrink-0">영역</span>
+                <span className="w-[92px] shrink-0 text-center">등록일</span>
+                <span className="w-[62px] shrink-0 text-center">투표</span>
+              </div>
+
+              {rows.map((r, i) => {
                 const st = STATUS[r.status] ?? STATUS.received;
                 return (
-                  <li
+                  <div
                     key={r.id}
-                    className="flex gap-5 rounded-[var(--card-radius)] border border-[var(--card-line)] bg-[var(--card-bg)] p-5"
+                    className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--sec-line)] px-5 py-4 transition last:border-b-0 hover:bg-[var(--accent-soft)]/40 md:flex-nowrap"
                   >
-                    <VoteButton
-                      requestId={r.id}
-                      count={r.vote_count}
-                      voted={votedSet.has(r.id)}
-                      canVote={!!viewer.email}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-[10px] font-black ${st.cls}`}
-                        >
-                          {st.label}
-                        </span>
-                        {r.category && (
-                          <span className="text-[11px] font-bold text-[var(--sec-muted)]">
-                            {r.category}
-                          </span>
-                        )}
-                        <span className="text-[11px] text-[var(--sec-muted)]">
-                          {r.created_at.slice(0, 10).replace(/-/g, ".")}
-                        </span>
-                      </div>
-                      <h2 className="break-keep text-[15.5px] font-bold text-[var(--sec-heading)]">
+                    <span className="w-12 shrink-0 text-center text-[12px] tabular-nums text-[var(--sec-muted)]">
+                      {rows.length - i}
+                    </span>
+                    <span className="w-[70px] shrink-0 text-center">
+                      <span className={`inline-block rounded-full px-2 py-1 text-[10px] font-black ${st.cls}`}>
+                        {st.label}
+                      </span>
+                    </span>
+                    <span className="min-w-0 flex-1 basis-full md:basis-auto">
+                      <span className="block truncate text-[14px] font-bold text-[var(--sec-heading)]">
                         {r.title}
-                      </h2>
-                      <p className="mt-1.5 line-clamp-2 break-keep text-[12.5px] leading-relaxed text-[var(--sec-muted)]">
+                      </span>
+                      <span className="mt-1 block truncate text-[12px] text-[var(--sec-muted)]">
                         {r.problem}
-                      </p>
-                      <p className="mt-2 break-keep text-[12.5px] leading-relaxed text-[var(--sec-heading)]">
-                        <span className="mr-1.5 font-bold text-[var(--accent)]">원하는 산출물</span>
+                      </span>
+                      <span className="mt-1 block truncate text-[12px] text-[var(--sec-heading)]">
+                        <span className="mr-1.5 font-bold text-[var(--accent)]">산출물</span>
                         {r.solution}
-                      </p>
-                    </div>
-                  </li>
+                      </span>
+                    </span>
+                    <span className="w-[130px] shrink-0 truncate text-[11.5px] text-[var(--sec-muted)]">
+                      {r.category ?? "—"}
+                    </span>
+                    <span className="w-[92px] shrink-0 text-center text-[11.5px] tabular-nums text-[var(--sec-muted)]">
+                      {r.created_at.slice(0, 10).replace(/-/g, ".")}
+                    </span>
+                    <span className="w-[62px] shrink-0">
+                      <VoteButton
+                        requestId={r.id}
+                        count={r.vote_count}
+                        voted={votedSet.has(r.id)}
+                        canVote={!!viewer.email}
+                      />
+                    </span>
+                  </div>
                 );
               })}
-            </ul>
+            </div>
           )}
+
+          <p className="mt-4 text-[12px] text-[var(--sec-muted)]">
+            작성자는 표시하지 않습니다. 목록은 누구나 볼 수 있고, 투표는 로그인 후 1인 1표입니다.
+          </p>
         </>
       )}
     </SectionShell>

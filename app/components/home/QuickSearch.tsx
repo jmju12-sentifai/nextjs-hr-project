@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { filterSearchItems, type SearchItem } from "@/lib/catalog";
 
@@ -24,11 +25,21 @@ export default function QuickSearch({
   placeholder = "필요한 산출물이나 업무를 검색하세요",
   className = "",
 }: Props) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
+  // 드롭다운은 미리보기다. 버튼·엔터는 전체 결과 페이지로 넘긴다.
+  const goToResults = () => {
+    const q = query.trim();
+    if (!q) return;
+    setOpen(false);
+    router.push(`/apps?q=${encodeURIComponent(q)}`);
+  };
+
   const results = useMemo(() => filterSearchItems(items, query), [items, query]);
+  const hasQuery = query.trim().length > 0;
 
   // 바깥 클릭 시 결과 패널을 닫는다
   useEffect(() => {
@@ -40,12 +51,13 @@ export default function QuickSearch({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const hasQuery = query.trim().length > 0;
-
   return (
     <div ref={boxRef} className={`relative ${className}`}>
       <form
-        onSubmit={(e) => e.preventDefault()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          goToResults();
+        }}
         className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-[14px] border border-[#d7e2ee] bg-white p-[7px] shadow-[0_22px_50px_-35px_rgba(7,27,66,0.55)]"
       >
         <span className="hidden px-3 text-[8px] font-black tracking-[0.16em] text-brand-blue sm:block">
@@ -64,7 +76,8 @@ export default function QuickSearch({
         />
         <button
           type="submit"
-          className="flex h-[45px] items-center gap-2 rounded-[9px] bg-brand-ink px-4 text-[9px] font-black text-white sm:text-[10px]"
+          disabled={!hasQuery}
+          className="flex h-[45px] items-center gap-2 rounded-[9px] bg-brand-ink px-4 text-[9px] font-black text-white transition disabled:opacity-45 sm:text-[10px]"
         >
           <svg
             viewBox="0 0 24 24"
@@ -132,6 +145,13 @@ export default function QuickSearch({
                   </li>
                 ))}
               </ul>
+              <button
+                type="button"
+                onClick={goToResults}
+                className="mt-1 block w-full rounded-xl px-3 py-2.5 text-center text-[11.5px] font-bold text-brand-blue transition hover:bg-[#f2f7ff]"
+              >
+                검색 결과 전체 보기 →
+              </button>
             </>
           )}
         </div>

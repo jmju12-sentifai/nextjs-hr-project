@@ -10,6 +10,7 @@ import {
 import { LISTED_PLANS } from "@/lib/plans";
 import AIToolList from "./components/AIToolList";
 import CurationBoard from "./components/home/CurationBoard";
+import FunctionFinder from "./components/home/FunctionFinder";
 import Hero from "./components/home/Hero";
 
 /**
@@ -90,12 +91,8 @@ export default async function Home() {
   ].slice(0, 8);
   const updated = [...appItems, ...toolItems].slice(0, 8);
 
-  // 카테고리별 보유 개수 — 0건인 칩도 로드맵을 보여주기 위해 노출하되 흐리게 처리한다.
-  const countByCategory = new Map<HrCategory, number>();
-  for (const it of searchItems) {
-    countByCategory.set(it.category, (countByCategory.get(it.category) ?? 0) + 1);
-  }
-  const coveredCategories = countByCategory.size;
+  // 로드맵 배너용 — 실제로 앱이 있는 영역 수
+  const coveredCategories = new Set(searchItems.map((it) => it.category)).size;
 
   return (
     <div className="min-h-screen bg-[var(--sec-bg)]">
@@ -107,8 +104,8 @@ export default async function Home() {
 
       <CurationBoard recommended={recommended} updated={updated} />
 
-      {/* 인사기능별 앱 — 엑셀 비고 "통합검색 메뉴에서 기능별로만 구분" */}
-      <section className="section-invert border-y border-[var(--sec-line)] bg-[var(--sec-bg-alt)]">
+      {/* 인사기능별 앱 — 위는 필터 칩, 아래는 그 필터가 적용된 목록 */}
+      <section className="border-y border-[var(--sec-line)] bg-[var(--sec-bg-alt)]">
         <div className="site-wrap py-16">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -126,33 +123,7 @@ export default async function Home() {
               전체 앱 보기 →
             </Link>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {HR_CATEGORIES.map((cat) => {
-              const n = countByCategory.get(cat) ?? 0;
-              return (
-                <Link
-                  key={cat}
-                  href={`/apps?cat=${encodeURIComponent(cat)}`}
-                  className={`flex items-center gap-2 rounded-[var(--chip-radius)] border px-4 py-2.5 text-[12.5px] font-bold transition ${
-                    n > 0
-                      ? "border-[var(--card-line)] bg-[var(--card-bg)] text-[var(--sec-heading)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                      : "border-transparent bg-[var(--card-bg)]/50 text-[var(--sec-muted)] opacity-60"
-                  }`}
-                >
-                  {cat}
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${
-                      n > 0
-                        ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                        : "bg-[var(--sec-line)] text-[var(--sec-muted)]"
-                    }`}
-                  >
-                    {n}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
+          <FunctionFinder items={searchItems} />
         </div>
       </section>
 

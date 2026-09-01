@@ -553,3 +553,7 @@
   color: var(--sec-fg);
   border-color: transparent;
 }
+
+/* 가로 레일 — 좌우 버튼으로 넘기므로 스크롤바는 감춘다 (터치 스와이프는 그대로) */
+.rail { scrollbar-width: none; -ms-overflow-style: none; }
+.rail::-webkit-scrollbar { display: none; }
