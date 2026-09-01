@@ -434,7 +434,6 @@
 /* ── 시안별 테마 토큰 ────────────────────────────────────
    <html data-hero="a|b|c"> 에 따라 히어로 아래 전 섹션과 푸터가 함께 바뀐다.
    각 섹션은 이 토큰만 참조하므로 여기서만 손보면 세 벌이 일관되게 따라온다. */
-:root,
 :root[data-hero="c"] {
   /* 03 App Layers — 에디토리얼. 흰 바탕 + 얇은 헤어라인 + 각진 라운드 */
   --sec-bg: #ffffff;
@@ -457,8 +456,9 @@
   --chip-radius: 999px;
 }
 
+:root,
 :root[data-hero="b"] {
-  /* 02 Connected Hub — 밝고 둥근 플랫폼. 푸른 기운을 넓게 깔고 라운드를 키운다 */
+  /* 02 Connected Hub — 사이트 기본 디자인 — 밝고 둥근 플랫폼. 푸른 기운을 넓게 깔고 라운드를 키운다 */
   --sec-bg: #ffffff;
   --sec-bg-alt: #eef4ff;
   --sec-heading: #071a3b;

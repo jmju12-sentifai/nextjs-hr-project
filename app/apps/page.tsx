@@ -92,10 +92,10 @@ export default async function AppsPage({
       <div className="mb-8 flex flex-wrap gap-2">
         <Link
           href="/apps"
-          className={`rounded-full border px-4 py-2.5 text-[12px] font-bold transition ${
+          className={`rounded-[var(--chip-radius)] border px-4 py-2.5 text-[12.5px] font-bold transition ${
             active
-              ? "border-brand-line bg-white text-brand-ink hover:border-brand-blue"
-              : "border-brand-ink bg-brand-ink text-white"
+              ? "border-[var(--card-line)] bg-[var(--card-bg)] text-[var(--sec-heading)] hover:border-[var(--accent)]"
+              : "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-on)]"
           }`}
         >
           전체 {all.length}
@@ -107,22 +107,22 @@ export default async function AppsPage({
             <Link
               key={cat}
               href={`/apps?cat=${encodeURIComponent(cat)}`}
-              className={`flex items-center gap-2 rounded-full border px-4 py-2.5 text-[12px] font-bold transition ${
+              className={`flex items-center gap-2 rounded-[var(--chip-radius)] border px-4 py-2.5 text-[12.5px] font-bold transition ${
                 on
-                  ? "border-brand-ink bg-brand-ink text-white"
+                  ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-on)]"
                   : n > 0
-                    ? "border-brand-line bg-white text-brand-ink hover:border-brand-blue hover:text-brand-blue"
-                    : "border-transparent bg-[#f4f7fb] text-[#a9b6c9]"
+                    ? "border-[var(--card-line)] bg-[var(--card-bg)] text-[var(--sec-heading)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                    : "border-transparent bg-[var(--sec-bg-alt)] text-[var(--sec-muted)] opacity-60"
               }`}
             >
               {cat}
               <span
                 className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${
                   on
-                    ? "bg-white/20 text-white"
+                    ? "bg-white/20 text-current"
                     : n > 0
-                      ? "bg-[#eef4ff] text-brand-blue"
-                      : "bg-[#eaeef4] text-[#b3bfd0]"
+                      ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                      : "bg-[var(--sec-line)] text-[var(--sec-muted)]"
                 }`}
               >
                 {n}
@@ -133,13 +133,13 @@ export default async function AppsPage({
       </div>
 
       {shown.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-brand-line bg-[#f9fbfe] px-6 py-16 text-center">
-          <p className="text-sm font-bold text-brand-ink">
+        <div className="rounded-[var(--card-radius)] border border-dashed border-[var(--card-line)] bg-[var(--sec-bg-alt)] px-6 py-16 text-center">
+          <p className="text-sm font-bold text-[var(--sec-heading)]">
             {active ?? "이"} 영역의 앱은 아직 준비 중입니다.
           </p>
-          <p className="mt-2 text-[12px] text-brand-muted">
+          <p className="mt-2 text-[13px] text-[var(--sec-muted)]">
             필요한 앱을{" "}
-            <Link href="/requests" className="font-bold text-brand-blue underline">
+            <Link href="/requests" className="font-bold text-[var(--accent)] underline">
               직접 요청
             </Link>
             하시면 우선순위에 반영합니다.
@@ -151,28 +151,28 @@ export default async function AppsPage({
             <Link
               key={it.id}
               href={it.href}
-              className="group flex min-h-[190px] flex-col rounded-2xl border border-brand-line bg-white p-6 transition-all hover:-translate-y-1 hover:border-brand-blue hover:shadow-[0_28px_50px_-30px_rgba(7,28,68,0.45)]"
+              className="group flex min-h-[195px] flex-col rounded-[var(--card-radius)] border border-[var(--card-line)] bg-[var(--card-bg)] p-6 transition-all hover:-translate-y-1 hover:border-[var(--accent)] hover:shadow-[var(--card-shadow)]"
             >
               <div className="mb-3 flex items-center gap-2">
-                <span className="rounded-md bg-[#eef4ff] px-1.5 py-0.5 text-[9px] font-black text-brand-blue">
+                <span className="rounded-md bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-black text-[var(--accent)]">
                   {it.kind === "tool" ? "TOOL" : "APP"}
                 </span>
-                <span className="text-[10px] font-bold text-brand-muted">{it.category}</span>
+                <span className="text-[11px] font-bold text-[var(--sec-muted)]">{it.category}</span>
                 {it.badge && (
-                  <span className="ml-auto rounded bg-brand-blue px-1.5 py-0.5 text-[9px] font-black text-white">
+                  <span className="ml-auto rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-black text-[var(--accent-on)]">
                     {it.badge}
                   </span>
                 )}
               </div>
-              <h2 className="break-keep text-[15px] font-bold leading-snug text-brand-ink">
+              <h2 className="break-keep text-[16px] font-bold leading-snug text-[var(--sec-heading)]">
                 {it.title}
               </h2>
-              <p className="mt-2 line-clamp-3 break-keep text-[11px] leading-relaxed text-brand-muted">
+              <p className="mt-2 line-clamp-3 break-keep text-[12px] leading-relaxed text-[var(--sec-muted)]">
                 {it.summary}
               </p>
-              <div className="mt-auto flex items-center justify-between border-t border-[#eef2f8] pt-4">
-                <span className="text-[10px] text-brand-muted">산출물</span>
-                <span className="max-w-[70%] truncate text-right text-[11px] font-bold text-brand-ink">
+              <div className="mt-auto flex items-center justify-between border-t border-[var(--sec-line)] pt-4">
+                <span className="text-[11px] text-[var(--sec-muted)]">산출물</span>
+                <span className="max-w-[70%] truncate text-right text-[12px] font-bold text-[var(--sec-heading)]">
                   {it.output}
                 </span>
               </div>

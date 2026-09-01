@@ -11,7 +11,7 @@ export const HERO_VARIANTS: { key: HeroVariant; no: string; name: string }[] = [
   { key: "c", no: "03", name: "App Layers" },
 ];
 
-const DEFAULT_VARIANT: HeroVariant = "c";
+const DEFAULT_VARIANT: HeroVariant = "b";
 const STORAGE_KEY = "hrcoach.hero";
 
 function isVariant(v: unknown): v is HeroVariant {
