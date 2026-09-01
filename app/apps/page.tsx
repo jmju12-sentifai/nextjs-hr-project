@@ -7,6 +7,7 @@ import {
   type HrCategory,
   type SearchItem,
 } from "@/lib/catalog";
+import FlowSteps from "../components/home/FlowSteps";
 import SectionShell from "../components/home/SectionShell";
 import { getViewer } from "@/lib/viewer";
 
@@ -71,6 +72,7 @@ export default async function AppsPage({
       // 빌더가 채우는 meta 를 그대로 쓴다. 없을 때만 4단계 흐름의 마지막 항목으로 대신한다.
       summary: firstText(meta.tagline, meta.purpose, meta.problem) ?? "",
       output: firstText(meta.output, Array.isArray(meta.flow) ? meta.flow[3] : "") ?? "산출 결과",
+      flow: Array.isArray(meta.flow) ? meta.flow.filter((f: unknown) => typeof f === "string" && f.trim()) : [],
       href: `/apps/${row.id}`,
     };
   });
@@ -191,12 +193,18 @@ export default async function AppsPage({
               <p className="mt-2 line-clamp-3 break-keep text-[12px] leading-relaxed text-[var(--sec-muted)]">
                 {it.summary}
               </p>
-              <div className="mt-auto flex items-center justify-between border-t border-[var(--sec-line)] pt-4">
-                <span className="text-[11px] text-[var(--sec-muted)]">산출물</span>
-                <span className="max-w-[70%] truncate text-right text-[12px] font-bold text-[var(--sec-heading)]">
-                  {it.output}
-                </span>
-              </div>
+              {it.flow && it.flow.length > 0 ? (
+                <div className="mt-auto border-t border-[var(--sec-line)] pt-3">
+                  <FlowSteps flow={it.flow} />
+                </div>
+              ) : (
+                <div className="mt-auto flex items-center justify-between border-t border-[var(--sec-line)] pt-4">
+                  <span className="text-[11px] text-[var(--sec-muted)]">산출물</span>
+                  <span className="max-w-[70%] truncate text-right text-[12px] font-bold text-[var(--sec-heading)]">
+                    {it.output}
+                  </span>
+                </div>
+              )}
             </Link>
           ))}
         </div>

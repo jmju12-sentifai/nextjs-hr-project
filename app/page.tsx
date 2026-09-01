@@ -76,6 +76,7 @@ export default async function Home() {
       // 빌더가 채우는 meta 를 그대로 쓴다. 없을 때만 4단계 흐름의 마지막 항목으로 대신한다.
       summary: firstText(meta.tagline, meta.purpose, meta.problem) ?? "",
       output: firstText(meta.output, Array.isArray(meta.flow) ? meta.flow[3] : "") ?? "산출 결과",
+      flow: Array.isArray(meta.flow) ? meta.flow.filter((f: unknown) => typeof f === "string" && f.trim()) : [],
       href: `/apps/${row.id}`,
     };
   });
@@ -115,6 +116,27 @@ export default async function Home() {
               <h2 className="text-[28px] font-bold tracking-[-0.045em] text-[var(--sec-heading)]">
                 인사기능별로 찾기
               </h2>
+              {/* 모든 앱이 공유하는 4단계 골격. 기존 홈의 legend 를 되살린 것으로,
+                  앱 실행기의 f1~f4 탭과 같은 순서다. */}
+              <ol className="mt-3.5 flex flex-wrap items-center gap-x-1.5 gap-y-2">
+                {["기준 지식화", "개인 정보 파싱", "적용 여부 판단", "산출 및 안내"].map((s, i, a) => (
+                  <li key={s} className="flex items-center gap-1.5">
+                    <span className="flex items-center gap-1.5 rounded-full bg-[var(--card-bg)] px-2.5 py-1.5 ring-1 ring-[var(--card-line)]">
+                      <span
+                        className={`flex h-[17px] w-[17px] items-center justify-center rounded-full text-[9.5px] font-bold text-white ${
+                          ["bg-sky-500", "bg-blue-500", "bg-indigo-500", "bg-violet-500"][i]
+                        }`}
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="text-[11.5px] font-bold text-[var(--sec-heading)]">{s}</span>
+                    </span>
+                    {i < a.length - 1 && (
+                      <span aria-hidden className="text-[10px] text-[var(--sec-muted)]">▸</span>
+                    )}
+                  </li>
+                ))}
+              </ol>
             </div>
             <Link
               href="/apps"

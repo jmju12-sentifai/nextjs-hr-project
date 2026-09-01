@@ -185,8 +185,10 @@ export type SearchItem = {
   category: HrCategory;
   /** 무엇을 하는 앱인지 — 검색 대상 */
   summary: string;
-  /** 산출물 이름 — 엑셀 요구의 "필요 인사 산출물" 검색을 위해 별도 필드로 둔다 */
+  /** 산출물 이름 — 엑셀 Home > Quick Search 의 "필요 인사 산출물" 검색용 */
   output: string;
+  /** 앱의 4단계 처리 흐름(app_schema.meta.flow). 도구에는 없다. */
+  flow?: string[];
   href: string;
   badge?: "NEW" | "HOT";
 };

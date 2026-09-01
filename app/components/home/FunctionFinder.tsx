@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { HR_CATEGORIES, type HrCategory, type SearchItem } from "@/lib/catalog";
+import FlowSteps from "./FlowSteps";
 
 /**
  * 엑셀 "2. 인사기능별 앱" — 비고가 "통합검색 메뉴에서 기능별로만 구분" 이라
@@ -117,12 +118,18 @@ export default function FunctionFinder({ items }: { items: SearchItem[] }) {
               <p className="mt-2 line-clamp-2 break-keep text-[12px] leading-relaxed text-[var(--sec-muted)]">
                 {it.summary}
               </p>
-              <div className="mt-auto flex items-center justify-between border-t border-[var(--sec-line)] pt-3.5">
-                <span className="text-[11px] text-[var(--sec-muted)]">산출물</span>
-                <span className="max-w-[70%] truncate text-right text-[12px] font-bold text-[var(--sec-heading)]">
-                  {it.output}
-                </span>
-              </div>
+              {it.flow && it.flow.length > 0 ? (
+                <div className="mt-auto border-t border-[var(--sec-line)] pt-3">
+                  <FlowSteps flow={it.flow} />
+                </div>
+              ) : (
+                <div className="mt-auto flex items-center justify-between border-t border-[var(--sec-line)] pt-3.5">
+                  <span className="text-[11px] text-[var(--sec-muted)]">산출물</span>
+                  <span className="max-w-[70%] truncate text-right text-[12px] font-bold text-[var(--sec-heading)]">
+                    {it.output}
+                  </span>
+                </div>
+              )}
             </Link>
           ))}
         </div>

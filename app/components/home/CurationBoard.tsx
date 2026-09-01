@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SearchItem } from "@/lib/catalog";
+import FlowSteps from "./FlowSteps";
 
 /** 엑셀 Home > Curation Board — "이달의 추천 앱, 신규 업데이트 앱 슬라이드 제공" */
 type Props = {
@@ -117,7 +118,7 @@ export default function CurationBoard({ recommended, updated }: Props) {
             <Link
               key={it.id}
               href={it.href}
-              className="group relative flex min-h-[205px] w-[300px] shrink-0 snap-start flex-col rounded-[var(--card-radius)] border border-[var(--card-line)] bg-[var(--card-bg)] p-6 transition-all hover:-translate-y-1 hover:border-[var(--accent)] hover:shadow-[var(--card-shadow)]"
+              className="group relative flex min-h-[268px] w-[300px] shrink-0 snap-start flex-col rounded-[var(--card-radius)] border border-[var(--card-line)] bg-[var(--card-bg)] p-6 transition-all hover:-translate-y-1 hover:border-[var(--accent)] hover:shadow-[var(--card-shadow)]"
             >
               <div className="mb-4 flex items-center gap-2">
                 <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-[10px] font-black tracking-wider text-[var(--accent)]">
@@ -136,12 +137,18 @@ export default function CurationBoard({ recommended, updated }: Props) {
               <p className="mt-2 line-clamp-3 break-keep text-[12px] leading-relaxed text-[var(--sec-muted)]">
                 {it.summary}
               </p>
-              <div className="mt-auto flex items-center justify-between border-t border-[var(--sec-line)] pt-4">
-                <span className="text-[11px] text-[var(--sec-muted)]">산출물</span>
-                <span className="max-w-[70%] truncate text-right text-[12px] font-bold text-[var(--sec-heading)]">
-                  {it.output}
-                </span>
-              </div>
+              {it.flow && it.flow.length > 0 ? (
+                <div className="mt-auto border-t border-[var(--sec-line)] pt-3">
+                  <FlowSteps flow={it.flow} />
+                </div>
+              ) : (
+                <div className="mt-auto flex items-center justify-between border-t border-[var(--sec-line)] pt-4">
+                  <span className="text-[11px] text-[var(--sec-muted)]">산출물</span>
+                  <span className="max-w-[70%] truncate text-right text-[12px] font-bold text-[var(--sec-heading)]">
+                    {it.output}
+                  </span>
+                </div>
+              )}
               <span className="absolute right-5 top-5 text-[var(--accent)] opacity-0 transition-opacity group-hover:opacity-100">
                 →
               </span>
