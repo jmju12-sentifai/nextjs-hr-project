@@ -20,12 +20,15 @@ type Props = {
   searchItems: SearchItem[];
 };
 
-export default function Hero({ userEmail, isAdmin, searchItems }: Props) {
+/** 시안 전환 토글은 비교용이라 /draft 에서만 띄운다. 운영 홈에는 나오면 안 된다. */
+type HeroProps = Props & { showSwitcher?: boolean };
+
+export default function Hero({ userEmail, isAdmin, searchItems, showSwitcher = false }: HeroProps) {
   const { variant, setVariant } = useHeroTheme();
 
   return (
     <>
-      <VariantSwitcher current={variant} onChange={setVariant} />
+      {showSwitcher && <VariantSwitcher current={variant} onChange={setVariant} />}
       {variant === "a" && (
         <HeroA userEmail={userEmail} isAdmin={isAdmin} searchItems={searchItems} />
       )}

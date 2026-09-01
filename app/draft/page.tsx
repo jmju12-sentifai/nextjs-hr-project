@@ -18,7 +18,7 @@ export const metadata = {
 };
 
 /**
- * 운영 메인(/)과 분리된 리디자인 시안.
+ * 시안 비교용 화면. 운영 홈(/)과 같은 구성이되 상단 토글로 히어로 3안을 바꿔 볼 수 있다.
  * 구성은 HRcoach_Menu_Structure_20260810.xlsx 의 Home 행을 따른다.
  *   Hero Section / Quick Search / Curation Board
  * 그 아래로 인사기능별 진입, 도구 리스트, 로드맵 배너, 요금, CTA 를 잇는다.
@@ -109,6 +109,7 @@ export default async function DraftHome() {
         userEmail={user?.email ?? null}
         isAdmin={admin}
         searchItems={searchItems}
+        showSwitcher
       />
 
       <CurationBoard recommended={recommended} updated={updated} />
