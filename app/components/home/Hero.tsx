@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { type SearchItem } from "@/lib/catalog";
-import { HERO_VARIANTS, useHeroTheme, type HeroVariant } from "./HeroTheme";
+import { HERO_VARIANTS, SITE_VARIANT, useHeroTheme, type HeroVariant } from "./HeroTheme";
 import QuickSearch from "./QuickSearch";
 import SiteHeader from "./SiteHeader";
 
@@ -24,11 +24,16 @@ type Props = {
 type HeroProps = Props & { showSwitcher?: boolean };
 
 export default function Hero({ userEmail, isAdmin, searchItems, showSwitcher = false }: HeroProps) {
-  const { variant, setVariant } = useHeroTheme();
+  const { variant: picked, setVariant } = useHeroTheme();
+
+  // 시안 선택은 /draft 전용이다. 운영 홈은 확정 시안으로 고정한다.
+  // 이걸 고정하지 않으면 예전에 /draft 에서 다른 시안을 눌러본 방문자의
+  // localStorage 값이 그대로 운영 홈의 히어로로 나온다.
+  const variant = showSwitcher ? picked : SITE_VARIANT;
 
   return (
     <>
-      {showSwitcher && <VariantSwitcher current={variant} onChange={setVariant} />}
+      {showSwitcher && <VariantSwitcher current={picked} onChange={setVariant} />}
       {variant === "a" && (
         <HeroA userEmail={userEmail} isAdmin={isAdmin} searchItems={searchItems} />
       )}

@@ -11,7 +11,12 @@ export const HERO_VARIANTS: { key: HeroVariant; no: string; name: string }[] = [
   { key: "c", no: "03", name: "App Layers" },
 ];
 
-const DEFAULT_VARIANT: HeroVariant = "b";
+/**
+ * 사이트 확정 시안 — 02 Connected Hub.
+ * 운영 화면은 전부 이 값으로 고정한다. /draft 만 토글로 바꿔 볼 수 있다.
+ */
+export const SITE_VARIANT: HeroVariant = "b";
+const DEFAULT_VARIANT: HeroVariant = SITE_VARIANT;
 const STORAGE_KEY = "hrcoach.hero";
 
 function isVariant(v: unknown): v is HeroVariant {
@@ -38,12 +43,17 @@ export default function HeroTheme({ children }: { children: React.ReactNode }) {
   const scoped = pathname?.startsWith("/draft") ?? false;
   const [variant, setVariantState] = useState<HeroVariant>(DEFAULT_VARIANT);
 
+  // 저장된 선택은 /draft 에서만 되살린다. 운영 화면까지 끌고 오면 안 된다.
   useEffect(() => {
+    if (!scoped) {
+      setVariantState(SITE_VARIANT);
+      return;
+    }
     const fromQuery = new URLSearchParams(window.location.search).get("hero");
     const stored = window.localStorage.getItem(STORAGE_KEY);
     const pick = (fromQuery || stored || "").toLowerCase();
     if (isVariant(pick)) setVariantState(pick);
-  }, []);
+  }, [scoped]);
 
   // 시안 테마는 /draft 안에서만 씌운다.
   // 전역으로 두면 시안 1안을 한 번 본 사용자의 운영 페이지까지 네이비로 물든다.
