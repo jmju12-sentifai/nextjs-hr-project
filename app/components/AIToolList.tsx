@@ -79,7 +79,7 @@ export default function AIToolList() {
         <h2 className="mb-3 text-[30px] font-bold tracking-[-0.045em] text-[var(--sec-heading)] sm:text-[34px]">
           전체 AI 도구 리스트{" "}
           <span className="text-[var(--sec-muted)]">- 인사 전 영역의</span>{" "}
-          <span className="text-[var(--accent)]">3개 AIA 엔진</span>
+          <span className="text-[var(--accent)]">{TOOLS.length}개 AIA 엔진</span>
           <span className="text-[var(--sec-muted)]">을 한눈에</span>
         </h2>
         <p className="mx-auto max-w-2xl text-[14px] text-[var(--sec-muted)]">
@@ -189,7 +189,7 @@ export default function AIToolList() {
       <p className="mt-8 text-center text-[12.5px] leading-relaxed text-[var(--sec-muted)]">
         위 리스트는 현재 제공 중인 핵심 인사 도구들입니다.
         <br />
-        K Prime HR은 인사 전 영역에 걸쳐 70개 앱을 목표로 라인업을 넓혀가고 있습니다.
+        인사 전 영역에 걸쳐 라인업을 계속 넓혀가고 있습니다.
       </p>
 
       {activeDify && (

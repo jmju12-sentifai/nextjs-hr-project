@@ -1,5 +1,6 @@
 "use client";
 import type { Meta } from "app-renderer";
+import { HR_CATEGORIES } from "@/lib/catalog";
 
 interface Props {
   meta: Meta;
@@ -75,6 +76,21 @@ export default function Tab0Meta({ meta, onChange }: Props) {
             onChange={(e) => set("appName", e.target.value)}
             placeholder="임금피크제 자동화 마이크로 SaaS 앱"
           />
+        </div>
+        <div>
+          <label className={lbl}>인사기능 카테고리</label>
+          <select
+            className={inp}
+            value={meta.category ?? ""}
+            onChange={(e) => set("category", e.target.value)}
+          >
+            <option value="">(미지정 — 기타관리로 표시)</option>
+            {HR_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className={lbl}>서비스 한줄 설명</label>

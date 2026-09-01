@@ -277,6 +277,9 @@ export interface Meta {
   effects: string[];
   features: string[];
   flow: string[]; // 4단계 처리 흐름 (1~4단계 간략 설명)
+  /** 인사기능별 앱 카테고리. 사이트 목록·검색 필터가 이 값을 본다.
+   *  값 목록은 lib/catalog.ts 의 HR_CATEGORIES. 비어 있으면 "기타관리" 로 취급. */
+  category?: string;
 }
 
 export interface Path {

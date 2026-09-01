@@ -12,6 +12,7 @@ import TabVars from "./components/TabVars";
 import Tab3Logic from "./components/Tab3Logic";
 import Tab4Report from "./components/Tab4Report";
 import Tab5Preview from "./components/Tab5Preview";
+import { HR_CATEGORIES } from "@/lib/catalog";
 
 // 생성된 앱 기획서 마크다운 렌더링 (@tailwindcss/typography 미설치 → 명시 스타일)
 const SPEC_MD_COMPONENTS = {
@@ -1772,6 +1773,19 @@ function PreviewMeta({ preview, onUpdate }: { preview: any; onUpdate: (next: any
   return (
     <div className="space-y-3 text-sm">
       <EditRow k="앱 이름" v={m.appName} onChange={(v) => setM({ appName: v })} inpCls={inpCls} />
+      <div className="flex items-start gap-2">
+        <span className="w-24 shrink-0 pt-1.5 text-xs text-gray-500">카테고리</span>
+        <select
+          className={inpCls}
+          value={m.category ?? ""}
+          onChange={(e) => setM({ category: e.target.value })}
+        >
+          <option value="">(미지정 — 기타관리)</option>
+          {HR_CATEGORIES.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+      </div>
       <EditRow k="한 줄 요약" v={m.tagline} onChange={(v) => setM({ tagline: v })} inpCls={inpCls} />
       <EditRow k="목적" v={m.purpose} onChange={(v) => setM({ purpose: v })} inpCls={inpCls} multiline />
       <EditRow k="해결 문제" v={m.problem} onChange={(v) => setM({ problem: v })} inpCls={inpCls} multiline />

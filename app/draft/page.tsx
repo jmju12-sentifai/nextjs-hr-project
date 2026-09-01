@@ -37,6 +37,14 @@ const CATEGORY_HINTS: [HrCategory, string[]][] = [
   ["인사정보관리", ["인사정보", "인사기록", "발령"]],
 ];
 
+/** 여러 후보 중 내용이 있는 첫 문자열 */
+function firstText(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
 function guessCategory(name: string, explicit?: unknown): HrCategory {
   if (typeof explicit === "string") {
     const hit = HR_CATEGORIES.find((c) => c === explicit);
@@ -70,14 +78,9 @@ export default async function DraftHome() {
       kind: "app" as const,
       title,
       category: guessCategory(title, meta.category),
-      summary:
-        typeof meta.description === "string" && meta.description.trim()
-          ? meta.description
-          : "기준 지식화 → 파싱 → 적정성 판단 → 안내·이행의 4단계로 처리되는 인사 앱입니다.",
-      output:
-        typeof meta.output === "string" && meta.output.trim()
-          ? meta.output
-          : "검토 결과 및 안내자료",
+      // 빌더가 채우는 meta 를 그대로 쓴다. 없을 때만 4단계 흐름의 마지막 항목으로 대신한다.
+      summary: firstText(meta.tagline, meta.purpose, meta.problem) ?? "",
+      output: firstText(meta.output, Array.isArray(meta.flow) ? meta.flow[3] : "") ?? "산출 결과",
       href: `/apps/${row.id}`,
     };
   });
@@ -98,6 +101,7 @@ export default async function DraftHome() {
   for (const it of searchItems) {
     countByCategory.set(it.category, (countByCategory.get(it.category) ?? 0) + 1);
   }
+  const coveredCategories = countByCategory.size;
 
   return (
     <div className="min-h-screen bg-[var(--sec-bg)]">
@@ -160,7 +164,9 @@ export default async function DraftHome() {
 
       <AIToolList />
 
-      {/* 엑셀 Home > Hero Section — "70개 앱 로드맵 프로모션 배너" */}
+      {/* 엑셀 Home > Hero Section 의 로드맵 배너.
+          목표 앱 수는 확정된 자료가 없어 하드코딩하지 않고, 현재 보유 수와
+          커버 중인 영역 수를 DB 에서 세어 그대로 보여준다. */}
       <section className="site-wrap pb-20">
         <div className="band overflow-hidden px-8 py-10 sm:px-12">
           <div className="flex flex-wrap items-center justify-between gap-8">
@@ -169,14 +175,14 @@ export default async function DraftHome() {
                 R&amp;D ROADMAP
               </p>
               <h2 className="text-[30px] font-bold leading-tight tracking-[-0.05em] sm:text-[38px]">
-                70개 인사 앱으로,
+                지금 {searchItems.length}개,
                 <br />
                 <span className="band-accent">계속 넓어집니다.</span>
               </h2>
               <p className="mt-4 max-w-[460px] text-[14px] leading-relaxed opacity-70">
-                직무·채용·평가·보상·복리후생·교육·조직문화·근태행정까지, 인사 전 영역을 앱으로
-                채워가고 있습니다. 구독 기간 중 추가되는 앱은 별도 비용 없이 그대로 이용하실 수
-                있습니다.
+                {coveredCategories}개 인사 영역에서 {searchItems.length}개의 앱과 도구가 동작하고
+                있고, 나머지 영역도 순차적으로 채워가고 있습니다. 구독 기간 중 추가되는 앱은 별도
+                비용 없이 그대로 이용하실 수 있습니다.
               </p>
             </div>
             <div className="flex gap-3">

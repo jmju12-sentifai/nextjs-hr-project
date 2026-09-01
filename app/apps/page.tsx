@@ -27,6 +27,14 @@ const CATEGORY_HINTS: [HrCategory, string[]][] = [
   ["인사정보관리", ["인사정보", "인사기록", "발령"]],
 ];
 
+/** 여러 후보 중 내용이 있는 첫 문자열 */
+function firstText(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
 function guessCategory(name: string, explicit?: unknown): HrCategory {
   if (typeof explicit === "string") {
     const hit = HR_CATEGORIES.find((c) => c === explicit);
@@ -59,14 +67,9 @@ export default async function AppsPage({
       kind: "app" as const,
       title,
       category: guessCategory(title, meta.category),
-      summary:
-        typeof meta.description === "string" && meta.description.trim()
-          ? meta.description
-          : "기준 지식화 → 파싱 → 적정성 판단 → 안내·이행의 4단계로 처리되는 인사 앱입니다.",
-      output:
-        typeof meta.output === "string" && meta.output.trim()
-          ? meta.output
-          : "검토 결과 및 안내자료",
+      // 빌더가 채우는 meta 를 그대로 쓴다. 없을 때만 4단계 흐름의 마지막 항목으로 대신한다.
+      summary: firstText(meta.tagline, meta.purpose, meta.problem) ?? "",
+      output: firstText(meta.output, Array.isArray(meta.flow) ? meta.flow[3] : "") ?? "산출 결과",
       href: `/apps/${row.id}`,
     };
   });
