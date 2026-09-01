@@ -81,7 +81,19 @@ export default function SiteHeader({ userEmail, isAdmin, bordered = false }: Pro
 
       <div className="flex items-center gap-3.5">
         {userEmail ? (
-          <UserMenu email={userEmail} isAdmin={isAdmin} />
+          <>
+            {/* 관리자 진입은 헤더에 그대로 노출한다.
+                프로필 드롭다운 안으로 넣었더니 헤더에서 사라진 것처럼 보였다. */}
+            {isAdmin && (
+              <Link
+                href="/admin/applist"
+                className="hidden items-center gap-1.5 whitespace-nowrap rounded-[10px] bg-[var(--accent)] px-4 py-3 text-[13px] font-bold text-[var(--accent-on)] transition hover:opacity-90 sm:inline-flex"
+              >
+                <span aria-hidden>+</span> 앱 만들러 가기
+              </Link>
+            )}
+            <UserMenu email={userEmail} isAdmin={isAdmin} />
+          </>
         ) : (
           <>
             {/* 로그인과 CTA 는 같은 형태의 버튼 쌍으로 두고 채도로만 위계를 준다.
@@ -146,6 +158,15 @@ export default function SiteHeader({ userEmail, isAdmin, bordered = false }: Pro
               )}
             </div>
           ))}
+          {isAdmin && (
+            <Link
+              href="/admin/applist"
+              onClick={() => setMobileOpen(false)}
+              className="mt-4 block rounded-[10px] bg-[var(--accent)] px-5 py-3 text-center text-[13px] font-bold text-[var(--accent-on)]"
+            >
+              + 앱 만들러 가기
+            </Link>
+          )}
           {!userEmail && (
             <Link
               href="/login"

@@ -84,13 +84,23 @@ export default function UserMenu({
 
           {isAdmin && (
             <div className="border-t border-[#eef2f8] px-2 py-2">
-              <Link
-                href="/admin/applist"
-                onClick={() => setOpen(false)}
-                className="block rounded-lg px-2.5 py-2 text-[12.5px] font-bold text-brand-blue transition hover:bg-[#f2f7ff]"
-              >
-                + 앱 만들러 가기
-              </Link>
+              <p className="px-2.5 pb-1.5 pt-1 text-[9px] font-black tracking-[0.14em] text-brand-muted">
+                관리자
+              </p>
+              {[
+                { label: "앱 목록 · 발행 관리", href: "/admin/applist" },
+                { label: "앱 빌더", href: "/admin/builder" },
+                { label: "사용량 집계", href: "/admin/usage" },
+              ].map((n) => (
+                <Link
+                  key={n.href}
+                  href={n.href}
+                  onClick={() => setOpen(false)}
+                  className="block rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-brand-ink transition hover:bg-[#f2f7ff] hover:text-brand-blue"
+                >
+                  {n.label}
+                </Link>
+              ))}
             </div>
           )}
 
