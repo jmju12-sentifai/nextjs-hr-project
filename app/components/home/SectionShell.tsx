@@ -28,7 +28,7 @@ export default function SectionShell({
 
       <section className="site-wrap py-16">
         <p className="mb-3 text-[11px] font-black tracking-[0.18em] text-[var(--accent)]">{eyebrow}</p>
-        <h1 className="max-w-[720px] text-[38px] font-bold leading-[1.08] tracking-[-0.055em] text-[var(--sec-heading)] sm:text-[52px]">
+        <h1 className="max-w-[720px] break-keep text-[38px] font-bold leading-[1.08] tracking-[-0.055em] text-[var(--sec-heading)] sm:text-[52px]">
           {title}
         </h1>
         {lead && (
