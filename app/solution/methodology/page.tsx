@@ -5,15 +5,13 @@ import { CHAPTERS } from "./content";
 import { FigureTabs, ZoomFigure } from "./Figures";
 
 export const metadata = {
-  title: "HRCoach AX 방법론 시안 — HRcoach",
-  robots: { index: false, follow: false },
+  title: "HRCoach AX 방법론 — HRcoach",
+  description:
+    "거대한 인사시스템 대신 프로세스와 문서로 된 업무 단위를 앱으로 만들어 조립합니다. HRcoach가 인사 AX를 보는 방식.",
 };
 
-/**
- * AX 방법론 페이지 시안. 확정되면 /solution/methodology 로 옮기고
- * lib/catalog.ts 의 AI인사솔루션 안내 하위 메뉴에 연결한다.
- */
-export default async function MethodologyPreview() {
+/** AI인사솔루션 안내 하위 페이지. 원고 출처는 content.ts 주석 참고. */
+export default async function MethodologyPage() {
   const viewer = await getViewer();
   return (
     <SectionShell

@@ -29,6 +29,7 @@ export const SITE_NAV: NavItem[] = [
     href: "/solution",
     children: [
       { label: "AI인사솔루션 안내", href: "/solution", desc: "AI인사앱 소개 · 시각화 튜토리얼 · 활용 노하우" },
+      { label: "HRCoach AX 방법론", href: "/solution/methodology", desc: "인사 업무를 단위로 나눠 자동화하는 방식" },
       { label: "K Prime Lab", href: "/lab", desc: "비전 및 미션 · R&D 로드맵" },
     ],
   },

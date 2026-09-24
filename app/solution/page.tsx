@@ -127,6 +127,12 @@ export default async function SolutionPage() {
 
       <div className="flex flex-wrap gap-3">
         <Link
+          href="/solution/methodology"
+          className="rounded-xl border border-[var(--card-line)] bg-[var(--card-bg)] px-6 py-3.5 text-[13px] font-bold text-[var(--sec-heading)] transition hover:border-[var(--accent)]"
+        >
+          AX 방법론 읽기
+        </Link>
+        <Link
           href="/apps"
           className="rounded-xl bg-[var(--accent)] px-6 py-3.5 text-[13px] font-bold text-[var(--accent-on)] transition hover:opacity-90"
         >
