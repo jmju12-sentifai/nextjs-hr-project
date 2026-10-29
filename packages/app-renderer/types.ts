@@ -298,6 +298,9 @@ export type DocBlockType =
   | "counts" // 일수 칸
   | "conditions" // 조건 근거표
   | "facts" // 항목 값 목록
+  | "kpis" // 핵심 수치 카드 (첫 항목을 크게)
+  | "gauge" // 비율 링
+  | "compare" // 전후 비교 막대
   | "text" // 안내문
   | "element" // 기존 그리드 요소(차트 9종 등)를 그대로 끼워 넣기
   | "pagebreak";
@@ -328,6 +331,8 @@ export interface FormulaBlock extends DocBlockBase {
 export interface ItemizedBlock extends DocBlockBase {
   type: "itemized";
   bind: string; // classify 단계 이름
+  /** bar: 구성 막대 + 항목표(기본) · donut: 도넛 + 범례 · table: 표만 */
+  variant?: "bar" | "donut" | "table";
   totalLabel?: string;
   hideExcluded?: boolean;
   /** 합계 아래에 이어 붙이는 행 (감액, 적용 후 금액 등). 마지막 행을 결과로 강조한다. */
@@ -337,6 +342,8 @@ export interface ItemizedBlock extends DocBlockBase {
 export interface BandTableBlock extends DocBlockBase {
   type: "bandtable";
   bind: string; // table 단계 이름
+  /** chart: 구간별 막대(기본) · table: 표 */
+  variant?: "chart" | "table";
   /** 같은 이름의 구간표를 모든 경로에서 모아 한 표로 (예: 가산형·표준형 감액률) */
   allPaths?: boolean;
   pathLabels?: Record<string, string>; // 경로 id → 유형 열에 쓸 짧은 이름
@@ -347,6 +354,13 @@ export interface BandTableBlock extends DocBlockBase {
 export interface FlowBlock extends DocBlockBase {
   type: "flow";
   steps: DocRef[];
+  /**
+   * steps: 단계 목록(기본)
+   * waterfall: 금액 증감 폭포 차트 — 첫 단계는 시작 금액, 이후는 직전 대비 변화로 그리고
+   *   끝에 최종 금액 막대(endLabel)를 붙인다. 첫 단계와 단위가 다른 단계는 뺀다.
+   */
+  variant?: "steps" | "waterfall";
+  endLabel?: string;
 }
 export interface RangeBlock extends DocBlockBase {
   type: "range";
@@ -379,9 +393,24 @@ export interface FactsBlock extends DocBlockBase {
   type: "facts";
   items: DocRef[];
 }
+export interface KpisBlock extends DocBlockBase {
+  type: "kpis";
+  items: DocRef[];
+}
+export interface GaugeBlock extends DocBlockBase {
+  type: "gauge";
+  /** % 단위 값은 그대로, 아니면 bind ÷ of 를 비율로 그린다 */
+  items: (DocRef & { of?: string })[];
+}
+export interface CompareBlock extends DocBlockBase {
+  type: "compare";
+  /** 같은 단위의 값들. 첫 값 대비 마지막 값의 증감률을 함께 표시한다. */
+  items: DocRef[];
+}
 export interface TextBlock extends DocBlockBase {
   type: "text";
   tpl: string;
+  /** 보조 안내 — 옅은 상자에 작게 */
   muted?: boolean;
 }
 export interface ElementBlock extends DocBlockBase {
@@ -404,6 +433,9 @@ export type DocBlock =
   | CountsBlock
   | ConditionsBlock
   | FactsBlock
+  | KpisBlock
+  | GaugeBlock
+  | CompareBlock
   | TextBlock
   | ElementBlock
   | PageBreakBlock;
