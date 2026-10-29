@@ -1,0 +1,191 @@
+import type { Path, ReportDoc, ReportIssuer } from "app-renderer";
+
+// 임금피크제 샘플 앱(SAMPLE_WAGE_PEAK)의 가산형 경로에 붙이는 문서형 양식 예시.
+// 'HR 산출 리포트 개선 제안'(2026-10-15) 3.1의 A안(통지문형)과 3.3 표현 양식을 그대로 옮겼다.
+// 조건 표시 이름은 경로의 조건 id 에 묶이므로 경로를 받아 만든다.
+
+let n = 0;
+const id = () => `doc-${++n}`;
+
+/** A안 통지문형 — 1쪽 결정 통지, 2쪽 상세 내역 */
+export function wagePeakNoticeDoc(path: Path): ReportDoc {
+  const [c1, c2] = path.conditions;
+  return {
+    title: "임금피크제 적용 안내",
+    subjects: ["성명", "사번", "소속", "직급"],
+    units: { 만나이: "세", 최초적용연령: "세" },
+    blocks: [
+      { id: id(), type: "headline", tpl: "{성명} 님은 {적용시점}부터 임금피크제(가산형)가 적용됩니다" },
+      {
+        id: id(),
+        type: "formula",
+        bind: "적용후월기준액",
+        labels: { 통상임금기준액: "통상임금 기준액", 감액률: "감액률", 적용후월기준액: "적용 후 월 기준액" },
+      },
+      {
+        id: id(),
+        type: "facts",
+        title: "적용 내용",
+        items: [
+          { label: "적용 유형", bind: "적용여부" },
+          { label: "적용 시작", bind: "적용시점" },
+          { label: "감액률", bind: "감액률" },
+          { label: "최종 월 기준액", bind: "최종월기준액" },
+        ],
+      },
+      {
+        id: id(),
+        type: "text",
+        title: "산정 근거",
+        tpl: "기준일({기준일}) 현재 만 나이가 {만나이}로 최초 적용 연령({최초적용연령}) 이상이고 가산형 상한 이하에 해당합니다. 감액률과 통상임금 범위는 임금피크제 운영 세칙을 따릅니다.",
+      },
+      {
+        id: id(),
+        type: "text",
+        title: "이의가 있으신 경우",
+        locked: true,
+        muted: true,
+        tpl: "산정에 쓰인 인사 정보가 사실과 다르면 안내를 받은 날부터 14일 이내에 인사팀으로 정정을 요청해 주십시오. 정정된 정보로 다시 산정하여 안내합니다.",
+      },
+      { id: id(), type: "pagebreak" },
+      {
+        id: id(),
+        type: "itemized",
+        title: "월 기준액 산정 내역",
+        bind: "통상임금기준액",
+        totalLabel: "통상임금 기준액",
+        after: [
+          { label: "적용 후 월 기준액", bind: "적용후월기준액" },
+          { label: "최종 월 기준액 (최저임금 하한 적용)", bind: "최종월기준액" },
+        ],
+        note: "분기상여는 정기·일률 지급 항목이 아니어서 통상임금 기준액에서 제외됩니다.",
+      },
+      {
+        id: id(),
+        type: "bar",
+        title: "최저임금 하한 대비 위치",
+        bind: "최종월기준액",
+        marks: [
+          { label: "하한", bind: "최저임금월액" },
+          { label: "감액 전", bind: "통상임금기준액" },
+        ],
+      },
+      {
+        id: id(),
+        type: "bandtable",
+        title: "연령별 감액률",
+        bind: "감액률",
+        allPaths: true,
+        pathLabels: { "peak-early": "가산형", "peak-standard": "표준형" },
+        refLabel: "만 나이",
+        valueLabel: "감액률",
+        note: "감액률은 임금피크제 운영 세칙에 따릅니다.",
+      },
+      {
+        id: id(),
+        type: "conditions",
+        title: "적용 판단 근거",
+        labels: {
+          ...(c1 ? { [c1.id]: "최초 적용 연령 이상" } : {}),
+          ...(c2 ? { [c2.id]: "가산형 상한 이하" } : {}),
+        },
+      },
+    ],
+  };
+}
+
+/** 표현 양식 견본 — 블록 종류를 한 문서에 모아 본다 */
+export function showcaseDoc(path: Path): ReportDoc {
+  const chart = path.report.find((e) => e.kind === "chart" && e.ctype === "stacked");
+  return {
+    title: "표현 양식 견본",
+    subjects: ["성명", "사번"],
+    units: { 만나이: "세", 최초적용연령: "세" },
+    blocks: [
+      { id: id(), type: "headline", title: "결론 문장", tpl: "최종 월 기준액은 {최종월기준액}입니다" },
+      {
+        id: id(),
+        type: "formula",
+        title: "산식 상자",
+        bind: "적용후월기준액",
+        labels: { 통상임금기준액: "통상임금 기준액", 적용후월기준액: "적용 후 월 기준액" },
+      },
+      {
+        id: id(),
+        type: "flow",
+        title: "단계별 산정 흐름",
+        steps: [
+          { label: "통상임금 기준액", bind: "통상임금기준액" },
+          { label: "감액률", bind: "감액률" },
+          { label: "적용 후 월 기준액", bind: "적용후월기준액" },
+          { label: "최종 월 기준액", bind: "최종월기준액" },
+        ],
+      },
+      {
+        id: id(),
+        type: "range",
+        title: "범위 내 위치",
+        bind: "최종월기준액",
+        min: "최저임금월액",
+        max: "목표월기준액",
+      },
+      {
+        id: id(),
+        type: "timeline",
+        title: "타임라인",
+        points: [
+          { label: "생년월일", bind: "생년월일" },
+          { label: "기준일", bind: "기준일" },
+          { label: "적용 시작", bind: "적용시점" },
+        ],
+      },
+      {
+        id: id(),
+        type: "counts",
+        title: "일수 칸",
+        items: [
+          { label: "부여", bind: "연차부여" },
+          { label: "사용", bind: "연차사용" },
+        ],
+        total: "연차부여",
+        used: "연차사용",
+      },
+      { id: id(), type: "pagebreak" },
+      {
+        id: id(),
+        type: "itemized",
+        title: "명세서식 산정표",
+        bind: "통상임금기준액",
+        totalLabel: "통상임금 기준액",
+      },
+      {
+        id: id(),
+        type: "bandtable",
+        title: "구간 일정표",
+        bind: "감액률",
+        allPaths: true,
+        pathLabels: { "peak-early": "가산형", "peak-standard": "표준형" },
+        refLabel: "만 나이",
+      },
+      {
+        id: id(),
+        type: "bar",
+        title: "하한·목표 대비 막대",
+        bind: "최종월기준액",
+        marks: [
+          { label: "하한", bind: "최저임금월액" },
+          { label: "목표", bind: "목표월기준액" },
+        ],
+      },
+      { id: id(), type: "conditions", title: "조건 근거표" },
+      ...(chart ? [{ id: id(), type: "element" as const, title: "기존 차트 (누적 막대)", el: chart }] : []),
+    ],
+  };
+}
+
+/** 견본 화면에만 쓰는 가상의 발행 정보 */
+export const SAMPLE_ISSUER: ReportIssuer = {
+  company: "온누리테크",
+  dept: "인사팀 보상 담당",
+  contact: "02-1234-5678",
+};
