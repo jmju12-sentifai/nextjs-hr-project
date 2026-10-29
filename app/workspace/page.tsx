@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import SectionShell, { PlannedList } from "../components/home/SectionShell";
 import { getViewer } from "@/lib/viewer";
+import type { ReportIssuer } from "app-renderer";
+import IssuerForm from "./IssuerForm";
 
 export const metadata = { title: "내 작업실 — HRcoach" };
 
@@ -38,6 +40,10 @@ function relDays(iso: string) {
 export default async function WorkspacePage() {
   const viewer = await getViewer();
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const issuer = (user?.user_metadata?.report_issuer as ReportIssuer | undefined) ?? null;
 
   // RLS 가 본인 행만 통과시키므로 별도 필터가 필요 없다.
   const { data: runsRaw } = viewer.email
@@ -215,6 +221,18 @@ export default async function WorkspacePage() {
             </p>
           </section>
         </>
+      )}
+
+      {viewer.email && (
+        <section className="mb-12 mt-2">
+          <h2 className="mb-1.5 text-[18px] font-bold tracking-[-0.03em] text-[var(--sec-heading)]">
+            리포트 발행 정보
+          </h2>
+          <p className="mb-4 text-[13px] text-[var(--sec-muted)]">
+            앱 리포트(안내서)의 머리말과 꼬리말에 회사명과 문의처를 넣습니다.
+          </p>
+          <IssuerForm initial={issuer} />
+        </section>
       )}
 
       <h2 className="mb-4 mt-2 text-[18px] font-bold tracking-[-0.03em] text-[var(--sec-heading)]">

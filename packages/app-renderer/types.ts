@@ -282,12 +282,157 @@ export interface Meta {
   category?: string;
 }
 
+// ───── 문서형 리포트 ─────
+// 그리드에 요소를 배치하던 report 와 별개로, 위에서 아래로 읽는 문서 양식.
+// 블록은 값을 갖지 않고 변수·산출 이름만 가리킨다 — 숫자는 언제나 계산 엔진 값.
+// 문장(tpl)의 {이름} 자리도 같은 규칙으로 채운다.
+export type DocBlockType =
+  | "headline" // 결론 문장
+  | "formula" // 산식 상자
+  | "itemized" // 명세서식 산정표
+  | "bandtable" // 구간 일정표
+  | "flow" // 단계별 산정 흐름
+  | "range" // 범위 내 위치
+  | "bar" // 하한·목표 대비 막대
+  | "timeline" // 타임라인
+  | "counts" // 일수 칸
+  | "conditions" // 조건 근거표
+  | "facts" // 항목 값 목록
+  | "text" // 안내문
+  | "element" // 기존 그리드 요소(차트 9종 등)를 그대로 끼워 넣기
+  | "pagebreak";
+
+/** 블록이 가리키는 값 하나. label 이 없으면 이름을 그대로 보여준다. */
+export interface DocRef {
+  bind: string;
+  label?: string;
+}
+
+interface DocBlockBase {
+  id: string;
+  type: DocBlockType;
+  title?: string;
+  /** 규정 인용·공식 안내처럼 편집 대상에서 빼는 블록 */
+  locked?: boolean;
+}
+
+export interface HeadlineBlock extends DocBlockBase {
+  type: "headline";
+  tpl: string;
+}
+export interface FormulaBlock extends DocBlockBase {
+  type: "formula";
+  bind: string; // formula 단계 이름
+  labels?: Record<string, string>; // 이름 → 상자에 붙일 표시 이름
+}
+export interface ItemizedBlock extends DocBlockBase {
+  type: "itemized";
+  bind: string; // classify 단계 이름
+  totalLabel?: string;
+  hideExcluded?: boolean;
+  /** 합계 아래에 이어 붙이는 행 (감액, 적용 후 금액 등). 마지막 행을 결과로 강조한다. */
+  after?: (DocRef & { sign?: "-" })[];
+  note?: string;
+}
+export interface BandTableBlock extends DocBlockBase {
+  type: "bandtable";
+  bind: string; // table 단계 이름
+  /** 같은 이름의 구간표를 모든 경로에서 모아 한 표로 (예: 가산형·표준형 감액률) */
+  allPaths?: boolean;
+  pathLabels?: Record<string, string>; // 경로 id → 유형 열에 쓸 짧은 이름
+  refLabel?: string;
+  valueLabel?: string;
+  note?: string;
+}
+export interface FlowBlock extends DocBlockBase {
+  type: "flow";
+  steps: DocRef[];
+}
+export interface RangeBlock extends DocBlockBase {
+  type: "range";
+  bind: string;
+  min: string; // 이름 또는 숫자
+  max: string;
+  mid?: string;
+}
+export interface BarBlock extends DocBlockBase {
+  type: "bar";
+  bind: string;
+  marks: DocRef[]; // 하한·목표 같은 기준선
+}
+export interface TimelineBlock extends DocBlockBase {
+  type: "timeline";
+  points: DocRef[];
+}
+export interface CountsBlock extends DocBlockBase {
+  type: "counts";
+  items: DocRef[];
+  /** 둘 다 있으면 칸으로 사용 현황을 그린다 (총량이 60 이하일 때) */
+  total?: string;
+  used?: string;
+}
+export interface ConditionsBlock extends DocBlockBase {
+  type: "conditions";
+  labels?: Record<string, string>; // 조건 id → 표시 이름
+}
+export interface FactsBlock extends DocBlockBase {
+  type: "facts";
+  items: DocRef[];
+}
+export interface TextBlock extends DocBlockBase {
+  type: "text";
+  tpl: string;
+  muted?: boolean;
+}
+export interface ElementBlock extends DocBlockBase {
+  type: "element";
+  el: ReportElement;
+}
+export interface PageBreakBlock extends DocBlockBase {
+  type: "pagebreak";
+}
+
+export type DocBlock =
+  | HeadlineBlock
+  | FormulaBlock
+  | ItemizedBlock
+  | BandTableBlock
+  | FlowBlock
+  | RangeBlock
+  | BarBlock
+  | TimelineBlock
+  | CountsBlock
+  | ConditionsBlock
+  | FactsBlock
+  | TextBlock
+  | ElementBlock
+  | PageBreakBlock;
+
+export interface ReportDoc {
+  /** 문서 제목. 비면 "{앱 이름} 안내서" */
+  title?: string;
+  /** 머리말 대상자 줄에 넣을 변수 (성명·사번·소속 등) */
+  subjects?: string[];
+  /** 이 문서에서만 쓰는 표시 단위 (예: 만나이 "년" → "세"). 계산 값은 그대로다. */
+  units?: Record<string, string>;
+  blocks: DocBlock[];
+}
+
+/** 리포트 머리말·꼬리말의 발행 정보. 사용자가 마이페이지에서 한 번 입력한다. */
+export interface ReportIssuer {
+  company?: string;
+  dept?: string;
+  contact?: string;
+}
+
 export interface Path {
   id: string;
   label: string;
   conditions: Judge[]; // 모두 충족 시 이 경로 (AND)
   steps: Step[];
   report: ReportElement[];
+  /** 문서형 양식. blocks 가 있으면 report(그리드) 대신 이것으로 그린다. */
+  doc?: ReportDoc;
   note?: string;
 }
 

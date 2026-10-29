@@ -3,9 +3,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
 import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
-import type { AppSchema, Grp, Variable } from "app-renderer";
-import { activePathOf, fmtU, migrateSchema, run, todayStr } from "app-renderer";
+import type { AppSchema, Grp, ReportIssuer, Variable } from "app-renderer";
+import { activePathOf, fmtU, hasDoc, migrateSchema, run, todayStr } from "app-renderer";
 import ElementRenderer from "@/app/admin/builder/components/ElementRenderer";
+import DocReport from "@/app/admin/builder/components/DocReport";
 import RowsTable from "@/app/admin/builder/components/RowsTable";
 
 const PVTABS = [
@@ -81,6 +82,8 @@ export default function AppPage() {
   const llmRunKeyRef = useRef<string>("");
   // "다시 하기" 확인 모달
   const [resetConfirm, setResetConfirm] = useState(false);
+  // 리포트 머리말·꼬리말의 발행 정보 — 내 작업실에서 입력한 값
+  const [issuer, setIssuer] = useState<ReportIssuer | null>(null);
 
   // 모든 사용자 입력·산출 결과를 초기화하고 처음 화면(앱 설명) 으로 이동
   const resetAll = () => {
@@ -95,6 +98,13 @@ export default function AppPage() {
 
   // f4 진입 시 app_runs 에 1행 기록 (한 세션 1회) — 메타데이터만 저장 (PII 제외)
   const runLogged = useRef(false);
+
+  useEffect(() => {
+    void createBrowserSupabase()
+      .auth.getUser()
+      .then(({ data }) => setIssuer((data.user?.user_metadata?.report_issuer as ReportIssuer) ?? null))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -161,6 +171,8 @@ export default function AppPage() {
     if (pvtab !== "f3" && pvtab !== "f4") return;
     // 활성 경로의 LLM 단계 수집 (shared + active path)
     const activePath = activePathOf(liveSchema, result.activePathId);
+    // 문서형 양식은 리포트를 만들 때 AI를 쓰지 않는다 — 같은 입력이면 같은 결과
+    if (hasDoc(activePath)) return;
     const llmSteps: any[] = [];
     const collect = (steps: any[] = []) => {
       for (const s of steps) if (s?.type === "llm") llmSteps.push(s);
@@ -482,6 +494,7 @@ export default function AppPage() {
                 sc={result.sc}
                 disp={result.disp}
                 jres={result.jres}
+                issuer={issuer}
               />
             </>
           )}
@@ -1180,8 +1193,9 @@ function Analyze({ schema, result, activePath }: any) {
 // ReportView 패널 — 안내서 + PDF/DOCX/JSON 다운로드
 // ──────────────────────────────────────────────────────────────
 
-function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
+function ReportView({ schema, activePath, result, sc, disp, jres, issuer }: any) {
   const list = (activePath?.report || []) as any[];
+  const docMode = hasDoc(activePath);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -1240,14 +1254,16 @@ function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
     <div className="flex flex-wrap items-center gap-2 justify-end">
       <span className="text-xs text-gray-500 mr-auto">{msg}</span>
       <button
-        disabled={busy || list.length === 0}
+        disabled={busy || docMode || list.length === 0}
+        title={docMode ? "문서형 양식의 PDF 출력은 준비 중입니다" : undefined}
         onClick={() => download("pdf")}
         className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
         📄 PDF
       </button>
       <button
-        disabled={busy || list.length === 0}
+        disabled={busy || docMode || list.length === 0}
+        title={docMode ? "문서형 양식의 Word 출력은 준비 중입니다" : undefined}
         onClick={() => download("docx")}
         className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
@@ -1263,6 +1279,16 @@ function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
     </div>
   );
 
+  if (docMode) {
+    return (
+      <>
+        <div className="rounded bg-slate-100/70 p-2 sm:p-5">
+          <DocReport schema={schema} path={activePath} result={result} issuer={issuer} />
+        </div>
+        <div className="mt-3">{DownloadBar}</div>
+      </>
+    );
+  }
   if (list.length === 0) {
     return (
       <div>

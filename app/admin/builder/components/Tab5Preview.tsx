@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppSchema, CmpOp, Grp, Unit } from "app-renderer";
-import { UNITS, fmtU, migrateSchema, run, todayStr, activePathOf } from "app-renderer";
+import { UNITS, fmtU, hasDoc, migrateSchema, run, todayStr, activePathOf } from "app-renderer";
+import DocReport from "./DocReport";
 import ElementRenderer from "./ElementRenderer";
 
 const uid = () => Math.random().toString(36).slice(2, 7);
@@ -81,6 +82,8 @@ export default function Tab5Preview({ schema: rawSchema, appId }: Props) {
     const collect = (steps: any[] = []) => {
       for (const s of steps) if (s?.type === "llm") llmSteps.push(s);
     };
+    // 문서형 양식은 리포트를 만들 때 AI를 쓰지 않는다
+    if (hasDoc(activePath)) return;
     collect((schema.shared?.steps as any[]) || []);
     collect((activePath?.steps as any[]) || []);
     if (llmSteps.length === 0) return;
@@ -907,6 +910,7 @@ const wClass: Record<string, string> = {
 
 function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
   const list = (activePath?.report || []) as any[];
+  const docMode = hasDoc(activePath);
   // 페이지 추정 — wSpan/hSpan 우선, 없으면 옛 w/h
   // A4 1페이지 용량: 6열 × 약 8행 = 48 unit
   // (Tab5/사용자 앱은 auto-rows-[96px]로 약 7~8행, PDF는 minHeight 기반 약 12행)
@@ -986,14 +990,16 @@ function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
         {msg && <span>{msg}</span>}
       </span>
       <button
-        disabled={busy || list.length === 0}
+        disabled={busy || docMode || list.length === 0}
+        title={docMode ? "문서형 양식의 PDF 출력은 준비 중입니다" : undefined}
         onClick={() => download("pdf")}
         className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
         📄 PDF
       </button>
       <button
-        disabled={busy || list.length === 0}
+        disabled={busy || docMode || list.length === 0}
+        title={docMode ? "문서형 양식의 Word 출력은 준비 중입니다" : undefined}
         onClick={() => download("docx")}
         className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
@@ -1009,6 +1015,16 @@ function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
     </div>
   );
 
+  if (docMode) {
+    return (
+      <>
+        <div className="rounded bg-slate-100/70 p-2 sm:p-5">
+          <DocReport schema={schema} path={activePath} result={result} />
+        </div>
+        <div className="mt-3">{DownloadBar}</div>
+      </>
+    );
+  }
   if (list.length === 0) {
     return (
       <div>
