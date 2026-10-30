@@ -513,39 +513,77 @@ function Compare({ b, ctx }: { b: CompareBlock; ctx: Ctx }) {
 
 // ───────────── 산식·산정 ─────────────
 
+/**
+ * 산식 — 위 줄은 항목 이름으로 쓴 식, 아래 줄은 같은 식에 값을 넣은 것. 등호 위치를 맞춘다.
+ * 그 아래에 식에 쓰인 항목마다 값과 뜻을 적는다.
+ */
 function Formula({ b, ctx }: { b: FormulaBlock; ctx: Ctx }) {
   const st = findStep(ctx.schema, b.bind, ctx.r.activePathId);
   if (!st || st.type !== "formula") return <Missing what={`산식 단계를 찾을 수 없습니다: ${b.bind}`} />;
   const lab = (n: string) => b.labels?.[n]?.trim() || n;
-  const Op = ({ children }: { children: ReactNode }) => (
-    <span className="grid h-7 min-w-7 place-items-center rounded-full border border-[var(--r-line)] bg-white px-1.5 text-[14px] font-semibold text-[var(--r-fg)]">
-      {children}
-    </span>
-  );
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--r-line)] p-3">
-      {st.tokens.map((t, i) => {
-        if (t.t === "var")
-          return (
-            <div key={i} className="rounded-xl bg-[var(--r-soft)] px-4 py-2.5">
-              <div className="text-[11px] text-[var(--r-muted)]">{lab(t.name)}</div>
-              <div className="text-[18px] font-bold leading-snug text-[var(--r-ink)]">{dv(ctx, t.name)}</div>
-            </div>
-          );
-        if (t.t === "num") return <span key={i} className="px-0.5 text-[18px] font-bold text-[var(--r-ink)]">{plain(t.v)}</span>;
-        if (t.t === "op") return <Op key={i}>{OPS[t.op] || t.op}</Op>;
-        if (t.t === "fn") return <span key={i} className="text-[13px] font-semibold text-[var(--r-muted)]">{FNS[t.fn] || t.fn}</span>;
+  const expr = (byName: boolean) =>
+    st.tokens.map((t, i) => {
+      if (t.t === "var")
+        return byName ? (
+          <span key={i} className="font-semibold text-[var(--r-ink)]">
+            {lab(t.name)}
+          </span>
+        ) : (
+          <span key={i}>{dv(ctx, t.name)}</span>
+        );
+      if (t.t === "num") return <span key={i}>{plain(t.v)}</span>;
+      if (t.t === "op")
         return (
-          <span key={i} className="text-[24px] font-light leading-none text-[var(--r-muted)]">
-            {t.t === "lp" ? "(" : ")"}
+          <span key={i} className="mx-1.5 text-[var(--r-muted)]">
+            {OPS[t.op] || t.op}
           </span>
         );
-      })}
-      <Op>=</Op>
-      <div className="rounded-xl bg-[var(--r-accent)] px-4 py-2.5 text-white">
-        <div className="text-[11px] text-white/75">{lab(b.bind)}</div>
-        <div className="text-[18px] font-bold leading-snug">{dv(ctx, b.bind)}</div>
+      if (t.t === "fn") return <span key={i}>{FNS[t.fn] || t.fn}</span>;
+      return (
+        <span key={i} className="text-[var(--r-muted)]">
+          {t.t === "lp" ? "(" : ")"}
+        </span>
+      );
+    });
+
+  // 식에 나온 항목 (중복 없이, 나온 순서대로)
+  const terms = Array.from(new Set(st.tokens.flatMap((t) => (t.t === "var" ? [t.name] : []))));
+  const noteOf = (name: string) => {
+    if (b.notes?.[name]?.trim()) return b.notes[name].trim();
+    const v = ctx.schema.vars.find((x) => x.name === name);
+    if (v) return v.desc?.trim() || "";
+    const s = findStep(ctx.schema, name, ctx.r.activePathId);
+    return s ? describeStep(s, ctx.r.sc) : "";
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-[var(--r-soft)] px-4 py-4 sm:px-5">
+        <div className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-baseline gap-x-2.5 gap-y-1.5 sm:gap-x-3">
+          <span className="text-[13px] font-semibold text-[var(--r-ink)] sm:text-[14px]">{lab(b.bind)}</span>
+          <span className="text-[13px] text-[var(--r-muted)] sm:text-[14px]">=</span>
+          <span className="text-[13px] sm:text-[14px]">{expr(true)}</span>
+          <span className="text-[16px] font-bold tabular-nums text-[var(--r-accent)] sm:text-[19px]">{dv(ctx, b.bind)}</span>
+          <span className="text-[16px] text-[var(--r-muted)] sm:text-[19px]">=</span>
+          <span className="text-[16px] font-bold tabular-nums text-[var(--r-ink)] sm:text-[19px]">{expr(false)}</span>
+        </div>
       </div>
+      {terms.length > 0 && (
+        <dl className="divide-y divide-[var(--r-line)]">
+          {terms.map((name) => {
+            const note = noteOf(name);
+            return (
+              <div key={name} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 py-2">
+                <dt className="min-w-0">
+                  <span className="font-semibold text-[var(--r-ink)]">{lab(name)}</span>
+                  {note && <span className="mt-0.5 block text-[12px] text-[var(--r-muted)]">{note}</span>}
+                </dt>
+                <dd className="font-semibold tabular-nums text-[var(--r-ink)]">{dv(ctx, name)}</dd>
+              </div>
+            );
+          })}
+        </dl>
+      )}
     </div>
   );
 }

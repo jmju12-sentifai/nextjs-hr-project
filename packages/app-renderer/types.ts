@@ -326,7 +326,9 @@ export interface HeadlineBlock extends DocBlockBase {
 export interface FormulaBlock extends DocBlockBase {
   type: "formula";
   bind: string; // formula 단계 이름
-  labels?: Record<string, string>; // 이름 → 상자에 붙일 표시 이름
+  labels?: Record<string, string>; // 이름 → 식에 쓸 표시 이름
+  /** 항목 이름 → 뜻 설명. 비우면 변수 설명(desc)이나 산출 단계 설명을 쓴다. */
+  notes?: Record<string, string>;
 }
 export interface ItemizedBlock extends DocBlockBase {
   type: "itemized";
