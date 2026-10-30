@@ -5,6 +5,7 @@ import { hasDoc, run, validateDoc } from "app-renderer";
 import type { AppSchema, Path, ReportDoc, ReportGuide } from "app-renderer";
 import type { ReportProposal } from "@/lib/report-proposals";
 import DocReport from "./DocReport";
+import DocChatEditor from "./DocChatEditor";
 import { useReportGuide } from "./useReportGuide";
 
 const purposes = [{ id: "print", label: "출력·전달" }, { id: "screen", label: "화면 확인" }, { id: "review", label: "담당자 검토" }] as const;
@@ -73,6 +74,8 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
         <button className="rounded border px-3 py-2" onClick={() => setConfirmGrid(false)}>취소</button></div>
     </div>}
     {docMode && <>
+      <details open={hasDoc(path) ? undefined : true} className="rounded-2xl border border-blue-100 bg-blue-50/60">
+      <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-blue-900">{hasDoc(path) ? "다른 양식 제안받기" : "AI 양식 제안"}</summary>
       <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><h3 className="text-lg font-bold text-slate-900">이 결과에 맞는 양식을 제안받으세요</h3>
@@ -91,9 +94,10 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
         {!loaded.loading && !loaded.available && !loaded.error && <p className="mt-3 text-xs text-slate-600">공통 가이드 저장 준비 전에는 기본 가이드로 제안합니다.</p>}
         {loaded.error && <p role="alert" className="mt-3 text-sm text-red-700">{loaded.error} 페이지를 새로고침해 주세요.</p>}
       </div>
+      </details>
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {notice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{notice}</p>}
-      {hasDoc(path) ? <DocReport schema={schema} path={path} result={preview} accent={guide.accent} />
+      {hasDoc(path) ? <DocChatEditor key={`${appId}:${path.id}`} schema={schema} path={path} appId={appId} accent={guide.accent} onConfirm={onApply} />
         : <div className="rounded-2xl border border-dashed p-10 text-center text-sm leading-6 text-slate-500">아직 선택한 문서형 양식이 없습니다.<br />AI 제안을 선택한 뒤 저장하면 이 경로에 적용됩니다.</div>}
     </>}
     <dialog ref={dialog} onCancel={close} aria-labelledby="proposal-title" className="m-auto max-h-[94dvh] w-[calc(100%_-_1rem)] max-w-6xl overflow-y-auto rounded-2xl bg-slate-100 p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60">

@@ -1,5 +1,6 @@
 import type { AppSchema, DocBlockType, ReportDoc } from "./types";
 import { migrateSchema } from "./runtime";
+import { stableJson } from "./json";
 
 export const DOC_BLOCK_LABELS: Record<DocBlockType, string> = {
   headline: "결론 문장", kpis: "핵심 수치", gauge: "비율 링", compare: "전후 비교",
@@ -106,7 +107,7 @@ export function validateDoc(schema: AppSchema, pathId: string, input: unknown, o
     ids.add(id);
     if (Object.keys(b).some(k => !["id", "type", "title", "locked", ...fields[b.type]].includes(k))) fail("shape", "블록에 허용되지 않은 속성이 있습니다.", id);
     const old = opts.previous?.blocks.find(x => x.id === id && x.locked);
-    const trusted = !!old && JSON.stringify(old) === JSON.stringify(b);
+    const trusted = !!old && stableJson(old) === stableJson(b);
     if (b.locked !== undefined && typeof b.locked !== "boolean") fail("shape", "잠금 설정을 확인해 주세요.", id);
     if (opts.proposal && b.locked && !trusted) fail("locked", "새로운 공식 문구를 AI가 임의로 만들 수 없습니다.", id);
     for (const k of ["title", "totalLabel", "refLabel", "valueLabel", "endLabel", "note"]) if (b[k] !== undefined) text(b[k], id, trusted);
@@ -150,7 +151,7 @@ export function validateDoc(schema: AppSchema, pathId: string, input: unknown, o
   if (!input.blocks.some(b => object(b) && b.type !== "pagebreak")) fail("empty", "내용이 없는 양식입니다.");
   for (const old of opts.previous?.blocks.filter(b => b.locked) || []) {
     const next = input.blocks.find(b => object(b) && b.id === old.id);
-    if (JSON.stringify(next) !== JSON.stringify(old)) fail("locked", "잠긴 블록은 수정하거나 삭제할 수 없습니다.", old.id);
+    if (stableJson(next) !== stableJson(old)) fail("locked", "잠긴 블록은 수정하거나 삭제할 수 없습니다.", old.id);
   }
   for (const type of opts.guide?.required || []) if (!input.blocks.some(b => object(b) && b.type === type)) fail("required", `필수 표현이 빠졌습니다: ${DOC_BLOCK_LABELS[type]}`);
   return { ok: errors.length === 0, errors };

@@ -150,7 +150,7 @@ export default function BuilderPage() {
 
 function BuilderInner() {
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState("m0");
+  const [tab, setTab] = useState(() => searchParams?.get("tab") === "rp" ? "rp" : "m0");
   const [schema, setSchema] = useState<AppSchema>(EMPTY_SCHEMA);
   const [appId, setAppId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

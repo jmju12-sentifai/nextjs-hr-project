@@ -25,6 +25,7 @@ import type {
 } from "app-renderer";
 import {
   KOP,
+  DOC_BLOCK_LABELS,
   bandNum,
   describeStep,
   docPages,
@@ -64,6 +65,10 @@ interface Props {
   issuer?: ReportIssuer | null;
   issuedAt?: string;
   accent?: string;
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
+  onToggleLock?: (id: string, locked: boolean) => void;
+  changedIds?: string[];
 }
 
 interface Ctx {
@@ -87,7 +92,7 @@ const HATCH = "repeating-linear-gradient(135deg, #b8c3d4 0 2px, #eef2f7 2px 5px)
 const OPS: Record<string, string> = { "+": "+", "-": "−", "*": "×", "/": "÷", "%": "나머지", "//": "몫" };
 const FNS: Record<string, string> = { floor: "내림", ceil: "올림", round: "반올림" };
 
-export default function DocReport({ schema, path, result, issuer, issuedAt, accent }: Props) {
+export default function DocReport({ schema, path, result, issuer, issuedAt, accent, selectedId, onSelect, onToggleLock, changedIds }: Props) {
   const doc = path.doc;
   const pages = docPages(doc);
   const units = doc.units || {};
@@ -155,9 +160,18 @@ export default function DocReport({ schema, path, result, issuer, issuedAt, acce
           )}
 
           <div className="space-y-8 px-5 py-7 sm:px-10 sm:py-9">
-            {blocks.map((b) => (
-              <Block key={b.id} b={b} ctx={ctx} />
-            ))}
+            {blocks.map((b) => onSelect ? (
+              <div key={b.id} data-doc-block={b.id}
+                className={`relative rounded-lg outline-offset-4 ${selectedId === b.id ? "outline outline-2 outline-blue-600" : changedIds?.includes(b.id) ? "outline outline-2 outline-emerald-400" : "hover:outline hover:outline-1 hover:outline-slate-300"}`}>
+                <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-100 pb-2 text-xs">
+                  <button type="button" aria-pressed={selectedId === b.id} onClick={() => onSelect(b.id)} className="min-w-0 truncate rounded px-2 py-1 text-left font-semibold text-slate-600 hover:bg-blue-50">
+                    {b.title || DOC_BLOCK_LABELS[b.type]} {selectedId === b.id ? "· 선택됨" : "· 선택하여 수정"}
+                  </button>
+                  {onToggleLock && <button type="button" aria-label={`${b.title || DOC_BLOCK_LABELS[b.type]} ${b.locked ? "잠금 해제" : "잠금"}`} onClick={() => onToggleLock(b.id, !b.locked)} className="shrink-0 rounded border px-2 py-1 text-slate-600">{b.locked ? "잠김" : "잠금"}</button>}
+                </div>
+                <div onClick={() => onSelect(b.id)} className="cursor-pointer"><Block b={b} ctx={ctx} /></div>
+              </div>
+            ) : <Block key={b.id} b={b} ctx={ctx} />)}
           </div>
 
           <footer className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-[var(--r-line)] bg-[var(--r-soft)] px-5 py-3 text-[11px] text-[var(--r-muted)] sm:px-10">

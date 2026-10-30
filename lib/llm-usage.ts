@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export type Surface = "app" | "builder";
 
 export type UsageOperation =
+  | "doc_edit"
   | "doc_propose"
   | "llm_summary"
   | "parse_document"
