@@ -25,6 +25,7 @@ import type {
 } from "app-renderer";
 import {
   KOP,
+  DOC_BLOCK_LABELS,
   bandNum,
   describeStep,
   docPages,
@@ -64,6 +65,10 @@ interface Props {
   issuer?: ReportIssuer | null;
   issuedAt?: string;
   accent?: string;
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
+  onToggleLock?: (id: string, locked: boolean) => void;
+  changedIds?: string[];
 }
 
 interface Ctx {
@@ -87,7 +92,7 @@ const HATCH = "repeating-linear-gradient(135deg, #b8c3d4 0 2px, #eef2f7 2px 5px)
 const OPS: Record<string, string> = { "+": "+", "-": "−", "*": "×", "/": "÷", "%": "나머지", "//": "몫" };
 const FNS: Record<string, string> = { floor: "내림", ceil: "올림", round: "반올림" };
 
-export default function DocReport({ schema, path, result, issuer, issuedAt, accent }: Props) {
+export default function DocReport({ schema, path, result, issuer, issuedAt, accent, selectedId, onSelect, onToggleLock, changedIds }: Props) {
   const doc = path.doc;
   const pages = docPages(doc);
   const units = doc.units || {};
@@ -155,9 +160,18 @@ export default function DocReport({ schema, path, result, issuer, issuedAt, acce
           )}
 
           <div className="space-y-8 px-5 py-7 sm:px-10 sm:py-9">
-            {blocks.map((b) => (
-              <Block key={b.id} b={b} ctx={ctx} />
-            ))}
+            {blocks.map((b) => onSelect ? (
+              <div key={b.id} data-doc-block={b.id}
+                className={`relative rounded-lg outline-offset-4 ${selectedId === b.id ? "outline outline-2 outline-blue-600" : changedIds?.includes(b.id) ? "outline outline-2 outline-emerald-400" : "hover:outline hover:outline-1 hover:outline-slate-300"}`}>
+                <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-100 pb-2 text-xs">
+                  <button type="button" aria-pressed={selectedId === b.id} onClick={() => onSelect(b.id)} className="min-w-0 truncate rounded px-2 py-1 text-left font-semibold text-slate-600 hover:bg-blue-50">
+                    {b.title || DOC_BLOCK_LABELS[b.type]} {selectedId === b.id ? "· 선택됨" : "· 선택하여 수정"}
+                  </button>
+                  {onToggleLock && <button type="button" aria-label={`${b.title || DOC_BLOCK_LABELS[b.type]} ${b.locked ? "잠금 해제" : "잠금"}`} onClick={() => onToggleLock(b.id, !b.locked)} className="shrink-0 rounded border px-2 py-1 text-slate-600">{b.locked ? "잠김" : "잠금"}</button>}
+                </div>
+                <div onClick={() => onSelect(b.id)} className="cursor-pointer"><Block b={b} ctx={ctx} /></div>
+              </div>
+            ) : <Block key={b.id} b={b} ctx={ctx} />)}
           </div>
 
           <footer className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-[var(--r-line)] bg-[var(--r-soft)] px-5 py-3 text-[11px] text-[var(--r-muted)] sm:px-10">
@@ -387,29 +401,26 @@ function Kpis({ b, ctx }: { b: KpisBlock; ctx: Ctx }) {
   if (!hero) return null;
   const heroP = ratioOf(ctx, hero.bind);
   return (
-    <div className={"grid gap-3 " + (rest.length ? "sm:grid-cols-[1.25fr_1fr]" : "")}>
-      <div className="flex min-h-[132px] flex-col justify-between gap-4 rounded-2xl bg-[var(--r-accent)] p-5 text-white">
+    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 18rem), 1fr))", containerType: "inline-size" }}>
+      <div className="flex min-w-0 min-h-[132px] flex-col justify-between gap-4 rounded-2xl bg-[var(--r-accent)] p-5 text-white">
         <span className="text-[12px] font-semibold text-white/80">{labelOf(hero)}</span>
         <div className="flex items-end justify-between gap-3">
-          <span className="text-[32px] font-bold leading-none tracking-[-0.03em] sm:text-[36px]">{dv(ctx, hero.bind)}</span>
+          <span className="min-w-0 font-bold leading-none tracking-[-0.03em] [overflow-wrap:anywhere]" style={{ fontSize: "clamp(22px, 7cqi, 36px)" }}>{dv(ctx, hero.bind)}</span>
           {heroP !== null && <Ring p={heroP} size={52} stroke={7} light />}
         </div>
       </div>
       {rest.length > 0 && (
-        <div className={"grid gap-3 " + (rest.length > 1 ? "grid-cols-2" : "")}>
+        <div className="grid min-w-0 gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 9rem), 1fr))" }}>
           {rest.map((it, i) => {
             const p = ratioOf(ctx, it.bind);
             return (
               <div
                 key={i}
-                className={
-                  "flex items-center justify-between gap-2 rounded-2xl bg-[var(--r-soft)] px-4 py-3.5 " +
-                  (rest.length === 3 && i === 0 ? "col-span-2" : "")
-                }
+                className="flex min-w-0 items-center justify-between gap-2 rounded-2xl bg-[var(--r-soft)] px-4 py-3.5"
               >
                 <div className="min-w-0">
                   <div className="text-[11.5px] text-[var(--r-muted)]">{labelOf(it)}</div>
-                  <div className="mt-0.5 text-[17px] font-bold leading-snug text-[var(--r-ink)]">{dv(ctx, it.bind)}</div>
+                  <div className="mt-0.5 text-[17px] font-bold leading-snug text-[var(--r-ink)] [overflow-wrap:anywhere]">{dv(ctx, it.bind)}</div>
                 </div>
                 {p !== null && <Ring p={p} size={36} stroke={5} />}
               </div>
