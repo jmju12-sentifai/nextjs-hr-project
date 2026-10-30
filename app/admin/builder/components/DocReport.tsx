@@ -401,29 +401,26 @@ function Kpis({ b, ctx }: { b: KpisBlock; ctx: Ctx }) {
   if (!hero) return null;
   const heroP = ratioOf(ctx, hero.bind);
   return (
-    <div className={"grid gap-3 " + (rest.length ? "sm:grid-cols-[1.25fr_1fr]" : "")}>
-      <div className="flex min-h-[132px] flex-col justify-between gap-4 rounded-2xl bg-[var(--r-accent)] p-5 text-white">
+    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 18rem), 1fr))", containerType: "inline-size" }}>
+      <div className="flex min-w-0 min-h-[132px] flex-col justify-between gap-4 rounded-2xl bg-[var(--r-accent)] p-5 text-white">
         <span className="text-[12px] font-semibold text-white/80">{labelOf(hero)}</span>
         <div className="flex items-end justify-between gap-3">
-          <span className="text-[32px] font-bold leading-none tracking-[-0.03em] sm:text-[36px]">{dv(ctx, hero.bind)}</span>
+          <span className="min-w-0 font-bold leading-none tracking-[-0.03em] [overflow-wrap:anywhere]" style={{ fontSize: "clamp(22px, 7cqi, 36px)" }}>{dv(ctx, hero.bind)}</span>
           {heroP !== null && <Ring p={heroP} size={52} stroke={7} light />}
         </div>
       </div>
       {rest.length > 0 && (
-        <div className={"grid gap-3 " + (rest.length > 1 ? "grid-cols-2" : "")}>
+        <div className="grid min-w-0 gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 9rem), 1fr))" }}>
           {rest.map((it, i) => {
             const p = ratioOf(ctx, it.bind);
             return (
               <div
                 key={i}
-                className={
-                  "flex items-center justify-between gap-2 rounded-2xl bg-[var(--r-soft)] px-4 py-3.5 " +
-                  (rest.length === 3 && i === 0 ? "col-span-2" : "")
-                }
+                className="flex min-w-0 items-center justify-between gap-2 rounded-2xl bg-[var(--r-soft)] px-4 py-3.5"
               >
                 <div className="min-w-0">
                   <div className="text-[11.5px] text-[var(--r-muted)]">{labelOf(it)}</div>
-                  <div className="mt-0.5 text-[17px] font-bold leading-snug text-[var(--r-ink)]">{dv(ctx, it.bind)}</div>
+                  <div className="mt-0.5 text-[17px] font-bold leading-snug text-[var(--r-ink)] [overflow-wrap:anywhere]">{dv(ctx, it.bind)}</div>
                 </div>
                 {p !== null && <Ring p={p} size={36} stroke={5} />}
               </div>
