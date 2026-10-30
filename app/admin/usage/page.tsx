@@ -81,6 +81,7 @@ const won = (v: number | null | undefined) => {
 };
 
 const OP_LABEL: Record<string, string> = {
+  doc_propose: "리포트 양식 제안",
   llm_summary: "안내문 생성", parse_document: "개인정보 파싱",
   generate_spec: "기획서 생성", spec_stage: "기획서 단계 분석",
   spec_preview: "탭별 프리뷰", parse_spec: "기획서 파싱",

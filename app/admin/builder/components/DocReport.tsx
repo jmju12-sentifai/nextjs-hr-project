@@ -112,7 +112,7 @@ export default function DocReport({ schema, path, result, issuer, issuedAt, acce
     "--r-line": "#e4ebf5",
     "--r-soft": "#f2f6fc",
     "--r-accent": accent || "#1858f2",
-    "--r-accent-soft": "#e6efff",
+    "--r-accent-soft": accent ? `color-mix(in srgb, ${accent} 11%, white)` : "#e6efff",
     "--r-lime": "#d8ff22",
   } as CSSProperties;
 

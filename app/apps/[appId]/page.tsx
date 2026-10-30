@@ -6,7 +6,7 @@ import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import type { AppSchema, Grp, ReportIssuer, Variable } from "app-renderer";
 import { activePathOf, fmtU, hasDoc, migrateSchema, run, todayStr } from "app-renderer";
 import ElementRenderer from "@/app/admin/builder/components/ElementRenderer";
-import DocReport from "@/app/admin/builder/components/DocReport";
+import DocReport from "@/app/admin/builder/components/GuidedDocReport";
 import RowsTable from "@/app/admin/builder/components/RowsTable";
 
 const PVTABS = [

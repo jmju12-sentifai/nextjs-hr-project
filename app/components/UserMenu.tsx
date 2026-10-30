@@ -91,6 +91,7 @@ export default function UserMenu({
                 { label: "앱 목록 · 발행 관리", href: "/admin/applist" },
                 { label: "앱 빌더", href: "/admin/builder" },
                 { label: "사용량 집계", href: "/admin/usage" },
+                { label: "리포트 공통 가이드", href: "/admin/report-guide" },
               ].map((n) => (
                 <Link
                   key={n.href}
