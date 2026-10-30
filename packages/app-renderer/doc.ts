@@ -1,6 +1,7 @@
 // 문서형 리포트 보조 함수 — 화면 렌더러와 출력(PDF·Word)이 같은 규칙을 쓰도록 여기에 둔다.
 import type { AppSchema, Disp, DocBlock, Path, ReportDoc, Sc, Step } from "./types";
 import { migrateSchema } from "./runtime";
+export * from "./doc-validation";
 
 /** 경로에 문서형 양식이 있으면 true. 없으면 기존 그리드(report)로 그린다. */
 export function hasDoc(path?: Path | null): path is Path & { doc: ReportDoc } {

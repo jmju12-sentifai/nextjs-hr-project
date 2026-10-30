@@ -9,12 +9,14 @@ import type {
   ReportElement,
   Width,
 } from "app-renderer";
-import { migrateSchema, run } from "app-renderer";
+import { hasDoc, migrateSchema, run } from "app-renderer";
 import ElementRenderer from "./ElementRenderer";
+import DocProposalEditor from "./DocProposalEditor";
 
 const uid = () => Math.random().toString(36).slice(2, 7);
 
 interface Props {
+  appId?: string | null;
   schema: AppSchema;
   onChange: (s: AppSchema) => void;
 }
@@ -358,7 +360,7 @@ const hClass: Record<Height, string> = {
   3: "row-span-3",
 };
 
-export default function Tab4Report({ schema, onChange }: Props) {
+export default function Tab4Report({ schema, onChange, appId }: Props) {
   const m = migrateSchema(schema);
   const paths = m.paths || [];
   const fallback = m.fallback || {
@@ -375,6 +377,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
     { id: fallback.id, label: fallback.label, isFallback: true },
   ];
   const slotIdsKey = slots.map((s) => s.id).join("|");
+  const [documentPaths, setDocumentPaths] = useState<string[]>([]);
   const [slot, setSlot] = useState<string>(() => slots[0]?.id || fallback.id);
 
   useEffect(() => {
@@ -389,6 +392,8 @@ export default function Tab4Report({ schema, onChange }: Props) {
   const { sc, disp, jres } = result;
 
   const isFallbackSlot = slot === fallback.id;
+  const currentPath = (isFallbackSlot ? fallback : paths.find(p => p.id === slot)) || fallback;
+  const docMode = hasDoc(currentPath) || documentPaths.includes(slot);
 
   const currentReport = (): ReportElement[] => {
     if (isFallbackSlot) return fallback.report || [];
@@ -688,7 +693,13 @@ export default function Tab4Report({ schema, onChange }: Props) {
         })}
       </div>
 
-      {!isActivePath && (
+      <DocProposalEditor key={slot} appId={appId} schema={m} path={currentPath} docMode={docMode}
+        onModeChange={enabled => setDocumentPaths(ids => enabled ? [...ids.filter(id => id !== slot), slot] : ids.filter(id => id !== slot))}
+        onApply={doc => {
+          const next = { ...currentPath, doc };
+          onChange(isFallbackSlot ? { ...m, fallback: next } : { ...m, paths: paths.map(p => p.id === slot ? next : p) });
+        }} />
+      {!docMode && !isActivePath && (
         <div className="rounded border border-amber-200 bg-amber-50 text-amber-800 text-xs px-3 py-2">
           ⓘ 편집 중인 경로(<b>{slots.find((s) => s.id === slot)?.label}</b>)는 현재
           테스트 변수 기준 활성 경로가 아닙니다 — 미리보기의 일부 변수가 비어 보일 수 있어요.
@@ -696,7 +707,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
+      <div className={docMode ? "hidden" : "grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4"}>
         {/* palette */}
         <div className="rounded border bg-gray-50 p-3 self-start sticky top-2">
           <h3 className="text-xs font-semibold tracking-wide text-gray-700 mb-1">
@@ -1224,7 +1235,7 @@ export default function Tab4Report({ schema, onChange }: Props) {
         </div>
       </div>
 
-      <div className="text-right text-xs font-mono text-gray-500">
+      <div hidden={docMode} className="text-right text-xs font-mono text-gray-500">
         요소 {list.length}개 · 폭×높이 단위합 {unitsTotal} · 추정{" "}
         <span className={pages > 2 ? "text-rose-600 font-semibold" : ""}>
           {pages}페이지

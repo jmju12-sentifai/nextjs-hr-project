@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppSchema, CmpOp, Grp, Unit } from "app-renderer";
 import { UNITS, fmtU, hasDoc, migrateSchema, run, todayStr, activePathOf } from "app-renderer";
-import DocReport from "./DocReport";
+import DocReport from "./GuidedDocReport";
 import ElementRenderer from "./ElementRenderer";
 
 const uid = () => Math.random().toString(36).slice(2, 7);

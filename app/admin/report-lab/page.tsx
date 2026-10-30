@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { AppSchema, Path } from "app-renderer";
 import { activePathOf, run } from "app-renderer";
-import DocReport from "@/app/admin/builder/components/DocReport";
+import DocReport from "@/app/admin/builder/components/GuidedDocReport";
 import { SAMPLE_WAGE_PEAK } from "@/app/admin/builder/lib/sample-wagepeak";
 import { SAMPLE_ISSUER, showcaseDoc, wagePeakNoticeDoc } from "@/app/admin/builder/lib/sample-wagepeak-doc";
 

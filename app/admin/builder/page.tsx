@@ -879,7 +879,7 @@ function BuilderInner() {
           />
         )}
         {tab === "lg" && <Tab3Logic schema={schema} onChange={setSchema} appId={appId} />}
-        {tab === "rp" && <Tab4Report schema={schema} onChange={setSchema} />}
+        {tab === "rp" && <Tab4Report schema={schema} onChange={setSchema} appId={appId} />}
         {tab === "pv" && <Tab5Preview schema={schema} appId={appId} />}
         <footer className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-center gap-3 text-xs text-gray-500 flex-wrap">
           <div>
