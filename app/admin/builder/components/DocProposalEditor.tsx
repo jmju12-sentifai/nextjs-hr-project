@@ -92,7 +92,7 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
           {confirmApply && <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600"><p>현재 양식을 이 안으로 바꿀까요?</p><button className="underline" onClick={() => setConfirmApply(false)}>기존 양식 유지</button></div>}
           {proposals.length > 1 && <div className="mt-4 flex flex-wrap gap-2">{proposals.map((p, i) => <button key={p.id} aria-pressed={selected === i} onClick={() => { setSelected(i); setConfirmApply(false); }} className={`rounded-lg px-4 py-2 text-sm ${selected === i ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{p.name}</button>)}</div>}
         </div>
-        <div className="p-3 sm:p-6">
+        <div className="relative z-0 p-3 sm:p-6">
           <div className="mb-5 rounded-xl border bg-white p-4 text-sm leading-6"><p>{proposals[selected].reason}</p>
             {proposals[selected].excluded.length > 0 && <details className="mt-2 text-slate-600"><summary className="cursor-pointer">제외한 지표와 이유</summary><ul className="mt-2 list-disc pl-5">{proposals[selected].excluded.map((s, i) => <li key={i}>{s}</li>)}</ul></details>}
           </div>
