@@ -19,6 +19,7 @@
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.45.0",
     "@tosspayments/tosspayments-sdk": "^2.7.0",
+    "@vercel/functions": "^3.10.5",
     "app-renderer": "*",
     "docx": "^8.5.0",
     "mammoth": "^1.12.0",
