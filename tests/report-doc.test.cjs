@@ -84,3 +84,13 @@ test('선택 경로로 미리보기해도 원본 계산과 기존 그리드는 �
   for (const p of [...schema.paths, schema.fallback]) assert.equal(run(schema, [], [], p.id).activePathId, p.id);
   assert.equal(JSON.stringify(schema), before);
 });
+
+test('문서 머리말 참조 오류를 정확히 안내하고 정상 쪽 수는 오류로 보고하지 않는다', () => {
+  const doc = { subjects: ['임금피크제 미적용 안내'], blocks: [{id:'result',type:'headline',tpl:'{적용여부}'}] };
+  const checked = checkProposals({proposals:[{id:'screen',reason:'요약',excluded:[],doc}]}, schema, 'fallback', DEFAULT_REPORT_GUIDE);
+  assert.equal(checked.proposals.length,0);
+  assert.match(checked.rejected.find(r=>r.startsWith('요약형:')), /subjects/);
+  assert.doesNotMatch(checked.rejected.find(r=>r.startsWith('요약형:')), /쪽으로 구성/);
+  const unitsError = validateDoc(schema, 'fallback', {...doc,subjects:[],units:{'임금피크제 미적용':''}});
+  assert.match(unitsError.errors[0].message,/units/);
+});

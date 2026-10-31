@@ -19,6 +19,8 @@ export const PROPOSAL_INSTRUCTION = `당신은 HR 산출 결과를 전달하는 
 정확히 세 안을 JSON {"proposals":[{"id":"print","reason":"...","excluded":["이름: 제외 이유"],"doc":{...}}, ...]}으로 출력합니다.
 id는 print(통지문형 두 쪽), screen(요약형 한 쪽), review(담당자 상세표형)입니다. purpose는 추천 우선순위이며 세 안 모두 만듭니다.
 양식은 {title?:string, subjects?:string[], units?:{이름:단위}, blocks:블록[]}입니다.
+title은 문서 제목입니다. subjects는 문서 제목/주제가 아니라 머리말에 표시할 실제 변수 이름 목록입니다. 예: ["성명","사번","소속"]. variables에 없는 이름이나 "임금피크제 미적용" 같은 문구를 subjects에 넣지 마세요. 필요 없으면 생략합니다.
+units의 키도 실제 variables 또는 steps의 이름만 허용됩니다. 문서 제목이나 경로 이름을 units의 키로 쓰지 마세요.
 각 블록은 {id:고유문자열,type:아래종류,title?:string}과 아래 필드를 갖습니다. 지정하지 않은 속성 금지.
 DocRef={bind:실제이름,label?:표시이름}. 참조는 variables와 steps의 이름 및 '적용여부'만 허용. llm 단계는 금지.
 - headline: tpl (결론, {이름}으로 계산값을 삽입)
@@ -99,7 +101,8 @@ export function checkProposals(raw: unknown, schema: AppSchema, pathId: string, 
     const lockedIds = new Set(locked.map(b => b.id));
     const doc = { ...p.doc, blocks: [...p.doc.blocks.filter((b: any) => !lockedIds.has(b?.id)), ...locked] };
     const checked = validateDoc(schema, pathId, doc, { guide, previous, proposal: true });
-    const pages = checked.ok ? docPages(doc).length : 0;
+    // 다른 검증 오류 때문에 정상적인 쪽 수까지 잘못된 것으로 안내하지 않는다.
+    const pages = docPages({ ...doc, blocks: doc.blocks.filter((b: unknown) => !!b && typeof b === "object") }).length;
     if (doc.blocks[0]?.type === "pagebreak" || doc.blocks.at(-1)?.type === "pagebreak"
       || doc.blocks.some((b: any, i: number) => b?.type === "pagebreak" && doc.blocks[i - 1]?.type === "pagebreak"))
       checked.errors.push({ code: "pages", message: "내용이 없는 빈 쪽은 만들지 마세요." });
