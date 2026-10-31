@@ -911,6 +911,7 @@ const wClass: Record<string, string> = {
 function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
   const list = (activePath?.report || []) as any[];
   const docMode = hasDoc(activePath);
+  const issuedAt = useMemo(() => todayStr(), [result]);
   // 페이지 추정 — wSpan/hSpan 우선, 없으면 옛 w/h
   // A4 1페이지 용량: 6열 × 약 8행 = 48 unit
   // (Tab5/사용자 앱은 auto-rows-[96px]로 약 7~8행, PDF는 minHeight 기반 약 12행)
@@ -937,7 +938,7 @@ function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
       const res = await fetch(`/api/export/${kind}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schema, result }),
+        body: JSON.stringify({ schema, result, issuedAt }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -990,16 +991,14 @@ function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
         {msg && <span>{msg}</span>}
       </span>
       <button
-        disabled={busy || docMode || list.length === 0}
-        title={docMode ? "문서형 양식의 PDF 출력은 준비 중입니다" : undefined}
+        disabled={busy || (!docMode && list.length === 0)}
         onClick={() => download("pdf")}
         className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
         📄 PDF
       </button>
       <button
-        disabled={busy || docMode || list.length === 0}
-        title={docMode ? "문서형 양식의 Word 출력은 준비 중입니다" : undefined}
+        disabled={busy || (!docMode && list.length === 0)}
         onClick={() => download("docx")}
         className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
@@ -1019,7 +1018,7 @@ function ReportView({ schema, activePath, result, sc, disp, jres }: any) {
     return (
       <>
         <div className="rounded bg-slate-100/70 p-2 sm:p-5">
-          <DocReport schema={schema} path={activePath} result={result} />
+          <DocReport schema={schema} path={activePath} result={result} issuedAt={issuedAt} />
         </div>
         <div className="mt-3">{DownloadBar}</div>
       </>

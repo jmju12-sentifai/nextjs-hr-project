@@ -1196,6 +1196,7 @@ function Analyze({ schema, result, activePath }: any) {
 function ReportView({ schema, activePath, result, sc, disp, jres, issuer }: any) {
   const list = (activePath?.report || []) as any[];
   const docMode = hasDoc(activePath);
+  const issuedAt = useMemo(() => todayStr(), [result]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -1206,7 +1207,7 @@ function ReportView({ schema, activePath, result, sc, disp, jres, issuer }: any)
       const res = await fetch(`/api/export/${kind}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schema, result }),
+        body: JSON.stringify({ schema, result, issuedAt, issuer }),
       });
       if (await handleAuthError(res, window.location.pathname)) return;
       if (!res.ok) {
@@ -1254,16 +1255,14 @@ function ReportView({ schema, activePath, result, sc, disp, jres, issuer }: any)
     <div className="flex flex-wrap items-center gap-2 justify-end">
       <span className="text-xs text-gray-500 mr-auto">{msg}</span>
       <button
-        disabled={busy || docMode || list.length === 0}
-        title={docMode ? "문서형 양식의 PDF 출력은 준비 중입니다" : undefined}
+        disabled={busy || (!docMode && list.length === 0)}
         onClick={() => download("pdf")}
         className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
         📄 PDF
       </button>
       <button
-        disabled={busy || docMode || list.length === 0}
-        title={docMode ? "문서형 양식의 Word 출력은 준비 중입니다" : undefined}
+        disabled={busy || (!docMode && list.length === 0)}
         onClick={() => download("docx")}
         className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
@@ -1283,7 +1282,7 @@ function ReportView({ schema, activePath, result, sc, disp, jres, issuer }: any)
     return (
       <>
         <div className="rounded bg-slate-100/70 p-2 sm:p-5">
-          <DocReport schema={schema} path={activePath} result={result} issuer={issuer} />
+          <DocReport schema={schema} path={activePath} result={result} issuedAt={issuedAt} issuer={issuer} />
         </div>
         <div className="mt-3">{DownloadBar}</div>
       </>

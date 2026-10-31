@@ -1,4 +1,9 @@
+import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
+import { reportExportModel } from "@/lib/report-export/model";
+import { renderDocumentPdf } from "@/lib/report-export/pdf";
+import { readReportGuide } from "@/lib/report-guide";
+import { hasDoc } from "app-renderer";
 import { requireUser } from "@/lib/api-auth";
 import {
   Document,
@@ -27,12 +32,7 @@ function ensureKoreanFont() {
   if (fontRegistered) return;
   Font.register({
     family: "NotoKR",
-    fonts: [
-      {
-        src: "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf",
-        fontWeight: 400,
-      },
-    ],
+    fonts: [400, 700].map(fontWeight => ({ src: path.join(process.cwd(), `public/fonts/NotoSansKR-${fontWeight}.ttf`), fontWeight })),
   });
   fontRegistered = true;
 }
@@ -734,11 +734,23 @@ export async function POST(req: NextRequest) {
   if ("error" in auth) return auth.error;
   try {
     ensureKoreanFont();
-    const { schema, result } = await req.json();
+    const { schema, result, issuer, issuedAt } = await req.json();
     if (!schema || !result)
       return NextResponse.json({ error: "schema, result 필요" }, { status: 400 });
 
     const activePath = activePathOf(schema, result.activePathId);
+    if (hasDoc(activePath)) {
+      const { guide } = await readReportGuide();
+      let model;
+      try { model = reportExportModel(schema, result, { issuer, issuedAt, accent: guide.accent }); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "문서 내용을 확인해 주세요." }, { status: 422 }); }
+      const buffer = await renderDocumentPdf(model, el => renderEl(schema, el, result.sc, result.disp, result.jres, result.activePathLabel));
+      return new NextResponse(buffer as any, { headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": 'attachment; filename="report.pdf"',
+        "Cache-Control": "private, no-store",
+      } });
+    }
     const reportEls = activePath?.report || schema.report || [];
     const rows = groupRows(reportEls);
     const today = new Date()
