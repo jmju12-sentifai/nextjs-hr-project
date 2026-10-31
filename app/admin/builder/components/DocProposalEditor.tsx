@@ -23,17 +23,19 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
   const [confirmGrid, setConfirmGrid] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
   const abort = useRef<AbortController>();
-  const dialog = useRef<HTMLDialogElement>(null);
+  const comparison = useRef<HTMLElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const guide = responseGuide || loaded.guide;
   const fingerprint = JSON.stringify(schema);
   const preview = useMemo(() => run(schema, [], [], path.id), [schema, path.id]);
   useEffect(() => () => abort.current?.abort(), []);
   useEffect(() => {
-    if (proposals.length) dialog.current?.showModal();
-    else { dialog.current?.close(); trigger.current?.focus(); }
+    if (proposals.length) {
+      comparison.current?.focus({ preventScroll: true });
+      comparison.current?.scrollIntoView({ block: "start" });
+    }
   }, [proposals]);
-  function close() { setProposals([]); setConfirmApply(false); }
+  function close() { setProposals([]); setConfirmApply(false); trigger.current?.focus(); }
   async function propose() {
     setBusy(true); setError(""); setNotice(""); setSource(fingerprint);
     const controller = new AbortController();
@@ -78,28 +80,30 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
       {loaded.error && <p role="alert" className="text-sm text-red-700">{loaded.error}</p>}
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {notice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{notice}</p>}
-      {hasDoc(path) ? <DocChatEditor key={`${appId}:${path.id}`} schema={schema} path={path} appId={appId} accent={guide.accent} onConfirm={onApply} />
-        : <div className="rounded-2xl border border-dashed p-10 text-center text-sm leading-6 text-slate-500">AI 양식 제안을 눌러 시작하세요.</div>}
-    </>}
-    <dialog ref={dialog} onCancel={close} aria-labelledby="proposal-title" className="m-auto max-h-[94dvh] w-[calc(100%_-_1rem)] max-w-6xl overflow-y-auto rounded-2xl bg-slate-100 p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60">
-      {proposals[selected] && <>
-        <div className="sticky top-0 z-10 border-b bg-white p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-3"><h3 id="proposal-title" className="text-lg font-bold">{path.label} · 양식 비교</h3><button aria-label="양식 비교 닫기" onClick={close} className="rounded-lg border px-3 py-2 text-sm">닫기</button></div>
-          <div className="mt-4 flex flex-wrap gap-2">{proposals.map((p, i) => <button key={p.id} aria-pressed={selected === i} onClick={() => { setSelected(i); setConfirmApply(false); }} className={`rounded-lg px-4 py-2 text-sm ${selected === i ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{p.name}</button>)}</div>
+      {proposals[selected] && <section ref={comparison} tabIndex={-1} aria-label="양식 비교" className="rounded-2xl border border-slate-200 bg-slate-100 text-slate-900 outline-none">
+        <div className="sticky top-0 z-10 rounded-t-2xl border-b bg-white p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-lg font-bold">양식 비교</h3>
+            <div className="flex items-center gap-2">
+              <button disabled={busy} onClick={close} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">취소</button>
+              <button disabled={busy} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={() => hasDoc(path) && !confirmApply ? setConfirmApply(true) : apply()}>{confirmApply ? "양식 바꾸기" : "이 안으로 선택"}</button>
+            </div>
+          </div>
+          {confirmApply && <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600"><p>현재 양식을 이 안으로 바꿀까요?</p><button className="underline" onClick={() => setConfirmApply(false)}>기존 양식 유지</button></div>}
+          {proposals.length > 1 && <div className="mt-4 flex flex-wrap gap-2">{proposals.map((p, i) => <button key={p.id} aria-pressed={selected === i} onClick={() => { setSelected(i); setConfirmApply(false); }} className={`rounded-lg px-4 py-2 text-sm ${selected === i ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{p.name}</button>)}</div>}
         </div>
         <div className="p-3 sm:p-6">
-          {notice && <p role="status" className="mb-3 text-sm text-amber-800">{notice}</p>}
           <div className="mb-5 rounded-xl border bg-white p-4 text-sm leading-6"><p>{proposals[selected].reason}</p>
             {proposals[selected].excluded.length > 0 && <details className="mt-2 text-slate-600"><summary className="cursor-pointer">제외한 지표와 이유</summary><ul className="mt-2 list-disc pl-5">{proposals[selected].excluded.map((s, i) => <li key={i}>{s}</li>)}</ul></details>}
           </div>
           <DocReport schema={schema} path={{ ...path, doc: proposals[selected].doc }} result={preview} accent={guide.accent} />
         </div>
-        <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t bg-white p-4">
-          <p className="text-xs text-slate-500">{confirmApply ? "현재 문서형 양식을 이 안으로 바꿀까요?" : "선택 후 앱을 저장하면 이용자에게 반영됩니다."}</p>
-          <div className="flex gap-2">{confirmApply && <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setConfirmApply(false)}>취소</button>}
-            <button className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white" onClick={() => hasDoc(path) && !confirmApply ? setConfirmApply(true) : apply()}>{confirmApply ? "양식 바꾸기" : "이 안으로 선택"}</button></div>
-        </div>
-      </>}
-    </dialog>
+      </section>}
+      {/* 제안을 비교하는 동안에도 기존 대화와 초안을 보존한다. */}
+      <div hidden={proposals.length > 0}>
+        {hasDoc(path) ? <DocChatEditor key={`${appId}:${path.id}`} schema={schema} path={path} appId={appId} accent={guide.accent} onConfirm={onApply} />
+          : <div className="rounded-2xl border border-dashed p-10 text-center text-sm leading-6 text-slate-500">AI 양식 제안을 눌러 시작하세요.</div>}
+      </div>
+    </>}
   </section>;
 }
