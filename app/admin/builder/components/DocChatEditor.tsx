@@ -87,7 +87,7 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm }
     setDraft(doc); setVersions(v => [...v, version || localVersion(doc, note)].slice(-40)); setRestoring("");
   }
   async function send(message = input) {
-    if (!message.trim() || busy || !appId) return;
+    if (!message.trim() || busy || !appId || !ready) return;
     const history = messages.slice(-6);
     setMessages(m => [...m, { role: "user", content: message.trim() }]); setInput(""); setBusy("요청 범위를 확인하고 문서를 수정하는 중"); setError(""); setNotice("");
     try {
@@ -170,7 +170,12 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm }
         </div>
         <div className="border-t p-4">
           {selected && <div className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900"><span>{selected.locked ? "잠긴 블록" : "선택한 블록"}: {selected.title || DOC_BLOCK_LABELS[selected.type]}</span><button disabled={!!busy} onClick={() => setSelectedId(null)} className="shrink-0 underline">전체 편집</button></div>}
-          <form onSubmit={e => { e.preventDefault(); send(); }}><label htmlFor={`chat-${path.id}`} className="sr-only">리포트 수정 요청</label><textarea id={`chat-${path.id}`} value={input} onChange={e => setInput(e.target.value)} maxLength={2000} rows={3} disabled={!!busy || !appId || !ready} placeholder="예: 결론을 짧게 쓰고 핵심 금액을 먼저 보여줘" className="block w-full resize-none rounded-xl border border-slate-300 p-3 text-sm leading-6 outline-none focus:border-blue-600 disabled:bg-slate-50" />
+          <form onSubmit={e => { e.preventDefault(); send(); }}><label htmlFor={`chat-${path.id}`} className="sr-only">리포트 수정 요청</label><textarea id={`chat-${path.id}`} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => {
+            // 한글 조합을 확정하는 Enter는 전송으로 처리하지 않는다.
+            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+            e.preventDefault();
+            if (!e.repeat) e.currentTarget.form?.requestSubmit();
+          }} maxLength={2000} rows={3} readOnly={!!busy} aria-busy={!!busy} disabled={!appId || !ready} placeholder="예: 결론을 짧게 쓰고 핵심 금액을 먼저 보여줘" className="block w-full resize-none rounded-xl border border-slate-300 p-3 text-sm leading-6 outline-none focus:border-blue-600 disabled:bg-slate-50" />
             <div className="mt-2 flex justify-end"><button disabled={!!busy || !input.trim() || !appId || !ready} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">수정 요청</button></div></form>
         </div>
       </aside>
