@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { PLANS, isPlanKey } from "@/lib/plans";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Member,
@@ -205,10 +206,29 @@ export default function MemberDetail({
                   <dl className="grid grid-cols-2 gap-x-5 gap-y-5 text-sm">
                     {[
                       ["이용 권한", m!.active ? "이용 가능" : "이용 종료"],
-                      ["구독 플랜", m!.plan || "없음"],
-                      ["이용 종료일", formatMemberDate(m!.expires_at)],
+                      [
+                        "구독 플랜",
+                        isPlanKey(m!.plan)
+                          ? PLANS[m!.plan].badge
+                          : m!.plan || "없음",
+                      ],
+                      [
+                        "이용 종료일",
+                        m!.state === "free"
+                          ? m!.grant_ends_at
+                            ? formatMemberDate(m!.grant_ends_at)
+                            : "기한 없음"
+                          : formatMemberDate(m!.expires_at),
+                      ],
                       ["다음 결제일", formatMemberDate(m!.next_billing_at)],
-                      ["자동결제", m!.auto_renew ? "사용" : "중지"],
+                      [
+                        "자동결제",
+                        m!.auto_renew
+                          ? "사용"
+                          : m!.subscription_id
+                            ? "중지"
+                            : "없음",
+                      ],
                       [
                         "결제 카드",
                         m!.card_company
