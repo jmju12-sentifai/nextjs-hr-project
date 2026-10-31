@@ -5,12 +5,13 @@ const { NextRequest, NextResponse } = require('next/server');
 const { DEFAULT_REPORT_GUIDE } = require('app-renderer');
 const { SAMPLE_WAGE_PEAK: schema } = require('../app/admin/builder/lib/sample-wagepeak.ts');
 const mock = (name, exports) => { const id = require.resolve(name); require.cache[id] = {id,filename:id,loaded:true,exports}; };
+let failures=[], saveFailure=false, invalidIntent=false, rawResponse;
 let auth = { user: { id:'admin' } }, intent='data', calls=0, saves=0, generated;
 mock('@/lib/api-auth', {requireAdmin:async()=>auth});
 mock('@/lib/report-guide', {readReportGuide:async()=>({guide:DEFAULT_REPORT_GUIDE})});
 mock('@/lib/supabase/admin', {createAdminClient:()=>({from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{id:'app'}})})})})})});
-mock('@/lib/report-versions', {saveDraft:async()=>{saves++;return {storage:'server',version:{version:saves}};}});
-mock('@/lib/llm-usage', {sanitizeAppId:id=>id,withUsage:async(ctx,fn)=>fn(),trackedGenerate:async model=>{calls++; return {response:{text:()=>JSON.stringify(model.classifier?{intent}:generated)}};}});
+mock('@/lib/report-versions', {saveDraft:async()=>{if(saveFailure)throw new Error('db failed');saves++;return {storage:'server',version:{version:saves}};}});
+mock('@/lib/llm-usage', {sanitizeAppId:id=>id,withUsage:async(ctx,fn)=>fn(),currentUsageCtx:()=>({surface:'builder',operation:'doc_edit'}),trackedGenerate:async model=>{calls++;if(failures.length)throw failures.shift(); return {response:{text:()=>rawResponse ?? JSON.stringify(model.classifier?{intent:invalidIntent?'invalid':intent}:generated)}};}});
 mock('@google/generative-ai', {GoogleGenerativeAI:class {getGenerativeModel(config){return {classifier:config.generationConfig.maxOutputTokens===500};}}});
 const {POST}=require('../app/api/report-doc/edit/route.ts');
 process.env.GEMINI_API_KEY='test-only';
@@ -64,4 +65,33 @@ test('낡은 제안과 데이터 참조 변경 제안은 저장하지 않는다'
 test('추천을 포함해도 금액·계산 변경 요청은 차단한다',async()=>{
   intent='data';const before=saves;const r=await (await POST(request({message:'금액을 올리는 방법 추천해줘'}))).json();
   assert.equal(r.kind,'refuse');assert.equal(saves,before);
+});
+
+test('의도 판단의 일시적 시간 초과는 한 번 재시도한 뒤 정상 수정한다',async()=>{
+  const before=calls, saved=saves;intent='layout';
+  failures=[new Error('This operation was aborted')];
+  generated={doc:{...doc,blocks:[{...doc.blocks[0],tpl:'{성명} 님의 월 기준액: {최종월기준액}'},doc.blocks[1]]}};
+  const response=await POST(request());const body=await response.json();
+  assert.equal(response.status,200);assert.equal(body.kind,'edit');assert.equal(calls,before+3);assert.equal(saves,saved+1);
+});
+test('의도 판단 두 번 시간 초과 시 단계와 재전송 안내를 반환하고 수정·저장을 하지 않는다',async()=>{
+  const before=calls,saved=saves;failures=[new Error('This operation was aborted'),new Error('This operation was aborted')];
+  const response=await POST(request());const body=await response.json();
+  assert.equal(response.status,504);assert.equal(body.code,'AI_TIMEOUT');assert.equal(body.stage,'intent');assert.match(body.error,/요청 내용을 확인하는/);assert.match(body.requestId,/^[0-9a-f-]{36}$/);assert.equal(calls,before+2);assert.equal(saves,saved);
+});
+test('요청 한도와 인증 설정 오류를 구분하고 설정 오류는 재시도하지 않는다',async()=>{
+  for(const [status,code,attempts] of [[429,'AI_RATE_LIMIT',2],[403,'AI_CONFIGURATION',1]]){
+    const before=calls,saved=saves;failures=Array.from({length:attempts},()=>Object.assign(new Error('provider private detail'),{status}));
+    const response=await POST(request());const body=await response.json();assert.equal(body.code,code);assert.equal(calls,before+attempts);assert.equal(saves,saved);assert.doesNotMatch(body.error,/private/);
+  }
+});
+test('읽을 수 없는 의도 응답은 상담이나 수정으로 잘못 진행하지 않는다',async()=>{
+  const saved=saves;invalidIntent=true;
+  const response=await POST(request());invalidIntent=false;const body=await response.json();
+  assert.equal(response.status,502);assert.equal(body.code,'AI_INVALID_RESPONSE');assert.equal(body.stage,'intent');assert.equal(saves,saved);
+});
+test('작업 기록 저장 실패는 AI 연결 오류로 표시하거나 저장을 재시도하지 않는다',async()=>{
+  const before=calls,saved=saves;intent='wording';saveFailure=true;
+  const response=await POST(request());saveFailure=false;const body=await response.json();
+  assert.equal(body.code,'DRAFT_SAVE_FAILED');assert.equal(body.stage,'save');assert.match(body.error,/작업 기록을 저장하지 못해/);assert.equal(calls,before+2);assert.equal(saves,saved);
 });
