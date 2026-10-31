@@ -85,9 +85,10 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
     }
   }, [path.doc, draft]);
   useEffect(() => {
-    if (!ready || !appId) return;
+    // 비교 중인 안의 대화를 기존 초안의 복원 기록에 섞지 않는다.
+    if (!ready || !appId || previewDoc) return;
     try { sessionStorage.setItem(cacheKey, JSON.stringify({ source: JSON.stringify(path.doc), draft, messages: messages.slice(-40), versions: versions.slice(-40) })); } catch { /* 용량이 부족해도 서버 저장에는 영향이 없다. */ }
-  }, [ready, cacheKey, appId, path.doc, draft, messages, versions]);
+  }, [ready, cacheKey, appId, path.doc, draft, messages, versions, previewDoc]);
   const seenActivity = useRef<number>();
   useEffect(() => {
     if (activity && seenActivity.current !== activity.id) {
