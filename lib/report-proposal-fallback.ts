@@ -3,7 +3,7 @@ import type { AppSchema, DocBlock, DocBlockType, ReportDoc, ReportGuide } from "
 import { checkProposals, PROPOSAL_KINDS } from "./report-proposals";
 
 /** AI가 형식을 완성하지 못해도 실제 계산 참조로만 기본 양식을 구성한다. 검증은 동일하게 적용한다. */
-export function basicReportProposals(raw: AppSchema, pathId: string, guide: ReportGuide) {
+export function basicReportProposals(raw: AppSchema, pathId: string, guide: ReportGuide, purpose?: ReportGuide["defaultPurpose"]) {
   const schema = migrateSchema(raw);
   const paths = [...(schema.paths || []), ...(schema.fallback ? [schema.fallback] : [])];
   const path = paths.find(p => p.id === pathId);
@@ -34,7 +34,7 @@ export function basicReportProposals(raw: AppSchema, pathId: string, guide: Repo
   const unitOf = (name: string) => stepMap.get(name)?.unit ?? variables.find(v => v.name === name)?.unit;
   const clean = (value: string) => !guide.banned.some(word => value.includes(word));
 
-  const candidates = PROPOSAL_KINDS.map(kind => {
+  const candidates = PROPOSAL_KINDS.filter(k => !purpose || k.id === purpose).map(kind => {
     let index = 0;
     const id = () => `basic-${kind.id}-${++index}`;
     const pool: DocBlock[] = [];
@@ -81,5 +81,5 @@ export function basicReportProposals(raw: AppSchema, pathId: string, guide: Repo
       : kind.id === "review" ? "현재 조건에 등록된 항목과 계산 근거를 확인하는 기본 상세 양식입니다."
         : "현재 조건의 적용 결과와 관련 항목을 나누어 안내하는 기본 통지 양식입니다.", doc };
   });
-  return checkProposals({ proposals: candidates }, schema, pathId, guide);
+  return checkProposals({ proposals: candidates }, schema, pathId, guide, purpose);
 }

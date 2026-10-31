@@ -11,7 +11,7 @@ const equal = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
 
 export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
   previewDoc, previewKey, previewDescription, onPreviewChange, onWorkingDocChange, onBusyChange,
-  toolbar, tabs, activity, externalBusy = "", externalError = "",
+  toolbar, activity, externalBusy = "", externalError = "",
   initialState, onStateChange, onBeforeSave, savedDocKey,
 }: {
   schema: AppSchema; path: Path & { doc: ReportDoc }; appId?: string | null; accent: string;
@@ -20,7 +20,7 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
   onPreviewChange?: (doc: ReportDoc) => void;
   onWorkingDocChange?: (doc: ReportDoc) => void;
   onBusyChange?: (busy: boolean) => void;
-  toolbar?: ReactNode; tabs?: ReactNode;
+  toolbar?: ReactNode;
   activity?: { id: number; content: string };
   externalBusy?: string; externalError?: string;
   initialState?: ReportChatState; onStateChange?: (state: ReportChatState) => void; onBeforeSave?: () => Promise<void>;
@@ -51,7 +51,7 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
   const available = activeDoc.blocks.length > 0;
   const blocked = !!busy || !!externalBusy;
   const selected = activeDoc.blocks.find(b => b.id === selectedId);
-  const dirty = savedDocKey ? stableJson(draft) !== savedDocKey : !equal(draft, path.doc);
+  const dirty = savedDocKey ? stableJson(activeDoc) !== savedDocKey : !equal(activeDoc, path.doc);
   const localVersion = (doc: ReportDoc, note: string): DocVersion => ({ id: `local-${Date.now()}`, version: 0, doc, note, status: "draft", created_at: new Date().toISOString() });
 
   useEffect(() => {
@@ -103,7 +103,8 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
     if (seenPreview.current === previewKey) return;
     seenPreview.current = previewKey;
     if (previewDescription) setMessages(m => [...m, { role: "assistant", content: previewDescription }]);
-    setSelectedId(null); setChanges([]); setLockRequest(null); setNotice(""); setError("");
+    setSelectedId(null); setChanges([]); setLockRequest(null); setError("");
+    if (previewKey) setNotice("");
   }, [previewKey, previewDescription]);
   useEffect(() => { onWorkingDocChange?.(activeDoc); }, [activeDoc, onWorkingDocChange]);
   useEffect(() => { onBusyChange?.(!!busy); }, [busy, onBusyChange]);
@@ -169,12 +170,14 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
     finally { setBusy(""); }
   }
   async function confirm() {
-    if (blocked || !appId || !savedSchema || previewDoc || !available) return;
+    if (blocked || !appId || !savedSchema || !available) return;
     setBusy("양식을 저장하는 중"); setError("");
     try {
       await onBeforeSave?.();
-      const data = await request("/api/report-doc/confirm", { appId, schema, pathId: path.id, doc: draft, savedSchema });
-      setSavedSchema(data.schema); record(draft, "양식 저장", data.version); onConfirm(draft); setChanges([]);
+      const data = await request("/api/report-doc/confirm", { appId, schema, pathId: path.id, doc: activeDoc, savedSchema });
+      setSavedSchema(data.schema); setDraft(activeDoc);
+      setVersions(v => [...v, data.version || localVersion(activeDoc, "양식 저장")].slice(-40));
+      onConfirm(activeDoc); setChanges([]);
       setNotice("저장했습니다. 이용자 리포트에 이 양식이 반영됩니다.");
     } catch (e) { setError(e instanceof Error ? e.message : "저장하지 못했습니다."); }
     finally { setBusy(""); }
@@ -186,7 +189,7 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
 
   return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50" aria-label="대화형 리포트 편집">
     <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-white p-3 sm:px-4">
-      {tabs || <span className="text-sm font-semibold text-slate-700">{available ? `${docPages(draft).length}쪽 · ${dirty ? "수정 중인 초안" : "현재 양식"}` : "새 양식"}</span>}
+      <span className="text-sm font-semibold text-slate-700">{available ? `${docPages(activeDoc).length}쪽 · ${dirty ? "수정 중인 초안" : "현재 양식"}` : "새 양식"}</span>
       <div className="flex flex-wrap items-center gap-2">
         {!previewDoc && available && <details className="relative">
           <summary className="cursor-pointer list-none rounded-lg px-3 py-2 text-sm text-slate-500">이전 버전</summary>
@@ -199,7 +202,7 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
         </details>}
         {(storage === "unavailable" || error) && available && <button onClick={downloadDraft} className="rounded-lg border px-3 py-2 text-xs">초안 백업</button>}
         {toolbar}
-        {!previewDoc && available && <button title="저장하면 이용자 리포트에 반영됩니다" disabled={blocked || !appId || !ready || !savedSchema} onClick={confirm} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">저장</button>}
+        {available && <button title="저장하면 이용자 리포트에 반영됩니다" disabled={blocked || !appId || !ready || !savedSchema} onClick={confirm} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">저장</button>}
       </div>
     </header>
     {lockRequest && <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-amber-50 p-4 text-sm"><p>잠금을 해제하면 이 블록을 AI로 수정할 수 있습니다. 해제할까요?</p><div className="flex gap-2"><button onClick={() => setLockRequest(null)} className="rounded border bg-white px-3 py-2">취소</button><button onClick={() => toggleLock(lockRequest.id, false)} className="rounded bg-slate-900 px-3 py-2 text-white">잠금 해제</button></div></div>}
