@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { hasDoc, stableJson, validateDoc } from "app-renderer";
 import type { AppSchema, Path, ReportDoc } from "app-renderer";
@@ -10,12 +10,12 @@ import { useReportWorkspace } from "./useReportWorkspace";
 import { useReportProposalJob } from "./useReportProposalJob";
 
 const emptyDoc: ReportDoc = { blocks: [] };
-export default function DocProposalEditor({ schema, path, docMode, onModeChange, onApply, appId }: {
-  appId?: string | null; schema: AppSchema; path: Path; docMode: boolean;
-  onModeChange: (doc: boolean) => void; onApply: (doc?: ReportDoc) => void;
+export default function DocProposalEditor({ schema, path, onApply, appId }: {
+  appId?: string | null; schema: AppSchema; path: Path;
+  onApply: (doc: ReportDoc) => void;
 }) {
   const loaded = useReportGuide();
-  const session = useReportWorkspace(appId, path.id, schema, docMode);
+  const session = useReportWorkspace(appId, path.id, schema);
   const { workspace, update, flush } = session;
   const generation = useReportProposalJob(appId, path.id, schema, workspace, update);
   const busy = generation.busy;
@@ -26,15 +26,10 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
   const proposals = workspace?.proposals || [];
   const selected = workspace?.selected || 0;
   const workingDoc = useRef<ReportDoc>(path.doc || emptyDoc);
-  const [confirmGrid, setConfirmGrid] = useState(false);
   const guide = workspace?.guide || loaded.guide;
   const fingerprint = reportCalculationKey(schema);
   const proposal = proposals[selected];
   const blocked = busy || generation.checking || editing || !workspace;
-  useEffect(() => {
-    if (workspace?.docMode && !docMode) onModeChange(true);
-    if (workspace && !workspace.docMode && docMode) { if (hasDoc(path)) onApply(undefined); onModeChange(false); }
-  }, [workspace, docMode, path, onApply, onModeChange]);
   const rememberChat = useCallback((chat: ReportChatState) => update(w => ({ ...w, chat })), [update]);
   const beforeSave = useCallback(async () => { await flush(); }, [flush]);
   const saved = useCallback((doc: ReportDoc) => {
@@ -60,22 +55,11 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
     say(`${proposal.name}을 선택했습니다. ‘저장’을 누르면 이용자 리포트에 반영됩니다.`);
   }
   return <section className="space-y-3">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="inline-flex rounded-lg bg-slate-100 p-1" aria-label="리포트 방식">
-        <button type="button" disabled={blocked} aria-pressed={!docMode} className={`rounded-md px-4 py-2 text-sm ${!docMode ? "bg-white font-semibold shadow-sm" : "text-slate-600"}`}
-          onClick={() => hasDoc(path) ? setConfirmGrid(true) : (update(w => ({ ...w, docMode: false })), onModeChange(false))}>그리드</button>
-        <button type="button" disabled={blocked} aria-pressed={docMode} className={`rounded-md px-4 py-2 text-sm ${docMode ? "bg-white font-semibold shadow-sm" : "text-slate-600"}`}
-          onClick={() => { update(w => ({ ...w, docMode: true })); onModeChange(true); }}>문서형</button>
-      </div>
-      <Link href="/admin/report-guide" target="_blank" className="text-sm text-slate-500 hover:text-blue-700"title="모든 리포트의 강조색·필수 항목·금지 표현·문체를 관리합니다">리포트 공통 설정 ↗</Link>
+    <div className="flex justify-end">
+      <Link href="/admin/report-guide" target="_blank" className="text-sm text-slate-500 hover:text-blue-700" title="모든 리포트의 강조색·필수 항목·금지 표현·문체를 관리합니다">리포트 공통 설정 ↗</Link>
     </div>
-    {confirmGrid && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
-      <p>현재 경로의 문서형 양식을 제거하고 기존 그리드로 돌아갈까요? 저장 전까지 앱에는 반영되지 않습니다.</p>
-      <div className="mt-3 flex gap-2"><button disabled={blocked} className="rounded bg-slate-900 px-3 py-2 text-white" onClick={() => { onApply(undefined); onModeChange(false); update(w => ({ ...w, proposals: [], selected: 0, docMode: false, chat: undefined })); setConfirmGrid(false); }}>양식 제거 후 전환</button>
-        <button className="rounded border px-3 py-2" onClick={() => setConfirmGrid(false)}>취소</button></div>
-    </div>}
     {!workspace && <div className="p-4 text-sm text-slate-500">{session.error || "작업 기록을 불러오는 중…"}{session.error && <button onClick={session.retry} className="ml-3 underline">다시 불러오기</button>}</div>}
-    {docMode && workspace && <DocChatEditor key={`${appId}:${path.id}`} schema={schema} path={{ ...path, doc: path.doc || emptyDoc }} appId={appId} accent={guide.accent} onConfirm={saved}
+    {workspace && <DocChatEditor key={`${appId}:${path.id}`} schema={schema} path={{ ...path, doc: path.doc || emptyDoc }} appId={appId} accent={guide.accent} onConfirm={saved}
       initialState={workspace.chat} onStateChange={rememberChat} onBeforeSave={beforeSave} savedDocKey={workspace.savedDoc}
       previewDoc={proposal?.doc} previewKey={proposal ? `${workspace.proposalJobId || "legacy"}:${proposal.id}` : undefined} previewDescription={proposal?.reason}
       onPreviewChange={doc => update(w => ({ ...w, proposals: w.proposals.map((item, i) => i === selected ? { ...item, doc } : item) }))}
