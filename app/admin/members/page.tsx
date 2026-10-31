@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Member, MEMBER_STATES, formatMemberDate } from "@/lib/members/types";
-import { AdminNav, Badge, Pagination, button, input, panel } from "./ui";
+import { Badge, Pagination, button, input, panel } from "./ui";
 export default function Members() {
   const [q, setQ] = useState(""),
     [search, setSearch] = useState(""),
@@ -41,7 +41,6 @@ export default function Members() {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-900 sm:px-8">
       <div className="mx-auto max-w-7xl">
-        <AdminNav />
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">회원·구독 관리</h1>
