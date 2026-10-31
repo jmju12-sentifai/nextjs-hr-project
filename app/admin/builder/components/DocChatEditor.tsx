@@ -5,7 +5,7 @@ import type { AppSchema, Path, ReportDoc } from "app-renderer";
 import type { ChatMessage, DocChange, DocVersion } from "@/lib/report-edit";
 import DocReport from "./DocReport";
 
-const welcome: ChatMessage = { role: "assistant", content: "원하는 변경을 말씀해 주세요. 왼쪽 문서에서 블록을 선택하면 그 부분만 수정합니다. 계산 값과 잠긴 문구는 그대로 보호됩니다." };
+const welcome: ChatMessage = { role: "assistant", content: "바꾸고 싶은 내용을 입력하세요. 문서에서 항목을 선택하면 그 부분만 수정합니다." };
 const equal = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
 
 export default function DocChatEditor({ schema, path, appId, accent, onConfirm }: {
@@ -53,7 +53,6 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm }
           if (cached && cached.source === JSON.stringify(path.doc) && validateDoc(schema, path.id, cached.draft, { previous: cached.draft }).ok) {
             setDraft(cached.draft); setMessages(cached.messages || [welcome]);
             setVersions(cached.versions?.length ? cached.versions : history);
-            setNotice("이 브라우저에서 편집하던 초안을 복원했습니다.");
           }
         } catch { /* 저장 공간을 쓸 수 없어도 대화 편집은 계속할 수 있다. */ }
         setReady(true);
@@ -97,7 +96,6 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm }
       if (data.kind === "edit") {
         record(data.doc, message, data.version); setChanges(data.changes); setStorage(data.storage);
         setSelectedId(id => data.doc.blocks.some((b: any) => b.id === id) ? id : null);
-        setNotice("초안이 수정되었습니다. 변경 내역을 확인한 뒤 확정해 주세요.");
       }
     } catch (e) { setError(e instanceof Error ? e.message : "수정하지 못했습니다."); }
     finally { setBusy(""); }
@@ -139,13 +137,13 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm }
 
   return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50" aria-label="대화형 리포트 편집">
     <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-4 sm:px-5">
-      <div><h3 className="text-lg font-bold text-slate-900">대화로 양식 다듬기</h3><p className="mt-1 text-xs text-slate-500">{path.label} · {docPages(draft).length}쪽 · {dirty ? "수정 중인 초안" : "현재 양식"}</p></div>
+      <div><h3 className="text-lg font-bold text-slate-900">리포트 편집</h3><p className="mt-1 text-xs text-slate-500">{docPages(draft).length}쪽 · {dirty ? "수정 중인 초안" : "현재 양식"}</p></div>
       <div className="flex flex-wrap items-center gap-2">
         <select aria-label="이전 버전" value={restoring} disabled={!!busy} onChange={e => setRestoring(e.target.value)} className="max-w-44 rounded-lg border bg-white px-2 py-2 text-xs">
           <option value="">이전 버전 보기</option>{versions.map((v, i) => <option key={`${v.id}-${i}`} value={String(i)}>{v.version ? `v${v.version}` : `기록 ${i + 1}`} · {v.note.slice(0, 30)}</option>)}
         </select>
         <button disabled={restoring === "" || !!busy} onClick={() => restore(versions[Number(restoring)])} className="rounded-lg border px-3 py-2 text-xs disabled:opacity-40">되돌리기</button>
-        <button onClick={downloadDraft} className="rounded-lg border px-3 py-2 text-xs">초안 내려받기</button>
+        {(storage === "unavailable" || error) && <button onClick={downloadDraft} className="rounded-lg border px-3 py-2 text-xs">초안 백업</button>}
         <button disabled={!!busy || !appId || !ready || !savedSchema} onClick={() => setShowConfirm(true)} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">양식 확정</button>
       </div>
     </header>
@@ -158,14 +156,13 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm }
     <div className="flex border-b bg-white p-2 lg:hidden">{([['preview','문서 미리보기'],['chat','대화로 수정']] as const).map(([key,label]) => <button key={key} onClick={() => setPanel(key)} className={`flex-1 rounded-lg py-2 text-sm ${panel === key ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>{label}</button>)}</div>
     <div className="grid lg:h-[790px] lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className={`${panel === "preview" ? "block" : "hidden"} min-w-0 overflow-y-auto bg-slate-100 p-3 sm:p-5 lg:block`}>
-        <p className="mb-4 text-xs text-slate-500">블록을 선택하면 해당 부분만 수정합니다. 초록색 테두리는 이번 변경입니다.</p>
         <DocReport schema={schema} path={{ ...path, doc: draft }} result={result} accent={accent} selectedId={selectedId}
           onSelect={id => { if (!busy) { setSelectedId(current => current === id ? null : id); setPanel("chat"); } }}
           onToggleLock={busy ? undefined : (id, locked) => locked ? toggleLock(id, true) : setLockRequest({ id, locked })}
           changedIds={changes.filter(c => c.op !== "remove").map(c => c.blockId)} />
       </div>
       <aside className={`${panel === "chat" ? "flex" : "hidden"} h-[640px] min-w-0 flex-col border-l bg-white lg:flex lg:h-auto lg:min-h-0`}>
-        <div className="border-b px-4 py-3"><p className="text-sm font-semibold text-slate-900">리포트 편집 도우미</p><p className="mt-1 text-xs text-slate-500">배치·표현·안내 문구를 대화로 다듬으세요</p></div>
+        <div className="border-b px-4 py-3"><p className="text-sm font-semibold text-slate-900">대화</p></div>
         <div ref={chatScroll} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
           {messages.map((m, i) => <div key={i} className={m.role === "user" ? "ml-7 rounded-2xl rounded-tr-sm bg-blue-700 px-4 py-3 text-sm leading-6 text-white" : "mr-2 rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-700"}><p className="whitespace-pre-wrap">{m.content}</p></div>)}
           {changes.length > 0 && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-900">이번 변경</p><ul className="mt-2 space-y-1 text-xs leading-5 text-emerald-900">{changes.map((c, i) => <li key={i}>{c.summary}</li>)}</ul></div>}
@@ -173,9 +170,8 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm }
         </div>
         <div className="border-t p-4">
           {selected && <div className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900"><span>{selected.locked ? "잠긴 블록" : "선택한 블록"}: {selected.title || DOC_BLOCK_LABELS[selected.type]}</span><button disabled={!!busy} onClick={() => setSelectedId(null)} className="shrink-0 underline">전체 편집</button></div>}
-          <div className="mb-3 flex flex-wrap gap-1.5">{["한 쪽으로 줄여줘", "문구를 더 간결하게 해줘", "표 대신 차트로 보여줘"].map(text => <button key={text} disabled={!!busy || !appId || !ready} onClick={() => send(text)} className="rounded-full border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40">{text}</button>)}</div>
           <form onSubmit={e => { e.preventDefault(); send(); }}><label htmlFor={`chat-${path.id}`} className="sr-only">리포트 수정 요청</label><textarea id={`chat-${path.id}`} value={input} onChange={e => setInput(e.target.value)} maxLength={2000} rows={3} disabled={!!busy || !appId || !ready} placeholder="예: 결론을 짧게 쓰고 핵심 금액을 먼저 보여줘" className="block w-full resize-none rounded-xl border border-slate-300 p-3 text-sm leading-6 outline-none focus:border-blue-600 disabled:bg-slate-50" />
-            <div className="mt-2 flex items-center justify-between gap-2"><span className="text-[11px] text-slate-400">수정 후 미리보기에서 확인하세요</span><button disabled={!!busy || !input.trim() || !appId || !ready} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">수정 요청</button></div></form>
+            <div className="mt-2 flex justify-end"><button disabled={!!busy || !input.trim() || !appId || !ready} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">수정 요청</button></div></form>
         </div>
       </aside>
     </div>
