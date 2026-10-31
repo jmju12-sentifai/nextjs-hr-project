@@ -151,6 +151,8 @@ export default function BuilderPage() {
 function BuilderInner() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState(() => searchParams?.get("tab") === "rp" ? "rp" : "m0");
+  const [reportVisited, setReportVisited] = useState(tab === "rp");
+  useEffect(() => { if (tab === "rp") setReportVisited(true); }, [tab]);
   const [schema, setSchema] = useState<AppSchema>(EMPTY_SCHEMA);
   const [appId, setAppId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -879,7 +881,7 @@ function BuilderInner() {
           />
         )}
         {tab === "lg" && <Tab3Logic schema={schema} onChange={setSchema} appId={appId} />}
-        {tab === "rp" && <Tab4Report key={appId || "new"} schema={schema} onChange={setSchema} appId={appId} />}
+        {(tab === "rp" || reportVisited) && <div hidden={tab !== "rp"}><Tab4Report key={appId || "new"} schema={schema} onChange={setSchema} appId={appId} /></div>}
         {tab === "pv" && <Tab5Preview schema={schema} appId={appId} />}
         <footer className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-center gap-3 text-xs text-gray-500 flex-wrap">
           <div>

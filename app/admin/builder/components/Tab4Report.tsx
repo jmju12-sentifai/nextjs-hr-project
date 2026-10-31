@@ -379,6 +379,14 @@ export default function Tab4Report({ schema, onChange, appId }: Props) {
   const slotIdsKey = slots.map((s) => s.id).join("|");
   const [documentPaths, setDocumentPaths] = useState<string[]>([]);
   const [slot, setSlot] = useState<string>(() => slots[0]?.id || fallback.id);
+  const [slotReady, setSlotReady] = useState(!appId);
+  useEffect(() => {
+    try {
+      const remembered = appId && sessionStorage.getItem(`hrcoach:report-condition:${appId}`);
+      if (remembered && slotIdsKey.split("|").includes(remembered)) setSlot(remembered);
+    } catch { /* 저장 공간을 쓸 수 없어도 조건 선택은 가능하다. */ }
+    setSlotReady(true);
+  }, [appId, slotIdsKey]);
 
   useEffect(() => {
     if (!slotIdsKey.split("|").includes(slot)) {
@@ -653,7 +661,7 @@ export default function Tab4Report({ schema, onChange, appId }: Props) {
             <button
               key={s.id}
               aria-pressed={on}
-              onClick={() => setSlot(s.id)}
+              onClick={() => { setSlot(s.id); try { if (appId) sessionStorage.setItem(`hrcoach:report-condition:${appId}`, s.id); } catch { /* 현재 선택은 유지한다. */ } }}
               className={
                 "rounded-lg px-3 py-2 text-sm transition " +
                 (on ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")
@@ -665,12 +673,12 @@ export default function Tab4Report({ schema, onChange, appId }: Props) {
         })}
       </div>}
 
-      <DocProposalEditor key={slot} appId={appId} schema={m} path={currentPath} docMode={docMode}
+      {slotReady && <DocProposalEditor key={slot} appId={appId} schema={m} path={currentPath} docMode={docMode}
         onModeChange={enabled => setDocumentPaths(ids => enabled ? [...ids.filter(id => id !== slot), slot] : ids.filter(id => id !== slot))}
         onApply={doc => {
           const next = { ...currentPath, doc };
           onChange(isFallbackSlot ? { ...m, fallback: next } : { ...m, paths: paths.map(p => p.id === slot ? next : p) });
-        }} />
+        }} />}
       {!docMode && !isActivePath && (
         <div className="rounded border border-amber-200 bg-amber-50 text-amber-800 text-xs px-3 py-2">
           ⓘ 편집 중인 경로(<b>{slots.find((s) => s.id === slot)?.label}</b>)는 현재

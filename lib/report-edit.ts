@@ -24,7 +24,8 @@ export function asksForAdvice(message: string) {
 }
 
 export const ADVICE_INSTRUCTION = `당신은 현재 HR 리포트를 함께 검토하는 편집 도우미입니다. 질문에 답하고 선택 가능한 표현을 제안합니다.
-JSON {"reply":"쉬운 한국어 답변", "suggestions":[{"label":"가로 막대 적용", "description":"선택하면 무엇이 바뀌는지 한 문장", "blockId":"실제 대상 id", "block":해당블록의완성된대안}]}만 출력합니다.
+JSON {"reply":"쉬운 한국어 답변", "suggestions":[{"label":"가로 막대", "description":"비율을 한눈에 비교하기 좋습니다.", "blockId":"실제 대상 id", "block":해당블록의완성된대안}]}만 출력합니다.
+추천은 대화처럼 자연스럽게 설명합니다. reply는 '가로 막대와 숫자만 표시하는 방식이 있습니다. 비율을 강조하려면 가로 막대를 추천합니다.'처럼 가능한 방식과 추천 이유를 짧게 말합니다. label은 '가로 막대', '숫자만'처럼 짧은 이름으로 쓰고 '적용/선택/변경'을 붙이지 않습니다. description은 각 방식의 특징만 한 문장으로 쓰고 '선택하면 ... 표시됩니다'를 반복하지 않습니다.
 reply, label, description에는 사용자가 보는 항목 이름과 쉬운 한국어만 씁니다. 블록 id, kpis, display, bar, value 같은 코드·구현 용어를 노출하지 않습니다. 미적용 상태 안내는 화면에서 별도로 붙이므로 답변에 반복하지 않습니다.
 단순 설명 질문에는 suggestions를 빈 배열로 둡니다. 추천 질문에는 실제 적용 가능한 대안 최대 세 개를 제안합니다. 여러 대상이 모호하면 먼저 어느 항목인지 물으며 빈 배열로 둡니다.
 selectedBlockId가 있으면 그 블록만 대상으로 합니다. 없으면 문서의 제목뿐 아니라 items의 label/bind도 확인하여 사용자가 말한 정확한 항목을 찾습니다.
@@ -78,7 +79,7 @@ export function checkAdvice(raw: unknown, schema: AppSchema, pathId: string, doc
   const reply = Array.isArray(value.suggestions) && value.suggestions.length && !suggestions.length
     ? "제안한 표현을 현재 문서에 적용할 수 있는지 확인하지 못했습니다. 바꾸고 싶은 항목을 문서에서 선택해 다시 요청해 주세요."
     : value.reply;
-  return { kind: "advice" as const, reply: `문서는 아직 바꾸지 않았습니다.\n\n${reply}`, suggestions };
+  return { kind: "advice" as const, reply, suggestions };
 }
 
 /** 변경 내역은 모델의 자기 보고가 아니라 실제 블록 차이로 만든다. */

@@ -4,7 +4,7 @@ import { DOC_BLOCK_LABELS, docPages, run, stableJson, validateDoc } from "app-re
 import type { AppSchema, Path, ReportDoc } from "app-renderer";
 import type { ChatMessage, DocChange, DocSuggestion, DocVersion } from "@/lib/report-edit";
 import DocReport from "./DocReport";
-import { withWorkingDoc } from "@/lib/report-workspace";
+import { withWorkingDoc, type ReportChatState } from "@/lib/report-workspace";
 
 const welcome: ChatMessage = { role: "assistant", content: "궁금한 점이나 바꾸고 싶은 내용을 말씀해 주세요. 추천을 요청하면 먼저 선택지를 보여드립니다." };
 const equal = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
@@ -12,6 +12,7 @@ const equal = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
 export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
   previewDoc, previewKey, previewDescription, onPreviewChange, onWorkingDocChange, onBusyChange,
   toolbar, tabs, activity, externalBusy = "", externalError = "",
+  initialState, onStateChange, onBeforeSave, savedDocKey,
 }: {
   schema: AppSchema; path: Path & { doc: ReportDoc }; appId?: string | null; accent: string;
   onConfirm: (doc: ReportDoc) => void;
@@ -22,20 +23,21 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
   toolbar?: ReactNode; tabs?: ReactNode;
   activity?: { id: number; content: string };
   externalBusy?: string; externalError?: string;
+  initialState?: ReportChatState; onStateChange?: (state: ReportChatState) => void; onBeforeSave?: () => Promise<void>;
+  savedDocKey?: string;
 }) {
-  const [draft, setDraft] = useState<ReportDoc>(path.doc);
-  const [messages, setMessages] = useState<ChatMessage[]>([{ role: "assistant", content: path.doc.blocks.length ? welcome.content : "‘새 양식 제안’을 누르면 왼쪽에 양식을 준비합니다. 양식이 나오면 여기에서 바로 수정할 수 있습니다." }]);
+  const [draft, setDraft] = useState<ReportDoc>(initialState?.draft || path.doc);
+  const [messages, setMessages] = useState<ChatMessage[]>(initialState?.messages || [{ role: "assistant", content: path.doc.blocks.length ? welcome.content : "‘새 양식 제안’을 누르면 왼쪽에 양식을 준비합니다. 양식이 나오면 여기에서 바로 수정할 수 있습니다." }]);
   const [versions, setVersions] = useState<DocVersion[]>([]);
   const [savedSchema, setSavedSchema] = useState<AppSchema | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [changes, setChanges] = useState<DocChange[]>([]);
-  const [input, setInput] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(initialState?.selectedId || null);
+  const [changes, setChanges] = useState<DocChange[]>(initialState?.changes || []);
+  const [input, setInput] = useState(initialState?.input || "");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [storage, setStorage] = useState("loading");
   const [ready, setReady] = useState(false);
-  const [panel, setPanel] = useState<"preview" | "chat">("preview");
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [panel, setPanel] = useState<"preview" | "chat">(initialState?.panel || "preview");
   const [lockRequest, setLockRequest] = useState<{ id: string; locked: boolean } | null>(null);
   const [notice, setNotice] = useState("");
   const [restoring, setRestoring] = useState<string>("");
@@ -49,7 +51,7 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
   const available = activeDoc.blocks.length > 0;
   const blocked = !!busy || !!externalBusy;
   const selected = activeDoc.blocks.find(b => b.id === selectedId);
-  const dirty = !equal(draft, path.doc);
+  const dirty = savedDocKey ? stableJson(draft) !== savedDocKey : !equal(draft, path.doc);
   const localVersion = (doc: ReportDoc, note: string): DocVersion => ({ id: `local-${Date.now()}`, version: 0, doc, note, status: "draft", created_at: new Date().toISOString() });
 
   useEffect(() => {
@@ -65,9 +67,10 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
         setVersions(history);
         try {
           const cached = JSON.parse(sessionStorage.getItem(cacheKey) || "null");
-          if (cached && cached.source === JSON.stringify(path.doc) && validateDoc(schema, path.id, cached.draft, { previous: cached.draft }).ok) {
+          if (!initialState && cached && cached.source === JSON.stringify(path.doc) && validateDoc(schema, path.id, cached.draft, { previous: cached.draft }).ok) {
             setDraft(cached.draft); setMessages(current => current.length > 1 ? current : cached.messages || [welcome]);
             setVersions(cached.versions?.length ? cached.versions : history);
+            sessionStorage.removeItem(cacheKey);
           }
         } catch { /* 저장 공간을 쓸 수 없어도 대화 편집은 계속할 수 있다. */ }
         setReady(true);
@@ -86,10 +89,8 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
     }
   }, [path.doc, draft]);
   useEffect(() => {
-    // 비교 중인 안의 대화를 기존 초안의 복원 기록에 섞지 않는다.
-    if (!ready || !appId || previewDoc) return;
-    try { sessionStorage.setItem(cacheKey, JSON.stringify({ source: JSON.stringify(path.doc), draft, messages: messages.slice(-40), versions: versions.slice(-40) })); } catch { /* 용량이 부족해도 서버 저장에는 영향이 없다. */ }
-  }, [ready, cacheKey, appId, path.doc, draft, messages, versions, previewDoc]);
+    if (ready) onStateChange?.({ draft, messages: messages.slice(-40), input, selectedId, changes, panel, previewKey });
+  }, [ready, draft, messages, input, selectedId, changes, panel, previewKey, onStateChange]);
   const seenActivity = useRef<number>();
   useEffect(() => {
     if (activity && seenActivity.current !== activity.id) {
@@ -97,13 +98,16 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
       setMessages(m => [...m, { role: "assistant", content: activity.content }]);
     }
   }, [activity]);
+  const seenPreview = useRef(initialState?.previewKey);
   useEffect(() => {
+    if (seenPreview.current === previewKey) return;
+    seenPreview.current = previewKey;
     if (previewDescription) setMessages(m => [...m, { role: "assistant", content: previewDescription }]);
+    setSelectedId(null); setChanges([]); setLockRequest(null); setNotice(""); setError("");
   }, [previewKey, previewDescription]);
-  useEffect(() => { setSelectedId(null); setChanges([]); setShowConfirm(false); setLockRequest(null); setNotice(""); setError(""); }, [previewKey]);
   useEffect(() => { onWorkingDocChange?.(activeDoc); }, [activeDoc, onWorkingDocChange]);
   useEffect(() => { onBusyChange?.(!!busy); }, [busy, onBusyChange]);
-  useEffect(() => { chatScroll.current?.scrollTo({ top: chatScroll.current.scrollHeight, behavior: "smooth" }); }, [messages, busy, externalBusy, previewDescription, error, notice]);
+  useEffect(() => { chatScroll.current?.scrollTo({ top: chatScroll.current.scrollHeight, behavior: "smooth" }); }, [messages, busy, externalBusy, previewDescription, error, notice, panel]);
 
   async function request(url: string, payload: unknown) {
     controller.current = new AbortController();
@@ -166,12 +170,13 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
   }
   async function confirm() {
     if (blocked || !appId || !savedSchema || previewDoc || !available) return;
-    setBusy("확정 양식을 저장하는 중"); setError("");
+    setBusy("양식을 저장하는 중"); setError("");
     try {
+      await onBeforeSave?.();
       const data = await request("/api/report-doc/confirm", { appId, schema, pathId: path.id, doc: draft, savedSchema });
-      setSavedSchema(data.schema); record(draft, "양식 확정", data.version); onConfirm(draft); setShowConfirm(false); setChanges([]);
-      setNotice("양식을 확정하고 저장했습니다. 이용자에게 이 양식이 표시됩니다.");
-    } catch (e) { setError(e instanceof Error ? e.message : "확정하지 못했습니다."); }
+      setSavedSchema(data.schema); record(draft, "양식 저장", data.version); onConfirm(draft); setChanges([]);
+      setNotice("저장했습니다. 이용자 리포트에 이 양식이 반영됩니다.");
+    } catch (e) { setError(e instanceof Error ? e.message : "저장하지 못했습니다."); }
     finally { setBusy(""); }
   }
   function downloadDraft() {
@@ -194,10 +199,9 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
         </details>}
         {(storage === "unavailable" || error) && available && <button onClick={downloadDraft} className="rounded-lg border px-3 py-2 text-xs">초안 백업</button>}
         {toolbar}
-        {!previewDoc && available && <button disabled={blocked || !appId || !ready || !savedSchema} onClick={() => setShowConfirm(true)} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">양식 확정</button>}
+        {!previewDoc && available && <button title="저장하면 이용자 리포트에 반영됩니다" disabled={blocked || !appId || !ready || !savedSchema} onClick={confirm} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">저장</button>}
       </div>
     </header>
-    {showConfirm && <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-blue-50 p-4 text-sm"><p>이 초안을 확정하고 해당 경로의 이용자 리포트에 반영할까요?</p><div className="flex gap-2"><button disabled={blocked} onClick={() => setShowConfirm(false)} className="rounded border bg-white px-3 py-2">취소</button><button disabled={blocked} onClick={confirm} className="rounded bg-blue-700 px-3 py-2 font-semibold text-white">확정하여 저장</button></div></div>}
     {lockRequest && <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-amber-50 p-4 text-sm"><p>잠금을 해제하면 이 블록을 AI로 수정할 수 있습니다. 해제할까요?</p><div className="flex gap-2"><button onClick={() => setLockRequest(null)} className="rounded border bg-white px-3 py-2">취소</button><button onClick={() => toggleLock(lockRequest.id, false)} className="rounded bg-slate-900 px-3 py-2 text-white">잠금 해제</button></div></div>}
     <div className="flex border-b bg-white p-2 lg:hidden">{([['preview','문서'],['chat','대화']] as const).map(([key,label]) => <button key={key} onClick={() => setPanel(key)} className={`flex-1 rounded-lg py-2 text-sm ${panel === key ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>{label}</button>)}</div>
     <div className="grid lg:h-[700px] lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -212,10 +216,10 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
         <div className="border-b px-4 py-3"><p className="text-sm font-semibold text-slate-900">대화</p></div>
         <div ref={chatScroll} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
           {messages.map((m, i) => <div key={i} className={m.role === "user" ? "ml-7 rounded-2xl rounded-tr-sm bg-blue-700 px-4 py-3 text-sm leading-6 text-white" : "mr-2 rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-700"}><p className="whitespace-pre-wrap">{m.content}</p>
-            {!!m.suggestions?.length && <div className="mt-3 space-y-2">{m.suggestions.map((s, j) => <div key={j} className="rounded-lg border border-slate-200 bg-white p-3">
-              <p className="mb-2 text-xs leading-5 text-slate-600">{s.description}</p>
-              <button type="button" disabled={blocked || !equal(m.sourceDoc, activeDoc)} onClick={() => send(s.label, s, m.sourceDoc)} className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm font-semibold text-blue-700 disabled:border-slate-200 disabled:text-slate-400">{s.label}</button>
-            </div>)}</div>}
+            {!!m.suggestions?.length && <>
+              <ul className="mt-3 space-y-2">{m.suggestions.map((s, j) => <li key={j}><span className="font-semibold">{s.label}</span> · {s.description}</li>)}</ul>
+              <div className="mt-3 flex flex-wrap gap-2">{m.suggestions.map((s, j) => <button key={j} type="button" disabled={blocked || !equal(m.sourceDoc, activeDoc)} onClick={() => send(`${s.label}로 바꿔줘`, s, m.sourceDoc)} className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-blue-600 hover:text-blue-700 disabled:opacity-40">{s.label}</button>)}</div>
+            </>}
           </div>)}
           {changes.length > 0 && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-900">이번 변경</p><ul className="mt-2 space-y-1 text-xs leading-5 text-emerald-900">{changes.map((c, i) => <li key={i}>{c.summary}</li>)}</ul></div>}
           {!appId && <p className="text-sm text-amber-800">앱을 먼저 임시저장하면 대화 편집을 시작할 수 있습니다.</p>}
