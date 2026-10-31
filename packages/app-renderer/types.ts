@@ -397,7 +397,8 @@ export interface FactsBlock extends DocBlockBase {
 }
 export interface KpisBlock extends DocBlockBase {
   type: "kpis";
-  items: DocRef[];
+  /** 비율 장식도 항목별로 편집한다. 생략하면 기존 링 표현을 유지한다. */
+  items: (DocRef & { display?: "ring" | "bar" | "value" })[];
 }
 export interface GaugeBlock extends DocBlockBase {
   type: "gauge";

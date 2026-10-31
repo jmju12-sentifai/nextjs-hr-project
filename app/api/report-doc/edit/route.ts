@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { validateDoc } from "app-renderer";
+import { stableJson, validateDoc } from "app-renderer";
 import { requireAdmin } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { readReportGuide } from "@/lib/report-guide";
 import { proposalContext, PROPOSAL_INSTRUCTION } from "@/lib/report-proposals";
-import { applyEditResult, EDIT_INSTRUCTION, INTENT_INSTRUCTION, REFUSAL } from "@/lib/report-edit";
+import { ADVICE_INSTRUCTION, applyEditResult, applySuggestion, asksForAdvice, checkAdvice, EDIT_INSTRUCTION, INTENT_INSTRUCTION, REFUSAL } from "@/lib/report-edit";
 import { saveDraft } from "@/lib/report-versions";
 import { sanitizeAppId, trackedGenerate, withUsage } from "@/lib/llm-usage";
 
@@ -33,6 +33,16 @@ export async function POST(req: NextRequest) {
     if (error) throw error;
     if (!app) return NextResponse.json({ error: "앱을 먼저 저장해 주세요." }, { status: 404 });
     const { guide } = await readReportGuide();
+    if (input.suggestion !== undefined) {
+      const original = input.doc.blocks.find((b: any) => b.id === input.suggestion?.blockId);
+      if (!original || stableJson(original) !== stableJson(input.suggestionSourceBlock))
+        return NextResponse.json({ error: "제안 후 문서가 바뀌었습니다. 다시 추천받아 주세요." }, { status: 409 });
+      const edited = applySuggestion(input.schema, input.pathId, input.doc, input.suggestion, guide, input.selectedBlockId);
+      if (!edited.ok) return NextResponse.json({ kind: "refuse", reply: edited.error });
+      if (!edited.changes.length) return NextResponse.json({ kind: "unchanged", reply: "이미 같은 표현이 적용되어 있습니다." });
+      const saved = await saveDraft(input.appId, input.pathId, edited.doc, input.message, auth.user.id);
+      return NextResponse.json({ kind: "edit", ...edited, ...saved, reply: `‘${original.title || "선택한 항목"}’에 선택한 표현을 반영했습니다.` });
+    }
     if (!process.env.GEMINI_API_KEY) return NextResponse.json({ error: "AI 연결 설정을 확인해 주세요." }, { status: 503 });
     const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const config = { responseMimeType: "application/json", temperature: 0.2, thinkingConfig: { thinkingBudget: 0 } } as any;
@@ -42,16 +52,24 @@ export async function POST(req: NextRequest) {
       const classifier = client.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-2.5-flash", systemInstruction: INTENT_INSTRUCTION,
         generationConfig: { ...config, maxOutputTokens: 500 } }, { timeout: 20_000 });
       const classification = await trackedGenerate(classifier, JSON.stringify({ message: input.message, history,
-        selectedBlock: selected || null, lockedBlocks: input.doc.blocks.filter((b: any) => b.locked) }));
+        doc: input.doc, selectedBlock: selected || null, lockedBlocks: input.doc.blocks.filter((b: any) => b.locked) }));
       let intent: unknown;
       try { intent = JSON.parse(classification.response.text()).intent; } catch { intent = "other"; }
       // 분류가 끝나기 전에는 수정 모델을 호출하지 않는다.
+      if (["data", "logic", "locked"].includes(String(intent))) return { kind: "refuse" as const, reason: String(intent), reply: REFUSAL };
+      const context = { context: proposalContext(input.schema, input.pathId, guide), doc: input.doc,
+        message: input.message, selectedBlockId: input.selectedBlockId, history };
+      if (intent === "advice" || intent === "other" || asksForAdvice(input.message)) {
+        const advisor = client.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+          systemInstruction: PROPOSAL_INSTRUCTION + "\n이제 전체 양식 생성이 아닌 대화 상담입니다. 이하 상담 출력 규칙만 따릅니다.\n" + ADVICE_INSTRUCTION,
+          generationConfig: { ...config, maxOutputTokens: 6000 } }, { timeout: 35_000 });
+        const response = await trackedGenerate(advisor, JSON.stringify(context));
+        return checkAdvice(JSON.parse(response.response.text()), input.schema, input.pathId, input.doc, guide, input.selectedBlockId);
+      }
       if (!["layout", "wording", "style"].includes(String(intent))) return { kind: "refuse" as const, reason: String(intent), reply: REFUSAL };
       const editor = client.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
         systemInstruction: PROPOSAL_INSTRUCTION + "\n이제 세 안 제안이 아닌 기존 문서 편집 작업입니다. 이하 편집 출력 규칙을 따릅니다.\n" + EDIT_INSTRUCTION,
         generationConfig: { ...config, maxOutputTokens: 12000 } }, { timeout: 35_000 });
-      const context = { context: proposalContext(input.schema, input.pathId, guide), doc: input.doc,
-        message: input.message, selectedBlockId: input.selectedBlockId, history };
       let feedback = "";
       for (let attempt = 0; attempt < 2; attempt++) {
         const response = await trackedGenerate(editor, JSON.stringify(context) + feedback);

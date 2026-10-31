@@ -22,7 +22,7 @@ id는 print(통지문형 두 쪽), screen(요약형 한 쪽), review(담당자 �
 각 블록은 {id:고유문자열,type:아래종류,title?:string}과 아래 필드를 갖습니다. 지정하지 않은 속성 금지.
 DocRef={bind:실제이름,label?:표시이름}. 참조는 variables와 steps의 이름 및 '적용여부'만 허용. llm 단계는 금지.
 - headline: tpl (결론, {이름}으로 계산값을 삽입)
-- kpis: items:DocRef[] (핵심 수치, 첫 항목이 크게 표시됨)
+- kpis: items:(DocRef & {display?:ring|bar|value})[] (핵심 수치, 첫 항목이 크게 표시됨. 비율 항목은 기본 ring 도넛이며 bar 가로 막대, value 숫자만 표시로 바꿀 수 있음)
 - gauge: items:(DocRef & {of?:이름})[] (백분율 값 또는 bind/of 비율)
 - compare: items:DocRef[] (같은 단위의 전후 값)
 - formula: bind (formula 단계), labels?:{이름:표시이름}, notes?:{이름:항목의 뜻}
