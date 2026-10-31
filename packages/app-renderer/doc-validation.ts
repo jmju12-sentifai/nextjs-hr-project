@@ -81,12 +81,18 @@ export function validateDoc(schema: AppSchema, pathId: string, input: unknown, o
   if (input.title !== undefined) text(input.title);
   if (input.subjects !== undefined) {
     if (!Array.isArray(input.subjects) || input.subjects.length > 10) fail("shape", "대상자 항목 형식이 올바르지 않습니다.");
-    else input.subjects.forEach(n => ref(n));
+    else input.subjects.forEach(n => {
+      const count = errors.length;
+      ref(n);
+      for (const e of errors.slice(count)) e.message = `subjects에는 실제 항목 이름만 넣어 주세요. ${e.message}`;
+    });
   }
   if (input.units !== undefined) {
     if (!object(input.units)) fail("shape", "표시 단위 형식이 올바르지 않습니다.");
     else for (const [name, unit] of Object.entries(input.units)) {
+      const count = errors.length;
       ref(name);
+      for (const e of errors.slice(count)) e.message = `units의 키에는 실제 항목 이름만 넣어 주세요. ${e.message}`;
       const original = stepMap.get(name)?.unit ?? m.vars.find(v => v.name === name)?.unit ?? "";
       if (unit !== original && !(original === "년" && unit === "세") && !(original === "월" && unit === "개월"))
         fail("unit", "표시 단위는 계산 값의 의미를 바꿀 수 없습니다.");
