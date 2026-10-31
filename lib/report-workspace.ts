@@ -8,6 +8,7 @@ export interface ReportChatState {
   changes: DocChange[]; panel: "preview" | "chat"; previewKey?: string;
 }
 export interface ReportWorkspace {
+  proposalJobId?: string;
   format: 1; calculation: string; savedDoc: string; docMode: boolean;
   proposals: ReportProposal[]; selected: number; sourceDoc?: ReportDoc;
   guide?: ReportGuide; chat?: ReportChatState;

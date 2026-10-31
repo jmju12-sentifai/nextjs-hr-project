@@ -7,6 +7,7 @@ import { reportCalculationKey, withWorkingDoc, type ReportChatState } from "@/li
 import DocChatEditor from "./DocChatEditor";
 import { useReportGuide } from "./useReportGuide";
 import { useReportWorkspace } from "./useReportWorkspace";
+import { useReportProposalJob } from "./useReportProposalJob";
 
 const emptyDoc: ReportDoc = { blocks: [] };
 export default function DocProposalEditor({ schema, path, docMode, onModeChange, onApply, appId }: {
@@ -16,7 +17,8 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
   const loaded = useReportGuide();
   const session = useReportWorkspace(appId, path.id, schema, docMode);
   const { workspace, update, flush } = session;
-  const [busy, setBusy] = useState(false);
+  const generation = useReportProposalJob(appId, path.id, schema, workspace, update);
+  const busy = generation.busy;
   const [editing, setEditing] = useState(false);
   const [activity, setActivity] = useState<{ id: number; content: string }>();
   const activityId = useRef(0);
@@ -25,12 +27,10 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
   const selected = workspace?.selected || 0;
   const workingDoc = useRef<ReportDoc>(path.doc || emptyDoc);
   const [confirmGrid, setConfirmGrid] = useState(false);
-  const abort = useRef<AbortController>();
   const guide = workspace?.guide || loaded.guide;
   const fingerprint = reportCalculationKey(schema);
   const proposal = proposals[selected];
-  const blocked = busy || editing || !workspace;
-  useEffect(() => () => abort.current?.abort(), []);
+  const blocked = busy || generation.checking || editing || !workspace;
   useEffect(() => {
     if (workspace?.docMode && !docMode) onModeChange(true);
     if (workspace && !workspace.docMode && docMode) { if (hasDoc(path)) onApply(undefined); onModeChange(false); }
@@ -48,21 +48,8 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
   }
   async function propose() {
     if (blocked) return;
-    setBusy(true);
     const sourceDoc = workingDoc.current.blocks.length ? workingDoc.current : undefined;
-    const controller = new AbortController();
-    abort.current = controller;
-    try {
-      const response = await fetch("/api/report-doc/propose", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schema: withWorkingDoc(schema, path.id, sourceDoc), appId, pathId: path.id }), signal: controller.signal });
-      const data = await response.json();
-      if (controller.signal.aborted) return;
-      if (!response.ok) throw new Error(data.error || "양식 제안을 가져오지 못했습니다.");
-      if (!data.proposals?.length) throw new Error("양식을 만들지 못했습니다. 다시 제안받아 주세요.");
-      update(w => ({ ...w, calculation: fingerprint, guide: data.guide, proposals: data.proposals, selected: 0, sourceDoc, docMode: true }));
-      say(`양식 ${data.proposals.length}개를 준비했습니다. 바꾸고 싶은 내용을 말씀해 주세요.`);
-    } catch (e) { if (!controller.signal.aborted) say(e instanceof Error ? e.message : "다시 시도해 주세요."); }
-    finally { if (!controller.signal.aborted) setBusy(false); }
+    await generation.start(withWorkingDoc(schema, path.id, sourceDoc));
   }
   function apply() {
     if (!proposal || blocked) return;
@@ -90,14 +77,14 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
     {!workspace && <div className="p-4 text-sm text-slate-500">{session.error || "작업 기록을 불러오는 중…"}{session.error && <button onClick={session.retry} className="ml-3 underline">다시 불러오기</button>}</div>}
     {docMode && workspace && <DocChatEditor key={`${appId}:${path.id}`} schema={schema} path={{ ...path, doc: path.doc || emptyDoc }} appId={appId} accent={guide.accent} onConfirm={saved}
       initialState={workspace.chat} onStateChange={rememberChat} onBeforeSave={beforeSave} savedDocKey={workspace.savedDoc}
-      previewDoc={proposal?.doc} previewKey={proposal?.id} previewDescription={proposal?.reason}
+      previewDoc={proposal?.doc} previewKey={proposal ? `${workspace.proposalJobId || "legacy"}:${proposal.id}` : undefined} previewDescription={proposal?.reason}
       onPreviewChange={doc => update(w => ({ ...w, proposals: w.proposals.map((item, i) => i === selected ? { ...item, doc } : item) }))}
       onWorkingDocChange={doc => { workingDoc.current = doc; }} onBusyChange={setEditing}
-      activity={activity} externalBusy={busy ? "새 양식을 만드는 중" : ""} externalError={session.error || loaded.error || ""}
+      activity={activity} externalBusy={busy ? "새 양식을 만드는 중 · 다른 화면에 다녀와도 계속됩니다" : generation.checking ? "생성 상태를 확인하는 중" : ""} externalError={generation.error || session.error || loaded.error || ""}
       tabs={proposal ? <div className="flex flex-wrap gap-1" aria-label="제안 양식">{proposals.map((p, i) => <button key={p.id} disabled={blocked} aria-pressed={selected === i} onClick={() => update(w => ({ ...w, selected: i }))} className={`rounded-lg px-3 py-2 text-sm ${selected === i ? "bg-slate-900 font-semibold text-white" : "text-slate-600 hover:bg-slate-100"}`}>{p.name}</button>)}<button disabled={blocked} onClick={close} className="rounded-lg px-3 py-2 text-sm text-slate-500 disabled:opacity-40">{hasDoc(path) ? "기존 양식" : "취소"}</button></div> : undefined}
       toolbar={<>
         <button disabled={blocked || loaded.loading || !!loaded.error} onClick={propose} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40">{busy ? "양식 만드는 중…" : "새 양식 제안"}</button>
-        {busy && <button className="text-sm underline" onClick={() => { abort.current?.abort(); setBusy(false); say("양식 생성을 취소했습니다."); }}>생성 취소</button>}
+        {busy && <button className="text-sm underline" onClick={generation.cancel}>생성 취소</button>}
         {proposal && <button disabled={blocked} onClick={apply} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">이 안으로 선택</button>}
       </>} />}
   </section>;
