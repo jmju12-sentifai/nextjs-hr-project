@@ -406,8 +406,9 @@ function Kpis({ b, ctx }: { b: KpisBlock; ctx: Ctx }) {
         <span className="text-[12px] font-semibold text-white/80">{labelOf(hero)}</span>
         <div className="flex items-end justify-between gap-3">
           <span className="min-w-0 font-bold leading-none tracking-[-0.03em] [overflow-wrap:anywhere]" style={{ fontSize: "clamp(22px, 7cqi, 36px)" }}>{dv(ctx, hero.bind)}</span>
-          {heroP !== null && <Ring p={heroP} size={52} stroke={7} light />}
+          {heroP !== null && (!hero.display || hero.display === "ring") && <Ring p={heroP} size={52} stroke={7} light />}
         </div>
+        {heroP !== null && hero.display === "bar" && <KpiBar value={heroP} label={labelOf(hero)} light />}
       </div>
       {rest.length > 0 && (
         <div className="grid min-w-0 gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 9rem), 1fr))" }}>
@@ -416,13 +417,16 @@ function Kpis({ b, ctx }: { b: KpisBlock; ctx: Ctx }) {
             return (
               <div
                 key={i}
-                className="flex min-w-0 items-center justify-between gap-2 rounded-2xl bg-[var(--r-soft)] px-4 py-3.5"
+                className="flex min-w-0 flex-col justify-center gap-2 rounded-2xl bg-[var(--r-soft)] px-4 py-3.5"
               >
+                <div className="flex w-full items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-[11.5px] text-[var(--r-muted)]">{labelOf(it)}</div>
                   <div className="mt-0.5 text-[17px] font-bold leading-snug text-[var(--r-ink)] [overflow-wrap:anywhere]">{dv(ctx, it.bind)}</div>
                 </div>
-                {p !== null && <Ring p={p} size={36} stroke={5} />}
+                {p !== null && (!it.display || it.display === "ring") && <Ring p={p} size={36} stroke={5} />}
+                </div>
+                {p !== null && it.display === "bar" && <KpiBar value={p} label={labelOf(it)} />}
               </div>
             );
           })}
@@ -430,6 +434,14 @@ function Kpis({ b, ctx }: { b: KpisBlock; ctx: Ctx }) {
       )}
     </div>
   );
+}
+
+function KpiBar({ value, label, light = false }: { value: number; label: string; light?: boolean }) {
+  const percent = Math.max(0, Math.min(1, value)) * 100;
+  return <div role="meter" aria-label={`${label} 비율 막대`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
+    className={`h-2 w-full overflow-hidden rounded-full ${light ? "bg-white/25" : "bg-[var(--r-line)]"}`}>
+    <div className={`h-full rounded-full ${light ? "bg-white" : "bg-[var(--r-accent)]"}`} style={{ width: `${percent}%` }} />
+  </div>;
 }
 
 function Gauges({ b, ctx }: { b: GaugeBlock; ctx: Ctx }) {

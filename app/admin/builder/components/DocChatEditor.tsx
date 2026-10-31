@@ -2,11 +2,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DOC_BLOCK_LABELS, docPages, run, stableJson, validateDoc } from "app-renderer";
 import type { AppSchema, Path, ReportDoc } from "app-renderer";
-import type { ChatMessage, DocChange, DocVersion } from "@/lib/report-edit";
+import type { ChatMessage, DocChange, DocSuggestion, DocVersion } from "@/lib/report-edit";
 import DocReport from "./DocReport";
 import { withWorkingDoc } from "@/lib/report-workspace";
 
-const welcome: ChatMessage = { role: "assistant", content: "바꾸고 싶은 내용을 입력하세요. 문서에서 항목을 선택하면 그 부분만 수정합니다." };
+const welcome: ChatMessage = { role: "assistant", content: "궁금한 점이나 바꾸고 싶은 내용을 말씀해 주세요. 추천을 요청하면 먼저 선택지를 보여드립니다." };
 const equal = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
 
 export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
@@ -41,6 +41,7 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
   const [restoring, setRestoring] = useState<string>("");
   const controller = useRef<AbortController>();
   const chatScroll = useRef<HTMLDivElement>(null);
+  const documentScroll = useRef<HTMLDivElement>(null);
   const sourceRef = useRef(JSON.stringify(path.doc));
   const cacheKey = `hrcoach:report-draft:${appId}:${path.id}`;
   const result = useMemo(() => run(schema, [], [], path.id), [schema, path.id]);
@@ -116,16 +117,29 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
     else setDraft(doc);
     setVersions(v => [...v, version || localVersion(doc, note)].slice(-40)); setRestoring("");
   }
-  async function send(message = input) {
+  async function send(message = input, suggestion?: DocSuggestion, sourceDoc?: ReportDoc) {
     if (!message.trim() || blocked || !appId || !ready || !available) return;
-    const history = messages.slice(-6);
-    setMessages(m => [...m, { role: "user", content: message.trim() }]); setInput(""); setBusy("요청을 처리하는 중"); setError(""); setNotice("");
+    if (suggestion && !equal(sourceDoc, activeDoc)) { setError("제안 후 문서가 바뀌었습니다. 다시 추천받아 주세요."); return; }
+    const history = messages.slice(-6).map(m => ({ role: m.role, content: m.content + (m.suggestions?.length
+      ? "\n선택지: " + m.suggestions.map((s, i) => `${i + 1}. ${s.label}: ${s.description}`).join("\n") : "") }));
+    setMessages(m => [...m, { role: "user", content: message.trim() }]); setInput(""); setBusy(suggestion ? "선택한 표현을 적용하는 중" : "요청을 처리하는 중"); setError(""); setNotice(""); setChanges([]);
     try {
-      const data = await request("/api/report-doc/edit", { appId, schema: withWorkingDoc(schema, path.id, activeDoc), pathId: path.id, doc: activeDoc, selectedBlockId: selectedId || undefined, message, history });
-      setMessages(m => [...m, { role: "assistant", content: data.reply }]);
+      const data = await request("/api/report-doc/edit", { appId, schema: withWorkingDoc(schema, path.id, activeDoc), pathId: path.id, doc: activeDoc,
+        selectedBlockId: suggestion?.blockId || selectedId || undefined, message, history,
+        ...(suggestion ? { suggestion, suggestionSourceBlock: sourceDoc?.blocks.find(b => b.id === suggestion.blockId) } : {}) });
+      setMessages(m => [...m, { role: "assistant", content: data.reply,
+        ...(data.kind === "advice" ? { suggestions: data.suggestions, sourceDoc: activeDoc } : {}) }]);
       if (data.kind === "edit") {
         record(data.doc, message, data.version); setChanges(data.changes); setStorage(data.storage);
-        setSelectedId(id => data.doc.blocks.some((b: any) => b.id === id) ? id : null);
+        const changedId = data.changes.find((c: DocChange) => c.op !== "remove" && c.blockId !== "$document")?.blockId;
+        setSelectedId(changedId || null);
+        setPanel("preview");
+        // 실제 변경 위치를 보여 주되 페이지 전체나 대화 입력의 스크롤은 움직이지 않는다.
+        requestAnimationFrame(() => {
+          const pane = documentScroll.current;
+          const target = pane && Array.from(pane.querySelectorAll<HTMLElement>("[data-doc-block]")).find(el => el.dataset.docBlock === changedId);
+          if (pane && target) pane.scrollTo({ top: target.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop - 20, behavior: "smooth" });
+        });
       }
     } catch (e) { setError(e instanceof Error ? e.message : "수정하지 못했습니다."); }
     finally { setBusy(""); }
@@ -187,7 +201,7 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
     {lockRequest && <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-amber-50 p-4 text-sm"><p>잠금을 해제하면 이 블록을 AI로 수정할 수 있습니다. 해제할까요?</p><div className="flex gap-2"><button onClick={() => setLockRequest(null)} className="rounded border bg-white px-3 py-2">취소</button><button onClick={() => toggleLock(lockRequest.id, false)} className="rounded bg-slate-900 px-3 py-2 text-white">잠금 해제</button></div></div>}
     <div className="flex border-b bg-white p-2 lg:hidden">{([['preview','문서'],['chat','대화']] as const).map(([key,label]) => <button key={key} onClick={() => setPanel(key)} className={`flex-1 rounded-lg py-2 text-sm ${panel === key ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>{label}</button>)}</div>
     <div className="grid lg:h-[700px] lg:grid-cols-[minmax(0,1fr)_360px]">
-      <div className={`${panel === "preview" ? "block" : "hidden"} relative z-0 min-w-0 overflow-y-auto bg-slate-100 p-3 sm:p-5 lg:block`}>
+      <div ref={documentScroll} className={`${panel === "preview" ? "block" : "hidden"} relative z-0 h-[600px] min-w-0 overflow-y-auto bg-slate-100 p-3 sm:p-5 lg:block lg:h-auto`}>
         {available ? <DocReport schema={schema} path={{ ...path, doc: activeDoc }} result={result} accent={accent} selectedId={selectedId}
           onSelect={id => { if (!blocked) { setSelectedId(current => current === id ? null : id); setPanel("chat"); } }}
           onToggleLock={blocked || previewDoc ? undefined : (id, locked) => locked ? toggleLock(id, true) : setLockRequest({ id, locked })}
@@ -197,7 +211,12 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
       <aside className={`${panel === "chat" ? "flex" : "hidden"} h-[600px] min-w-0 flex-col border-l bg-white lg:flex lg:h-auto lg:min-h-0`}>
         <div className="border-b px-4 py-3"><p className="text-sm font-semibold text-slate-900">대화</p></div>
         <div ref={chatScroll} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
-          {messages.map((m, i) => <div key={i} className={m.role === "user" ? "ml-7 rounded-2xl rounded-tr-sm bg-blue-700 px-4 py-3 text-sm leading-6 text-white" : "mr-2 rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-700"}><p className="whitespace-pre-wrap">{m.content}</p></div>)}
+          {messages.map((m, i) => <div key={i} className={m.role === "user" ? "ml-7 rounded-2xl rounded-tr-sm bg-blue-700 px-4 py-3 text-sm leading-6 text-white" : "mr-2 rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-700"}><p className="whitespace-pre-wrap">{m.content}</p>
+            {!!m.suggestions?.length && <div className="mt-3 space-y-2">{m.suggestions.map((s, j) => <div key={j} className="rounded-lg border border-slate-200 bg-white p-3">
+              <p className="mb-2 text-xs leading-5 text-slate-600">{s.description}</p>
+              <button type="button" disabled={blocked || !equal(m.sourceDoc, activeDoc)} onClick={() => send(s.label, s, m.sourceDoc)} className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm font-semibold text-blue-700 disabled:border-slate-200 disabled:text-slate-400">{s.label}</button>
+            </div>)}</div>}
+          </div>)}
           {changes.length > 0 && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-900">이번 변경</p><ul className="mt-2 space-y-1 text-xs leading-5 text-emerald-900">{changes.map((c, i) => <li key={i}>{c.summary}</li>)}</ul></div>}
           {!appId && <p className="text-sm text-amber-800">앱을 먼저 임시저장하면 대화 편집을 시작할 수 있습니다.</p>}
           {storage === "unavailable" && <p className="text-sm text-amber-800">현재 서버에 버전을 저장할 수 없습니다. 초안은 이 브라우저에 보관됩니다.</p>}

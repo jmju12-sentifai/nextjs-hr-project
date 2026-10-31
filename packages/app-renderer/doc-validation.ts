@@ -126,11 +126,12 @@ export function validateDoc(schema: AppSchema, pathId: string, input: unknown, o
       if (!Array.isArray(b[key]) || !b[key].length || b[key].length > 30) { fail("shape", "표시할 항목 목록을 확인해 주세요.", id); continue; }
       for (const item of b[key]) {
         if (!object(item)) { fail("shape", "항목 형식이 올바르지 않습니다.", id); continue; }
-        const allowed = ["bind", "label", ...(b.type === "gauge" ? ["of"] : []), ...(key === "after" ? ["sign"] : [])];
+        const allowed = ["bind", "label", ...(b.type === "gauge" ? ["of"] : []), ...(b.type === "kpis" ? ["display"] : []), ...(key === "after" ? ["sign"] : [])];
         if (Object.keys(item).some(k => !allowed.includes(k))) fail("shape", "항목에 허용되지 않은 속성이 있습니다.", id);
         ref(item.bind, id);
         if (item.label !== undefined) text(item.label, id, trusted);
         if (item.of !== undefined) ref(item.of, id);
+        if (item.display !== undefined && !["ring", "bar", "value"].includes(item.display)) fail("variant", "지원하지 않는 수치 표현입니다.", id);
         if (item.sign !== undefined && item.sign !== "-") fail("shape", "차감 표기를 확인해 주세요.", id);
       }
     }
