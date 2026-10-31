@@ -95,6 +95,9 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
       setMessages(m => [...m, { role: "assistant", content: activity.content }]);
     }
   }, [activity]);
+  useEffect(() => {
+    if (previewDescription) setMessages(m => [...m, { role: "assistant", content: previewDescription }]);
+  }, [previewKey, previewDescription]);
   useEffect(() => { setSelectedId(null); setChanges([]); setShowConfirm(false); setLockRequest(null); setNotice(""); setError(""); }, [previewKey]);
   useEffect(() => { onWorkingDocChange?.(activeDoc); }, [activeDoc, onWorkingDocChange]);
   useEffect(() => { onBusyChange?.(!!busy); }, [busy, onBusyChange]);
@@ -194,7 +197,6 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
         <div className="border-b px-4 py-3"><p className="text-sm font-semibold text-slate-900">대화</p></div>
         <div ref={chatScroll} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
           {messages.map((m, i) => <div key={i} className={m.role === "user" ? "ml-7 rounded-2xl rounded-tr-sm bg-blue-700 px-4 py-3 text-sm leading-6 text-white" : "mr-2 rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-700"}><p className="whitespace-pre-wrap">{m.content}</p></div>)}
-          {previewDescription && <p className="rounded-2xl bg-blue-50 px-4 py-3 text-sm leading-6 text-slate-700">{previewDescription}</p>}
           {changes.length > 0 && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-900">이번 변경</p><ul className="mt-2 space-y-1 text-xs leading-5 text-emerald-900">{changes.map((c, i) => <li key={i}>{c.summary}</li>)}</ul></div>}
           {!appId && <p className="text-sm text-amber-800">앱을 먼저 임시저장하면 대화 편집을 시작할 수 있습니다.</p>}
           {storage === "unavailable" && <p className="text-sm text-amber-800">현재 서버에 버전을 저장할 수 없습니다. 초안은 이 브라우저에 보관됩니다.</p>}
