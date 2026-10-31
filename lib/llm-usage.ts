@@ -26,6 +26,7 @@ export type UsageOperation =
   | "parse_spec";
 
 export type UsageCtx = {
+  trace?: { requestId: string; stage: string; attempt: number; timeoutMs: number };
   userId?: string | null;
   userEmail?: string | null;
   isAdmin?: boolean;
@@ -171,7 +172,7 @@ export async function trackedGenerate(model: any, req: any): Promise<any> {
       total_tokens: 0,
       duration_ms: Date.now() - t0,
       status: "error",
-      error_message: String(e?.message || e).slice(0, 500),
+      error_message: (ctx?.trace ? JSON.stringify({ ...ctx.trace, name: e?.name, status: e?.status, reason: String(e?.message || e).replace(/AIza[\w-]+/g, "[REDACTED]").replace(/key=[^&\s]+/g, "key=[REDACTED]") }) : String(e?.message || e)).slice(0, 500),
     });
     throw e;
   }

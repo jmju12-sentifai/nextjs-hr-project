@@ -112,9 +112,15 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
 
   async function request(url: string, payload: unknown) {
     controller.current = new AbortController();
-    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: controller.current.signal });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || "요청을 처리하지 못했습니다.");
+    let r: Response;
+    try { r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: controller.current.signal }); }
+    catch (e) {
+      if (e instanceof Error && e.name === "AbortError") throw e;
+      throw new Error("서버에 연결하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.");
+    }
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || (r.status === 504 ? "서버 응답 시간이 초과됐습니다. 잠시 후 다시 시도해 주세요." : "서버가 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."));
+    if (!data) throw new Error("서버 응답을 읽지 못했습니다. 다시 시도해 주세요.");
     return data;
   }
   function record(doc: ReportDoc, note: string, version?: DocVersion | null) {
@@ -146,7 +152,11 @@ export default function DocChatEditor({ schema, path, appId, accent, onConfirm,
           if (pane && target) pane.scrollTo({ top: target.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop - 20, behavior: "smooth" });
         });
       }
-    } catch (e) { setError(e instanceof Error ? e.message : "수정하지 못했습니다."); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "수정하지 못했습니다.");
+      // 실패한 요청을 다시 작성하지 않아도 되도록 입력란에 돌려놓는다.
+      setInput(message);
+    }
     finally { setBusy(""); }
   }
   async function restore(version: DocVersion) {
