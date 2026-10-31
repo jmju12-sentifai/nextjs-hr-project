@@ -208,15 +208,73 @@ test("완료 요청 재전송은 카드 등록·청구를 반복하지 않는다
   assert.notEqual(attemptId("same"), attemptId("different"));
 });
 
-test('카드 등록 전에 끊긴 작업은 새 청구 없이 해제해 재등록할 수 있다', async () => {
-  const server = require('../lib/supabase/admin.ts');
-  const toss = require('../lib/toss.ts');
-  const {reconcilePending} = require('../lib/members/billing.ts');
-  const original = server.createAdminClient, lookup = toss.paymentByOrder;
-  const calls=[];
-  const row={id:'interrupted',plan:'pro',kind:'first',subscription_id:null,created_at:new Date().toISOString(),lease_until:null,billing_data:null};
-  const query={select(){return this;},eq(){return this;},in(){return this;},async maybeSingle(){return {data:row,error:null};}};
-  server.createAdminClient=()=>({from:()=>query,rpc:async(name,args)=>{calls.push([name,args]);return {data:{...row,state:'processing',lease_token:'new-lease'},error:null};}});
-  toss.paymentByOrder=async()=>{throw new Error('uncharged registration must not query or charge');};
-  try{await reconcilePending('qa-user');assert.deepEqual(calls.map(c=>c[0]),['claim_billing_attempt','finish_billing_attempt']);assert.equal(calls[1][1].p_definite,true);assert.equal(calls[1][1].p_payment,null);}finally{server.createAdminClient=original;toss.paymentByOrder=lookup;}
+test("카드 등록 전에 끊긴 작업은 새 청구 없이 해제해 재등록할 수 있다", async () => {
+  const server = require("../lib/supabase/admin.ts");
+  const toss = require("../lib/toss.ts");
+  const { reconcilePending } = require("../lib/members/billing.ts");
+  const original = server.createAdminClient,
+    lookup = toss.paymentByOrder;
+  const calls = [];
+  const row = {
+    id: "interrupted",
+    plan: "pro",
+    kind: "first",
+    subscription_id: null,
+    created_at: new Date().toISOString(),
+    lease_until: null,
+    billing_data: null,
+  };
+  const query = {
+    select() {
+      return this;
+    },
+    eq() {
+      return this;
+    },
+    in() {
+      return this;
+    },
+    async maybeSingle() {
+      return { data: row, error: null };
+    },
+  };
+  server.createAdminClient = () => ({
+    from: () => query,
+    rpc: async (name, args) => {
+      calls.push([name, args]);
+      return {
+        data: { ...row, state: "processing", lease_token: "new-lease" },
+        error: null,
+      };
+    },
+  });
+  toss.paymentByOrder = async () => {
+    throw new Error("uncharged registration must not query or charge");
+  };
+  try {
+    await reconcilePending("qa-user");
+    assert.deepEqual(
+      calls.map((c) => c[0]),
+      ["claim_billing_attempt", "finish_billing_attempt"],
+    );
+    assert.equal(calls[1][1].p_definite, true);
+    assert.equal(calls[1][1].p_payment, null);
+  } finally {
+    server.createAdminClient = original;
+    toss.paymentByOrder = lookup;
+  }
+});
+
+test("갱신 실패 회원의 무료 제공 미리보기도 재청구 중지·연기를 표시한다", () => {
+  const member = {
+    subscription_status: "active",
+    expires_at: "2026-10-30T00:00:00+09:00",
+    next_billing_at: "2026-11-01T00:00:00+09:00",
+    auto_renew: true,
+  };
+  const now = "2026-10-31T00:00:00+09:00";
+  assert.equal(grantPreview(member, "unlimited", "", now).stopsRenewal, true);
+  const finite = grantPreview(member, "1", "", now);
+  assert.equal(finite.endsAt, "2026-11-29T15:00:00.000Z");
+  assert.equal(finite.nextBillingAt, "2026-11-30T15:00:00.000Z");
 });
