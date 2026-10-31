@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   MEMBER_STATES,
   MemberState,
@@ -7,38 +6,12 @@ import {
   receiptUrl,
 } from "@/lib/members/types";
 export const button =
-  "inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex shrink-0 whitespace-nowrap items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
 export const primary =
   button + " !border-blue-700 !bg-blue-700 !text-white hover:!bg-blue-800";
 export const input =
-  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600";
+  "min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600";
 export const panel = "rounded-2xl border border-slate-200 bg-white p-5 sm:p-6";
-export function AdminNav() {
-  return (
-    <nav
-      aria-label="관리자 메뉴"
-      className="mb-8 flex flex-wrap gap-2 border-b border-slate-200 pb-4"
-    >
-      {[
-        ["앱 목록", "/admin/applist"],
-        ["앱 빌더", "/admin/builder"],
-        ["사용량 집계", "/admin/usage"],
-        ["회원·구독 관리", "/admin/members"],
-      ].map(([name, url]) => (
-        <Link
-          key={url}
-          href={url}
-          className={url === "/admin/members" ? primary : button}
-        >
-          {name}
-        </Link>
-      ))}
-      <Link href="/" className={button + " ml-auto"}>
-        사이트로
-      </Link>
-    </nav>
-  );
-}
 export function Badge({ state }: { state: MemberState }) {
   const color = {
     paid: "bg-blue-50 text-blue-800",

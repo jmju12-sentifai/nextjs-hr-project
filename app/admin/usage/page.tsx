@@ -1,6 +1,5 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 
 // 관리자 · 토큰 사용량 — 요금제 산정용
 //   데이터는 /api/admin/usage 가 service_role 로 집계해 내려준다 (브라우저는 DB 직접 접근 없음).
@@ -231,8 +230,8 @@ export default function UsagePage() {
       : null;
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100 pt-10 pb-14 px-6">
-      <div className="mx-auto max-w-6xl">
+    <main className="min-h-screen bg-slate-50 pt-6 pb-14 px-4 sm:px-8">
+      <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="text-[11px] tracking-[0.2em] uppercase text-blue-700 font-mono mb-1.5">
@@ -280,9 +279,6 @@ export default function UsagePage() {
             >
               ⬇ CSV
             </button>
-            <Link href="/admin/applist" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 shadow-sm transition">
-              앱 리스트
-            </Link>
           </div>
         </div>
 

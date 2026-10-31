@@ -31,7 +31,7 @@ export default function ReportLabPage() {
   }, [tab]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100 px-4 pb-14 pt-10 sm:px-6">
+    <main className="min-h-screen bg-slate-50 px-4 pb-14 pt-10 sm:px-6">
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -42,10 +42,10 @@ export default function ReportLabPage() {
             </p>
           </div>
           <Link
-            href="/admin/applist"
+            href="/admin/report-guide"
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
           >
-            앱 리스트
+            리포트 설정
           </Link>
         </div>
 

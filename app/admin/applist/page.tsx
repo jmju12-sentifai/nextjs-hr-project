@@ -75,20 +75,20 @@ export default function BuilderTempPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100 pt-10 pb-14 px-6">
-      <div className="mx-auto max-w-5xl">
+    <main className="min-h-screen bg-slate-50 pt-6 pb-14 px-4 sm:px-8">
+      <div className="mx-auto max-w-7xl">
         {/* 헤더 */}
         <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="text-[11px] tracking-[0.2em] uppercase text-blue-700 font-mono mb-1.5">
               관리자 · 앱 관리
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">앱 리스트</h1>
+            <h1 className="text-2xl font-bold text-gray-900">앱 목록</h1>
             <p className="mt-1 text-sm text-gray-500">
               저장·발행된 모든 앱을 한 곳에서 관리합니다.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={fetchList}
               disabled={loading}
@@ -96,19 +96,6 @@ export default function BuilderTempPage() {
             >
               ↻ 새로고침
             </button>
-            <Link href="/admin/members" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">회원·구독 관리</Link>
-            <Link
-              href="/admin/usage"
-              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              📊 토큰 사용량
-            </Link>
-            <Link
-              href="/admin/report-lab"
-              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              문서형 리포트 견본
-            </Link>
             <Link
               href="/admin/builder"
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 shadow-sm transition"

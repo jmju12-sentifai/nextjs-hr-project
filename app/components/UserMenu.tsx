@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { logout } from "../login/actions";
+import { ADMIN_NAV } from "@/lib/admin-navigation";
 import { PROFILE_NAV } from "@/lib/catalog";
 
 /**
@@ -87,13 +88,7 @@ export default function UserMenu({
               <p className="px-2.5 pb-1.5 pt-1 text-[9px] font-black tracking-[0.14em] text-brand-muted">
                 관리자
               </p>
-              {[
-                { label: "앱 목록 · 발행 관리", href: "/admin/applist" },
-                { label: "앱 빌더", href: "/admin/builder" },
-                { label: "사용량 집계", href: "/admin/usage" },
-                { label: "회원·구독 관리", href: "/admin/members" },
-                { label: "리포트 공통 가이드", href: "/admin/report-guide" },
-              ].map((n) => (
+              {ADMIN_NAV.map((n) => (
                 <Link
                   key={n.href}
                   href={n.href}

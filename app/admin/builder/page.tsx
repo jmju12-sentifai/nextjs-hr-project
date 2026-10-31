@@ -757,14 +757,8 @@ function BuilderInner() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100 pt-10 pb-14 px-6 flex justify-center">
+    <main className="min-h-screen bg-slate-50 pt-6 pb-14 px-4 sm:px-8 flex justify-center">
       <div className="builder-shell w-full max-w-[1260px] rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200/60 overflow-clip self-start">
-        {/* 윈도 타이틀바 */}
-        <div className="flex items-center justify-center px-5 py-3 border-b border-blue-700 bg-gradient-to-r from-blue-600 to-blue-700">
-          <div className="text-sm font-semibold text-white tracking-wide">
-            HR Coach · 규정 적용 앱 빌더
-          </div>
-        </div>
         <div className="bg-gradient-to-b from-blue-50 to-blue-50/0">
           <div className="px-7 pt-7 pb-5">
             <div className="flex justify-between items-start gap-5 flex-wrap pb-6">

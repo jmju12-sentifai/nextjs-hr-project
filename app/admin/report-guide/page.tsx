@@ -26,7 +26,7 @@ export default function ReportGuidePage() {
     finally { setBusy(false); }
   }
   return <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-8"><div className="mx-auto max-w-3xl">
-    <Link href="/admin/applist" className="text-sm text-blue-700">← 앱 목록</Link>
+    <Link href="/admin/report-lab" className="text-sm text-blue-700">리포트 표현 견본 보기 →</Link>
     <h1 className="mt-5 text-2xl font-bold text-slate-900">리포트 공통 설정</h1>
     <p className="mt-3 text-sm leading-6 text-slate-600">모든 앱의 문서형 리포트에 적용할 기준입니다. 강조색은 기존 문서에도 적용되며, 필수 표현·금지 표현·문체는 새 AI 제안에 적용됩니다.</p>
     {loaded.error && <p role="alert" className="mt-4 text-sm text-red-700">{loaded.error}</p>}

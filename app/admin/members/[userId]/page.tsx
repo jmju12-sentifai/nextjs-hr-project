@@ -14,7 +14,6 @@ import {
   formatMemberTime,
 } from "@/lib/members/types";
 import {
-  AdminNav,
   Badge,
   Pagination,
   PaymentHistory,
@@ -148,7 +147,6 @@ export default function MemberDetail({
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-900 sm:px-8">
       <div className="mx-auto max-w-7xl">
-        <AdminNav />
         <Link href="/admin/members" className="text-sm text-blue-700">
           ← 회원 목록
         </Link>
