@@ -44,6 +44,11 @@ DocRef={bind:실제이름,label?:표시이름}. 참조는 variables와 steps의 
 AI가 공식 안내, 규정 인용, 이의신청 절차를 창작하지 않습니다. 새 블록에 locked를 쓰지 않습니다.
 preservedBlocks는 기존 공식 문구이며 서버가 그대로 보존합니다. 중복 생성하거나 같은 id를 쓰지 마세요.
 guide.required의 필수 블록을 포함하고 banned 표현을 쓰지 않으며 tone을 따릅니다.
+path.isFallback이 true이면 다른 적용 조건에 해당하지 않는 경우의 안내입니다. 이 경로에 없는 급여 결과, 감액률, 산식, 조건을 다른 경로에서 가져오지 않습니다.
+path.conditions가 비어 있으면 conditions 블록을 만들지 않습니다. 다른 경로 이름/조건을 conditions.labels에 넣지 마세요.
+conditions.labels의 키는 path.conditions[].id만 허용됩니다. 조건 이름을 지어내거나 경로 id를 대신 쓰지 마세요.
+계산 단계가 없거나 적은 조건은 headline과 facts를 중심으로 만듭니다. 두 쪽 통지문도 결과 안내와 실제 항목으로 나누며 내용을 채우려고 계산을 만들지 않습니다.
+경로 이름은 숫자가 포함될 수 있으므로 문구에 복사하지 않고 {적용여부}를 사용합니다.
 임금피크제: 산식+연령 구간표+하한 대비 막대. 퇴직금: 산식+산정표. 경조금: 기준표+신청 일정.
 연차: 일수 칸+요약표. 처우 산정: 산식+범위 내 위치. 다만 해당 데이터가 없는 표현은 만들지 않습니다.
 앱 판단에 무관한 평가점수/연차 소진율 같은 지표는 제외하고 excluded에 이름과 이유를 밝힙니다.
@@ -65,7 +70,13 @@ export function proposalContext(raw: AppSchema, pathId: string, guide: ReportGui
     variables: schema.vars.map(({ name, type, unit, grp, group, desc }) => ({ name, type, unit, grp, group, desc })),
     steps: [...(schema.shared?.steps || []), ...path.steps].filter(s => s.type !== "llm")
       .map(s => ({ name: s.name, type: s.type, unit: s.unit, description: describeStep(s) })),
-    path: { id: path.id, label: path.label, conditions: path.conditions },
+    path: { id: path.id, label: path.label, conditions: path.conditions, isFallback: path.id === schema.fallback?.id },
+    blockSources: {
+      formula: [...(schema.shared?.steps || []), ...path.steps].filter(s => s.type === "formula").map(s => s.name),
+      itemized: [...(schema.shared?.steps || []), ...path.steps].filter(s => s.type === "classify").map(s => s.name),
+      bandtable: [...(schema.shared?.steps || []), ...path.steps].filter(s => s.type === "table").map(s => s.name),
+      conditions: path.conditions.map(c => c.id),
+    },
     otherPaths: paths.filter(p => p.id !== pathId).map(p => ({ id: p.id, label: p.label })),
     preservedBlocks: path.doc?.blocks.filter(b => b.locked) || [],
   };

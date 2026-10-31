@@ -9,12 +9,13 @@ let auth = { user: { id: 'admin', email: 'admin@example.invalid' } };
 let generated;
 let calls = 0;
 let generationError = false;
+let failAtCall = -1;
 mock('@/lib/api-auth', { requireAdmin: async () => auth });
 mock('@/lib/report-guide', { readReportGuide: async () => ({ guide: DEFAULT_REPORT_GUIDE, available: false }) });
 mock('@/lib/llm-usage', {
   sanitizeAppId: () => null,
   withUsage: async (ctx, fn) => { assert.equal(ctx.operation, 'doc_propose'); assert.equal(ctx.isAdmin, true); return fn(); },
-  trackedGenerate: async () => { calls++; if (generationError) throw new Error('provider secret'); return { response: { text: () => JSON.stringify(generated) } }; },
+  trackedGenerate: async () => { calls++; if (generationError || calls === failAtCall) throw new Error('provider secret'); return { response: { text: () => JSON.stringify(generated) } }; },
 });
 mock('@google/generative-ai', { GoogleGenerativeAI: class { getGenerativeModel() { return {}; } } });
 const { POST } = require('../app/api/report-doc/propose/route.ts');
@@ -49,17 +50,43 @@ test('관리자에게 검증된 세 안과 기본 가이드를 제공한다', as
   assert.equal(data.available, false);
   assert.equal(calls, 1);
 });
-test('부분 성공은 검증된 안만 반환하고 완전 실패는 안내한다', async () => {
+test('부분 성공을 유지하고 실패한 안은 검증된 기본 양식으로 보완한다', async () => {
   generated = proposals(); generated.proposals = generated.proposals.filter(p => p.id === 'screen');
   let r = await POST(request());
-  assert.equal(r.status, 200); assert.equal((await r.json()).proposals.length, 1);
+  assert.equal(r.status, 200); const partial = await r.json(); assert.equal(partial.proposals.length, 3); assert.deepEqual(partial.basicIds, ['print', 'review']); assert.equal(partial.proposals.find(p => p.id === 'screen').reason, '요약');
   generated = {};
   r = await POST(request());
-  assert.equal(r.status, 422);
+  assert.equal(r.status, 200); const recovered = await r.json(); assert.equal(recovered.proposals.length, 3); assert.equal(recovered.basicIds.length, 3);
 });
-test('연결 오류의 내부 정보는 클라이언트에 노출하지 않는다', async () => {
+test('연결 오류에서도 기본 양식을 제공하고 내부 정보는 노출하지 않는다', async () => {
   generationError = true;
   const r = await POST(request());
-  assert.equal(r.status, 502);
+  assert.equal(r.status, 200);
   assert.equal(JSON.stringify(await r.json()).includes('secret'), false);
+});
+
+test('AI 응답이 모두 잘못된 미적용 경로도 기본 양식으로 완성한다', async () => {
+  generationError = false; generated = { proposals: [
+    { id: 'screen', reason: '잘못된 미적용', excluded: [], doc },
+    { id: 'print', reason: '빈 문서', excluded: [], doc: { blocks: [] } },
+  ] };
+  const r = await POST(request({ schema, pathId: 'fallback' }));
+  assert.equal(r.status, 200); const data = await r.json();
+  assert.equal(data.proposals.length, 3); assert.equal(data.basicIds.length, 3);
+  assert.doesNotMatch(JSON.stringify(data.proposals), /최종월기준액/);
+});
+test('AI 연결 설정이 없어도 검증된 기본 양식을 준비한다', async () => {
+  const key = process.env.GEMINI_API_KEY; delete process.env.GEMINI_API_KEY;
+  const before = calls; const r = await POST(request({ schema, pathId: 'fallback' }));
+  process.env.GEMINI_API_KEY = key;
+  assert.equal(r.status, 200); assert.equal((await r.json()).basicIds.length, 3); assert.equal(calls, before);
+});
+
+test('보정 중 연결이 끊겨도 앞에서 통과한 AI 양식은 보존한다', async () => {
+  generated = proposals(); generated.proposals = generated.proposals.filter(p => p.id === 'screen');
+  failAtCall = calls + 2;
+  const r = await POST(request()); failAtCall = -1;
+  assert.equal(r.status, 200); const data = await r.json();
+  assert.equal(data.proposals.find(p => p.id === 'screen').reason, '요약');
+  assert.deepEqual(data.basicIds, ['print', 'review']);
 });
