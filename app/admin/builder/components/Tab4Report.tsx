@@ -644,10 +644,6 @@ export default function Tab4Report({ schema, onChange, appId }: Props) {
         </div>
       )}
     <div className="space-y-5">
-      <div className="pb-5 border-b border-gray-100">
-        <h2 className="text-2xl font-bold text-gray-900">리포트 구성</h2>
-      </div>
-
       {/* 계산 경로를 양식 선택처럼 오해하지 않도록 대상 조건을 표시한다. */}
       {slots.length > 1 && <div role="group" aria-label="조건별 양식" className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-gray-500">조건별 양식</span>
