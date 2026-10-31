@@ -96,6 +96,7 @@ export default function BuilderTempPage() {
             >
               ↻ 새로고침
             </button>
+            <Link href="/admin/members" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">회원·구독 관리</Link>
             <Link
               href="/admin/usage"
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"

@@ -1,3 +1,4 @@
+import { hasMemberAccess } from "@/lib/members/server";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isAdminEmail } from "@/lib/admin";
@@ -16,7 +17,7 @@ export async function requireAdmin(): Promise<AuthResult> {
     return {
       error: NextResponse.json(
         { error: "로그인이 필요합니다" },
-        { status: 401 }
+        { status: 401 },
       ),
     };
   }
@@ -24,7 +25,7 @@ export async function requireAdmin(): Promise<AuthResult> {
     return {
       error: NextResponse.json(
         { error: "관리자 권한이 필요합니다" },
-        { status: 403 }
+        { status: 403 },
       ),
     };
   }
@@ -41,7 +42,7 @@ export async function requireUser(): Promise<AuthResult> {
     return {
       error: NextResponse.json(
         { error: "로그인이 필요합니다" },
-        { status: 401 }
+        { status: 401 },
       ),
     };
   }
@@ -58,34 +59,28 @@ export async function requireActiveSubscription(): Promise<AuthResult> {
     return {
       error: NextResponse.json(
         { error: "로그인이 필요합니다" },
-        { status: 401 }
+        { status: 401 },
       ),
     };
   }
-  const { data: sub, error } = await supabase
-    .from("subscriptions")
-    .select("id, status, expires_at")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
+  let active: boolean;
+  try {
+    active = await hasMemberAccess(user.id);
+  } catch {
     return {
       error: NextResponse.json(
-        { error: "구독 조회 실패" },
-        { status: 500 }
+        {
+          error: "이용 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        },
+        { status: 503 },
       ),
     };
   }
-  const active =
-    !!sub &&
-    (!sub.expires_at || new Date(sub.expires_at).getTime() > Date.now());
   if (!active) {
     return {
       error: NextResponse.json(
         { error: "활성 구독이 필요합니다" },
-        { status: 402 }
+        { status: 402 },
       ),
     };
   }

@@ -1,128 +1,80 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { PLANS, isPlanKey, makeOrderId, nextBillingDate } from "@/lib/plans";
-import { chargeBilling, TossError } from "@/lib/toss";
-
-/**
- * 정기결제 갱신 크론.
- *
- * 청구일이 지난 활성 구독을 골라 저장해둔 billingKey 로 다시 청구한다.
- * Vercel Cron 이 하루 한 번 호출한다(vercel.json).
- *
- * 멱등성: chargeBilling 이 orderId 를 Idempotency-Key 로 넘긴다. 같은 회차를
- * 두 번 부르더라도 토스 쪽에서 한 번만 청구된다.
- */
-
-// 연속 실패가 이만큼 쌓이면 더 시도하지 않고 구독을 만료시킨다.
-const MAX_RENEW_FAILURES = 3;
-// 한 번의 실행에서 처리할 최대 건수. 크론 타임아웃을 넘기지 않도록 자른다.
-const BATCH_SIZE = 50;
-
+import {
+  attemptId,
+  claimAttempt,
+  processAttempt,
+  BillingPending,
+} from "@/lib/members/billing";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function authorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
-/** Vercel Cron 은 GET 으로 호출하며 Authorization: Bearer $CRON_SECRET 를 붙인다. */
 export async function GET(req: Request) {
   return POST(req);
 }
-
 export async function POST(req: Request) {
-  if (!authorized(req)) {
+  if (
+    !process.env.CRON_SECRET ||
+    req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`
+  )
     return NextResponse.json({ message: "권한 없음" }, { status: 401 });
-  }
-
-  const admin = createAdminClient();
-  const now = new Date();
-
-  const { data: due, error } = await admin
+  const admin = createAdminClient(),
+    started = Date.now(),
+    summary = { charged: 0, failed: 0, pending: 0, skipped: 0 };
+  // 미확정 승인을 먼저 복구한다. 새 주문으로 바꿔 이중 청구하지 않는다.
+  const pending = await admin
+    .from("billing_attempts")
+    .select("id,user_id,subscription_id,kind,plan")
+    .in("state", ["pending", "processing"])
+    .or(`lease_until.is.null,lease_until.lt.${new Date().toISOString()}`)
+    .order("created_at")
+    .limit(10);
+  const due = await admin
     .from("subscriptions")
-    .select(
-      "id, user_id, plan, amount, billing_key, customer_key, next_billing_at, renew_fail_count",
-    )
+    .select("id,user_id,plan,next_billing_at")
     .eq("status", "active")
     .eq("auto_renew", true)
     .not("billing_key", "is", null)
-    .lte("next_billing_at", now.toISOString())
-    .order("next_billing_at", { ascending: true })
-    .limit(BATCH_SIZE);
-
-  if (error) {
-    console.error("[renew] 대상 조회 실패:", error.message);
-    return NextResponse.json({ message: error.message }, { status: 500 });
-  }
-
-  const results = { charged: 0, failed: 0, expired: 0 };
-
-  for (const sub of due ?? []) {
-    const plan = isPlanKey(sub.plan) ? PLANS[sub.plan] : null;
-    if (!plan) {
-      console.error("[renew] 알 수 없는 플랜:", sub.plan, sub.id);
-      results.failed += 1;
-      continue;
-    }
-
-    const orderId = makeOrderId(plan.key);
+    .lte("next_billing_at", new Date().toISOString())
+    .order("next_billing_at")
+    .limit(10);
+  if (pending.error || due.error)
+    return NextResponse.json(
+      { message: "갱신 대상을 불러오지 못했습니다." },
+      { status: 503 },
+    );
+  const jobs = [
+    ...(pending.data || []).map((a) => ({
+      id: a.id,
+      userId: a.user_id,
+      subscriptionId: a.subscription_id,
+      kind: a.kind as "first" | "renew",
+      plan: a.plan,
+    })),
+    ...(due.data || [])
+      .filter((s) => !pending.data?.some((a) => a.user_id === s.user_id))
+      .map((s) => ({
+        id: attemptId(`renew:${s.id}:${s.next_billing_at}`),
+        userId: s.user_id,
+        subscriptionId: s.id,
+        kind: "renew" as const,
+        plan: s.plan,
+      })),
+  ];
+  for (const job of jobs) {
+    if (Date.now() - started > 20000) break;
     try {
-      const payment = await chargeBilling({
-        billingKey: sub.billing_key!,
-        customerKey: sub.customer_key!,
-        amount: plan.amount,
-        orderId,
-        orderName: `${plan.title} (정기결제 갱신)`,
-      });
-
-      const nextAt = nextBillingDate(now, plan.months);
-      await admin
-        .from("subscriptions")
-        .update({
-          payment_key: payment.paymentKey,
-          order_id: orderId,
-          expires_at: nextAt.toISOString(),
-          next_billing_at: nextAt.toISOString(),
-          renew_fail_count: 0,
-          last_renew_error: null,
-        })
-        .eq("id", sub.id);
-
-      results.charged += 1;
+      const a = await claimAttempt(job);
+      if (!a) {
+        summary.skipped++;
+        continue;
+      }
+      await processAttempt(a);
+      summary.charged++;
     } catch (e) {
-      const msg =
-        e instanceof TossError ? `${e.code}: ${e.message}` : String(e);
-      const fails = (sub.renew_fail_count ?? 0) + 1;
-      const giveUp = fails >= MAX_RENEW_FAILURES;
-
-      console.error("[renew] 청구 실패:", sub.id, msg, `(${fails}회)`);
-
-      await admin
-        .from("subscriptions")
-        .update({
-          renew_fail_count: fails,
-          last_renew_error: msg,
-          // 포기 전까지는 하루 뒤 재시도. 한도카드·일시 오류가 풀릴 여지를 준다.
-          ...(giveUp
-            ? { status: "expired", auto_renew: false }
-            : {
-                next_billing_at: new Date(
-                  now.getTime() + 24 * 60 * 60 * 1000,
-                ).toISOString(),
-              }),
-        })
-        .eq("id", sub.id);
-
-      if (giveUp) results.expired += 1;
-      else results.failed += 1;
+      if (e instanceof BillingPending) summary.pending++;
+      else if ((e as any)?.message?.includes("BILLING_BUSY")) summary.skipped++;
+      else summary.failed++;
     }
   }
-
-  return NextResponse.json({
-    message: "갱신 처리 완료",
-    scanned: due?.length ?? 0,
-    ...results,
-  });
+  return NextResponse.json(summary);
 }
