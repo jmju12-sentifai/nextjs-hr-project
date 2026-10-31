@@ -34,9 +34,9 @@ export async function POST(req: NextRequest) {
     if (!checked.ok) return NextResponse.json({ error: checked.errors[0].message }, { status: 422 });
     const { data, error } = await db.rpc("confirm_report_doc", { p_app_id: input.appId, p_path_id: input.pathId,
       p_doc: input.doc, p_expected_schema: input.savedSchema, p_actor: auth.user.id });
-    if (isMissingVersionStore(error)) return NextResponse.json({ error: "버전 저장소 준비가 필요해 확정하지 못했습니다. 초안은 현재 브라우저에 보관됩니다." }, { status: 503 });
+    if (isMissingVersionStore(error)) return NextResponse.json({ error: "버전 저장소 준비가 필요해 저장하지 못했습니다. 작업 내용은 유지됩니다." }, { status: 503 });
     if (error?.message.includes("SCHEMA_CONFLICT")) return NextResponse.json({ error: "다른 작업에서 앱이 변경되었습니다. 새로고침 후 다시 확인해 주세요." }, { status: 409 });
     if (error) throw error;
     return NextResponse.json(data);
-  } catch { return NextResponse.json({ error: "양식을 확정하지 못했습니다. 초안은 유지됩니다." }, { status: 503 }); }
+  } catch { return NextResponse.json({ error: "양식을 저장하지 못했습니다. 작업 내용은 유지됩니다." }, { status: 503 }); }
 }
