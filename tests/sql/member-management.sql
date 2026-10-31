@@ -66,6 +66,15 @@ begin
  assert (select renew_fail_count=0 and expires_at>now() from subscriptions where id=s),'renewal restores access';
  assert (select count(*)=4 from payments where subscription_id=s),'renewal preserves earlier failures';
  begin perform manage_member(u,'qa','cancel','{"reason":"test","expected":{"subscription_id":null}}',gen_random_uuid());raise exception 'stale change allowed';exception when others then if sqlerrm<>'STATE_CHANGED' then raise;end if;end;
+ -- 결제 실패 후 이용 기간이 지났어도 예약된 재청구는 무료 기간만큼 조정한다.
+ update subscriptions set expires_at=now()-interval '1 day',next_billing_at=now()+interval '1 day',renew_fail_count=1,auto_renew=true where id=s;
+ perform manage_member(u,'qa','grant','{"duration":"1","reason":"failed renewal free grant"}',gen_random_uuid());
+ select id,ends_at into g,e from subscription_grants where user_id=u and revoked_at is null;
+ assert (select next_billing_at>=e and expires_at=e from subscriptions where id=s),'failed renewal deferred during finite free grant';
+ perform manage_member(u,'qa','revoke',jsonb_build_object('grantId',g,'reason','test'),gen_random_uuid());
+ assert (select expires_at<=now() and next_billing_at<=now()+interval '1 day' from subscriptions where id=s),'retry schedule restored on revoke';
+ perform manage_member(u,'qa','grant','{"duration":"unlimited","reason":"failed renewal unlimited free grant"}',gen_random_uuid());
+ assert (select not auto_renew and next_billing_at is null and billing_key is null from subscriptions where id=s),'failed renewal stopped for unlimited free grant';
  assert not has_table_privilege('authenticated','billing_attempts','select'),'private billing jobs';
  assert not has_column_privilege('authenticated','subscriptions','billing_key','select'),'billing key hidden';
  assert has_column_privilege('authenticated','subscriptions','expires_at','select'),'safe subscription read';

@@ -85,11 +85,23 @@ export function grantPreview(
         : addMonths(startsAt, Number(duration));
   if (endsAt && new Date(endsAt) <= new Date(startsAt))
     throw new Error("종료일은 이용 시작일보다 늦어야 합니다.");
+  const renewing = member.subscription_status === "active" && member.auto_renew;
+  const nextBillingAt =
+    renewing && endsAt
+      ? new Date(
+          Math.max(
+            new Date(now).getTime(),
+            new Date(member.next_billing_at || startsAt).getTime(),
+          ) +
+            new Date(endsAt).getTime() -
+            new Date(startsAt).getTime(),
+        ).toISOString()
+      : null;
   return {
     startsAt,
     endsAt,
-    stopsRenewal: !!paid && duration === "unlimited",
-    nextBillingAt: paid && member.auto_renew ? endsAt : null,
+    stopsRenewal: !!renewing && duration === "unlimited",
+    nextBillingAt,
   };
 }
 export function receiptUrl(value: unknown) {

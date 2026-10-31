@@ -40,6 +40,7 @@ try {
   for (const f of [
     "20261031_member_management.sql",
     "20261031_billing_attempts.sql",
+    "20261031_free_grant_renewal_retry.sql",
   ])
     sql(fs.readFileSync("supabase/migrations/" + f, "utf8"));
   sql(fs.readFileSync("tests/sql/member-management.sql", "utf8"));
