@@ -67,7 +67,7 @@ export default function DocProposalEditor({ schema, path, docMode, onModeChange,
         <button type="button" disabled={blocked} aria-pressed={docMode} className={`rounded-md px-4 py-2 text-sm ${docMode ? "bg-white font-semibold shadow-sm" : "text-slate-600"}`}
           onClick={() => { update(w => ({ ...w, docMode: true })); onModeChange(true); }}>문서형</button>
       </div>
-      <Link href="/admin/report-guide" target="_blank" className="text-sm text-slate-500 hover:text-blue-700">공통 가이드 ↗</Link>
+      <Link href="/admin/report-guide" target="_blank" className="text-sm text-slate-500 hover:text-blue-700"title="모든 리포트의 강조색·필수 항목·금지 표현·문체를 관리합니다">리포트 공통 설정 ↗</Link>
     </div>
     {confirmGrid && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
       <p>현재 경로의 문서형 양식을 제거하고 기존 그리드로 돌아갈까요? 저장 전까지 앱에는 반영되지 않습니다.</p>
