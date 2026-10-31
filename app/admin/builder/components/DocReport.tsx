@@ -164,8 +164,8 @@ export default function DocReport({ schema, path, result, issuer, issuedAt, acce
               <div key={b.id} data-doc-block={b.id}
                 className={`relative rounded-lg outline-offset-4 ${selectedId === b.id ? "outline outline-2 outline-blue-600" : changedIds?.includes(b.id) ? "outline outline-2 outline-emerald-400" : "hover:outline hover:outline-1 hover:outline-slate-300"}`}>
                 <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-100 pb-2 text-xs">
-                  <button type="button" aria-pressed={selectedId === b.id} onClick={() => onSelect(b.id)} className="min-w-0 truncate rounded px-2 py-1 text-left font-semibold text-slate-600 hover:bg-blue-50">
-                    {b.title || DOC_BLOCK_LABELS[b.type]} {selectedId === b.id ? "· 선택됨" : "· 선택하여 수정"}
+                  <button type="button" title="선택하여 수정" aria-label={`${b.title || DOC_BLOCK_LABELS[b.type]} 선택`} aria-pressed={selectedId === b.id} onClick={() => onSelect(b.id)} className="min-w-0 truncate rounded px-2 py-1 text-left font-semibold text-slate-600 hover:bg-blue-50">
+                    {b.title || DOC_BLOCK_LABELS[b.type]} {selectedId === b.id ? "· 선택됨" : ""}
                   </button>
                   {onToggleLock && <button type="button" aria-label={`${b.title || DOC_BLOCK_LABELS[b.type]} ${b.locked ? "잠금 해제" : "잠금"}`} onClick={() => onToggleLock(b.id, !b.locked)} className="shrink-0 rounded border px-2 py-1 text-slate-600">{b.locked ? "잠김" : "잠금"}</button>}
                 </div>

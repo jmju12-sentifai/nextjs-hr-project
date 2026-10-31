@@ -645,53 +645,29 @@ export default function Tab4Report({ schema, onChange, appId }: Props) {
       )}
     <div className="space-y-5">
       <div className="pb-5 border-b border-gray-100">
-        <div className="text-xs font-mono uppercase tracking-wider text-blue-700 mb-2">
-          Layer 4 · WYSIWYG
-        </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-3">리포트 구성</h2>
-        <p className="text-base text-gray-600 whitespace-nowrap overflow-x-auto">
-          경로별로 다른 리포트를 구성합니다 — 활성 경로에 따라 사용자에게 다른 리포트가 노출됩니다.
-        </p>
+        <h2 className="text-2xl font-bold text-gray-900">리포트 구성</h2>
       </div>
 
-      {/* 경로 선택 바 — Tab3 톤앤매너와 통일 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-gray-500">편집 중:</span>
-        {slots.map((s, idx) => {
-          const matched = result.activePathId === s.id;
+      {/* 계산 경로를 양식 선택처럼 오해하지 않도록 대상 조건을 표시한다. */}
+      {slots.length > 1 && <div role="group" aria-label="조건별 양식" className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-500">조건별 양식</span>
+        {slots.map((s) => {
           const on = slot === s.id;
-          const isFb = s.isFallback;
           return (
             <button
               key={s.id}
+              aria-pressed={on}
               onClick={() => setSlot(s.id)}
               className={
-                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-mono transition " +
-                (on
-                  ? isFb
-                    ? "bg-rose-600 text-white"
-                    : "bg-blue-600 text-white"
-                  : isFb
-                  ? "bg-rose-100 text-rose-700 hover:bg-rose-200"
-                  : "bg-blue-100 text-blue-700 hover:bg-blue-200") +
-                (matched ? " ring-2 ring-emerald-400 ring-offset-1" : "")
+                "rounded-lg px-3 py-2 text-sm transition " +
+                (on ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")
               }
             >
-              <span className="opacity-70">{isFb ? "▣" : `${idx + 1}.`}</span>
               <span className="font-medium">{s.label}</span>
-              {matched && (
-                <span
-                  className={
-                    "inline-block w-1.5 h-1.5 rounded-full " +
-                    (on ? "bg-white/80" : "bg-emerald-500")
-                  }
-                  title="현재 활성 경로"
-                />
-              )}
             </button>
           );
         })}
-      </div>
+      </div>}
 
       <DocProposalEditor key={slot} appId={appId} schema={m} path={currentPath} docMode={docMode}
         onModeChange={enabled => setDocumentPaths(ids => enabled ? [...ids.filter(id => id !== slot), slot] : ids.filter(id => id !== slot))}
