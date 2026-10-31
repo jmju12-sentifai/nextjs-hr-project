@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import SectionShell, { PlannedList } from "../components/home/SectionShell";
 import { getViewer } from "@/lib/viewer";
 import type { ReportIssuer } from "app-renderer";
+import SubscriptionCard from "./SubscriptionCard";
 import IssuerForm from "./IssuerForm";
 
 export const metadata = { title: "내 작업실 — HRcoach" };
@@ -93,6 +94,7 @@ export default async function WorkspacePage() {
       title="내가 돌린 앱이 쌓이는 곳."
       lead="실행한 앱의 이력과 사용 통계를 한곳에서 봅니다."
     >
+      {viewer.email && <SubscriptionCard />}
       {!viewer.email ? (
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-[var(--card-radius)] border border-[var(--accent)]/25 bg-[var(--accent-soft)] px-6 py-5">
           <div>
@@ -246,7 +248,6 @@ export default async function WorkspacePage() {
             title: "산출물 보관함",
             desc: "생성된 리포트 재다운로드 — 인사 민감정보 보관 정책 확정 후 제공합니다",
           },
-          { id: "billing", title: "결제 내역·영수증", desc: "세금계산서 발행 및 결제 히스토리 조회" },
         ]}
       />
     </SectionShell>

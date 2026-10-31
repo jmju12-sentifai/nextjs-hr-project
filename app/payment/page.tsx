@@ -32,6 +32,7 @@ function PaymentInner() {
   > | null>(null);
   const [email, setEmail] = useState<string>("");
   const [customerKey, setCustomerKey] = useState<string>("");
+  const [freeNotice, setFreeNotice] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,6 +54,13 @@ function PaymentInner() {
       // 토스 customerKey 는 영문/숫자/-_. 만 허용한다. 빌링키는 이 값과 쌍으로만 유효하므로
       // 발급 때 쓴 규칙을 확인 라우트에서도 똑같이 재현해야 한다.
       setCustomerKey(user.id.replace(/[^a-zA-Z0-9_\-.]/g, "_"));
+      try {
+        const r = await fetch("/api/subscription/status");
+        if (r.ok) {
+          const d = await r.json();
+          setFreeNotice(d.member?.state === "free");
+        }
+      } catch {}
       setAuthLoading(false);
     })();
   }, [router, plan.key]);
@@ -172,14 +180,22 @@ function PaymentInner() {
           결제 전에 명확히 인지할 수 있어야 한다.
         */}
         <section className="mb-5 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-sm font-bold text-gray-900">결제 조건 안내</h3>
+          <h3 className="mb-4 text-sm font-bold text-gray-900">
+            결제 조건 안내
+          </h3>
           <dl className="space-y-3 text-[13px]">
             {[
               ["결제 금액", `월 ${plan.amount.toLocaleString()}원 (VAT 포함)`],
               ["서비스 제공기간", "결제일로부터 1개월"],
               ["갱신 방식", "매월 같은 날 등록하신 카드로 자동 결제"],
-              ["해지 방법", "고객센터(besthrcoach@naver.com / 010-9041-9930)로 신청"],
-              ["해지 시점", "해지 신청 시 다음 회차부터 청구되지 않으며, 이미 결제된 기간은 만료일까지 이용 가능"],
+              [
+                "해지 방법",
+                "고객센터(besthrcoach@naver.com / 010-9041-9930)로 신청",
+              ],
+              [
+                "해지 시점",
+                "해지 신청 시 다음 회차부터 청구되지 않으며, 이미 결제된 기간은 만료일까지 이용 가능",
+              ],
             ].map(([k, v]) => (
               <div key={k} className="flex gap-3">
                 <dt className="w-[88px] shrink-0 font-semibold text-gray-500">
@@ -211,6 +227,12 @@ function PaymentInner() {
           </label>
         </section>
 
+        {freeNotice && (
+          <p className="mb-4 rounded-xl bg-blue-50 p-4 text-sm text-blue-900">
+            결제가 승인되면 남은 무료 제공이 종료되고 유료 구독이 즉시
+            시작됩니다.
+          </p>
+        )}
         {error && (
           <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-center text-sm text-red-700">
             {error}
@@ -232,8 +254,8 @@ function PaymentInner() {
           카드 등록 즉시 첫 회차 {plan.amount.toLocaleString()}원이 결제되며,
           이후 매월 같은 날 자동으로 결제됩니다.
           <br />
-          결제는 토스페이먼츠를 통해 안전하게 처리되며, 카드 정보는 당사에 저장되지
-          않습니다.
+          결제는 토스페이먼츠를 통해 안전하게 처리되며, 카드 정보는 당사에
+          저장되지 않습니다.
         </p>
       </div>
     </main>

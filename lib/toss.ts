@@ -52,6 +52,7 @@ async function call<T>(
     headers,
     body: JSON.stringify(body),
     cache: "no-store",
+    signal: AbortSignal.timeout(20000),
   });
 
   const data = await res.json().catch(() => ({}) as Record<string, unknown>);
@@ -90,6 +91,7 @@ export type TossPayment = {
   status: string;
   totalAmount: number;
   approvedAt?: string;
+  receipt?: { url: string };
 };
 
 /**
@@ -107,4 +109,27 @@ export function chargeBilling(params: {
 }): Promise<TossPayment> {
   const { billingKey, ...body } = params;
   return call<TossPayment>(`/billing/${billingKey}`, body, params.orderId);
+}
+
+/** 끊긴 승인 요청은 주문번호로 먼저 조회한 뒤 복구한다. */
+export async function paymentByOrder(
+  orderId: string,
+): Promise<TossPayment | null> {
+  const res = await fetch(
+    `${TOSS_BASE}/payments/orders/${encodeURIComponent(orderId)}`,
+    {
+      headers: { Authorization: authHeader() },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 404) return null;
+  if (!res.ok)
+    throw new TossError(
+      data.message || "결제 결과 조회 실패",
+      data.code || "UNKNOWN",
+      res.status,
+    );
+  return data;
 }

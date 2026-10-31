@@ -1,3 +1,4 @@
+import { hasMemberAccess } from "@/lib/members/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,17 +23,7 @@ export default async function AppGuard({
     redirect(`/login?next=${encodeURIComponent(nextPath)}`);
   }
 
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("id, status, expires_at")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const active =
-    !!sub && (!sub.expires_at || new Date(sub.expires_at).getTime() > Date.now());
+  const active = await hasMemberAccess(user.id);
 
   if (!active) {
     redirect(`/pricing?next=${encodeURIComponent(nextPath)}`);
