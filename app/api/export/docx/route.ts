@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { reportExportModel } from "@/lib/report-export/model";
+import { renderDocumentWord } from "@/lib/report-export/docx";
+import { readReportGuide } from "@/lib/report-guide";
+import { hasDoc } from "app-renderer";
 import { requireUser } from "@/lib/api-auth";
 import {
   Document,
@@ -765,11 +769,23 @@ export async function POST(req: NextRequest) {
   const auth = await requireUser();
   if ("error" in auth) return auth.error;
   try {
-    const { schema, result } = await req.json();
+    const { schema, result, issuer, issuedAt } = await req.json();
     if (!schema || !result)
       return NextResponse.json({ error: "schema, result 필요" }, { status: 400 });
 
     const activePath = activePathOf(schema, result.activePathId);
+    if (hasDoc(activePath)) {
+      const { guide } = await readReportGuide();
+      let model;
+      try { model = reportExportModel(schema, result, { issuer, issuedAt, accent: guide.accent }); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "문서 내용을 확인해 주세요." }, { status: 422 }); }
+      const buffer = await renderDocumentWord(model, el => renderEl(el, schema, result, 9000));
+      return new NextResponse(buffer as any, { headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": 'attachment; filename="report.docx"',
+        "Cache-Control": "private, no-store",
+      } });
+    }
     const reportEls = activePath?.report || schema.report || [];
     const today = new Date().toISOString().slice(0, 10);
     const title =
