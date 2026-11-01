@@ -1,12 +1,12 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { DEFAULT_USAGE_FX, MODEL_PRICES, PRICING_SOURCE, PRICING_CHECKED_AT, usageFx, modelPrice } from "@/lib/usage-pricing";
+import { PLANS } from "@/lib/plans";
 
-// 관리자 · 토큰 사용량 — 요금제 산정용
-//   데이터는 /api/admin/usage 가 service_role 로 집계해 내려준다 (브라우저는 DB 직접 접근 없음).
-//   원가(₩) 환산은 이 화면에서 한다 — 모델 단가는 관리자가 입력하고 브라우저에 저장한다.
-//   (단가 테이블을 DB 에 두려면 마이그레이션이 또 필요해, 우선 화면 설정으로 시작한다)
+// 모델별 공식 단가로 집계한 USD 원가를 기준 환율로 환산한다.
 
 type Split = {
+  costUsd: number | null; appCostUsd: number | null; builderCostUsd: number | null;
   calls: number; promptTokens: number; outputTokens: number; totalTokens: number;
   appCalls: number; appPromptTokens: number; appOutputTokens: number; appTokens: number;
   builderCalls: number; builderPromptTokens: number; builderOutputTokens: number; builderTokens: number;
@@ -32,10 +32,12 @@ type AppRow = Split & {
 };
 type ModelRow = Split & { model: string; errorCalls: number; avgDurationMs: number | null };
 type SurfaceRow = {
+  costUsd: number | null;
   surface: string; calls: number; promptTokens: number; outputTokens: number;
   totalTokens: number; users: number;
 };
 type OpRow = {
+  costUsd: number | null;
   surface: string; operation: string; calls: number;
   promptTokens: number; outputTokens: number; totalTokens: number;
 };
@@ -44,7 +46,7 @@ type UserAppRow = Split & {
   userId: string | null; email: string | null; isAdmin: boolean;
   appId: string | null; appName: string; runs: number; lastUsedAt: string | null;
 };
-type EndUser = { email: string | null; prompt: number; output: number; total: number };
+type EndUser = { costUsd: number | null; email: string | null; prompt: number; output: number; total: number };
 
 type Payload = {
   range: { from: string; to: string; days: number };
@@ -55,17 +57,16 @@ type Payload = {
   truncated: boolean;
 };
 
-// ── 단가 설정 ───────────────────────────────────────────────
-// Google 가격표는 USD / 100만 토큰 기준이라 그대로 입력하고 환율만 곱한다.
-type Pricing = { inUsd: number; outUsd: number; fx: number };
-const PRICING_KEY = "hrcoach.usage.pricing.v1";
-const emptyPricing: Pricing = { inUsd: 0, outUsd: 0, fx: 0 };
-const hasPricing = (p: Pricing) => p.fx > 0 && (p.inUsd > 0 || p.outUsd > 0);
-
-/** 입력·출력 토큰 → 원. 단가가 없으면 null (— 로 표시) */
-function wonOf(prompt: number, output: number, p: Pricing): number | null {
-  if (!hasPricing(p)) return null;
-  return ((prompt / 1e6) * p.inUsd + (output / 1e6) * p.outUsd) * p.fx;
+type Pricing = { fx: number };
+const PRICING_KEY = "hrcoach.usage.pricing.v2";
+const defaultPricing: Pricing = { fx: DEFAULT_USAGE_FX };
+const hasPricing = (p: Pricing) => Number.isFinite(p.fx) && p.fx > 0;
+function wonOf(usd: number | null | undefined, p: Pricing): number | null {
+  return usd == null || !hasPricing(p) ? null : usd * p.fx;
+}
+function perRunCost(row: { appCostUsd: number | null; instrumentedRuns: number }, p: Pricing) {
+  const cost = wonOf(row.appCostUsd, p);
+  return cost === null || row.instrumentedRuns === 0 ? null : cost / row.instrumentedRuns;
 }
 
 const n = (v: number | null | undefined) =>
@@ -110,18 +111,18 @@ export default function UsagePage() {
   const [err, setErr] = useState("");
   const [tab, setTab] = useState<"user" | "app" | "model" | "surface" | "month">("user");
 
-  const [pricing, setPricing] = useState<Pricing>(emptyPricing);
+  const [pricing, setPricing] = useState<Pricing>(defaultPricing);
   const [priceOpen, setPriceOpen] = useState(false);
-  const [monthlyFee, setMonthlyFee] = useState(0);
+  const [monthlyFee, setMonthlyFee] = useState(PLANS.pro.amount);
 
-  // 단가·구독료는 브라우저에 저장 (DB 마이그레이션 없이 바로 쓰기 위함)
+  // 기본 단가는 공통이며, 환율·구독료 시뮬레이션 값만 브라우저에 저장한다.
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(PRICING_KEY);
+      const raw = localStorage.getItem(PRICING_KEY) ?? localStorage.getItem("hrcoach.usage.pricing.v1");
       if (raw) {
         const j = JSON.parse(raw);
-        setPricing({ inUsd: +j.inUsd || 0, outUsd: +j.outUsd || 0, fx: +j.fx || 0 });
-        setMonthlyFee(+j.monthlyFee || 0);
+        setPricing({ fx: usageFx(j.fx) });
+        setMonthlyFee(Number.isFinite(j.monthlyFee) && j.monthlyFee > 0 ? j.monthlyFee : PLANS.pro.amount);
       }
     } catch {}
   }, []);
@@ -154,10 +155,10 @@ export default function UsagePage() {
   // ── 요금제 시뮬레이션 ─────────────────────────────────────
   // 조회 기간이 30일이 아닐 수 있으므로 월 단위로 환산해서 비교한다.
   const sim = useMemo(() => {
-    if (!data || !priced) return null;
+    if (!data || !priced || data.endUserTokens.some(u => u.costUsd === null)) return null;
     const f = data.derived.monthFactor;
     const costs = data.endUserTokens
-      .map((u) => ({ email: u.email, won: (wonOf(u.prompt, u.output, pricing) || 0) * f }))
+      .map((u) => ({ email: u.email, won: (wonOf(u.costUsd, pricing) || 0) * f }))
       .sort((a, b) => a.won - b.won);
     if (costs.length === 0)
       return { costs, median: 0, p90: 0, max: 0, avg: 0, loss: 0, margin: null as number | null };
@@ -173,7 +174,7 @@ export default function UsagePage() {
   const exportCsv = () => {
     if (!data) return;
     const stamp = new Date().toISOString().slice(0, 10);
-    const c = (p: number, o: number) => (priced ? Math.round((wonOf(p, o, pricing) || 0) * 100) / 100 : "");
+    const c = (usd: number | null) => { const value = wonOf(usd, pricing); return value === null ? "" : Math.round(value * 100) / 100; };
     if (tab === "user") {
       // 엑셀 피벗에 바로 넣을 수 있도록 '사용자 × 앱' 평면 교차표로 내보낸다
       const subOf = new Map(data.byUser.map((u) => [u.userId ?? "?", u.subscription ?? ""]));
@@ -182,7 +183,7 @@ export default function UsagePage() {
         data.byUserApp.map((x) => [
           x.email ?? "(알 수 없음)", x.isAdmin ? "관리자" : "사용자", subOf.get(x.userId ?? "?") ?? "",
           x.appName, x.runs, x.calls, x.appTokens, x.builderTokens,
-          x.promptTokens, x.outputTokens, x.totalTokens, c(x.promptTokens, x.outputTokens),
+          x.promptTokens, x.outputTokens, x.totalTokens, c(x.costUsd),
           x.lastUsedAt?.slice(0, 19).replace("T", " ") ?? "",
         ]));
     } else if (tab === "app") {
@@ -191,43 +192,38 @@ export default function UsagePage() {
         data.byApp.map((a) => [
           a.name, a.status ?? "", a.users, a.runs, a.calls, a.appTokens, a.builderTokens, a.totalTokens,
           a.tokensPerRun ?? "",
-          priced && a.promptPerRun != null
-            ? Math.round((wonOf(a.promptPerRun, a.outputPerRun || 0, pricing) || 0) * 100) / 100
-            : "",
-          c(a.promptTokens, a.outputTokens),
+          perRunCost(a, pricing) == null ? "" : Math.round(perRunCost(a, pricing)! * 100) / 100,
+          c(a.costUsd),
         ]));
     } else if (tab === "model") {
       downloadCsv(`토큰사용량_모델별_${stamp}.csv`,
         ["모델","호출","오류","입력 토큰","출력 토큰","총 토큰","원가(원)","평균 소요(ms)"],
         data.byModel.map((m) => [
           m.model, m.calls, m.errorCalls, m.promptTokens, m.outputTokens, m.totalTokens,
-          c(m.promptTokens, m.outputTokens), m.avgDurationMs ?? "",
+          c(m.costUsd), m.avgDurationMs ?? "",
         ]));
     } else if (tab === "month") {
       downloadCsv(`토큰사용량_월별_${stamp}.csv`,
         ["월","사용자 수","실행","호출","사용자 토큰","관리자 토큰","총 토큰","원가(원)"],
         data.byMonth.map((m) => [
           m.month, m.users, m.runs, m.calls, m.appTokens, m.builderTokens, m.totalTokens,
-          c(m.promptTokens, m.outputTokens),
+          c(m.costUsd),
         ]));
     } else {
       downloadCsv(`토큰사용량_구분별_${stamp}.csv`,
         ["구분","작업","호출","입력 토큰","출력 토큰","총 토큰","원가(원)"],
         data.byOperation.map((o) => [
           SURFACE_LABEL[o.surface] ?? o.surface, OP_LABEL[o.operation] ?? o.operation,
-          o.calls, o.promptTokens, o.outputTokens, o.totalTokens, c(o.promptTokens, o.outputTokens),
+          o.calls, o.promptTokens, o.outputTokens, o.totalTokens, c(o.costUsd),
         ]));
     }
   };
 
   const empty = !!data && data.totals.calls === 0 && data.totals.runs === 0;
-  const totalWon = data ? wonOf(data.totals.promptTokens, data.totals.outputTokens, pricing) : null;
-  const appWon = data ? wonOf(data.totals.appPromptTokens, data.totals.appOutputTokens, pricing) : null;
-  const builderWon = data ? wonOf(data.totals.builderPromptTokens, data.totals.builderOutputTokens, pricing) : null;
-  const perRunWon =
-    data && data.derived.promptPerRun != null
-      ? wonOf(data.derived.promptPerRun, data.derived.outputPerRun || 0, pricing)
-      : null;
+  const totalWon = data ? wonOf(data.totals.costUsd, pricing) : null;
+  const appWon = data ? wonOf(data.totals.appCostUsd, pricing) : null;
+  const builderWon = data ? wonOf(data.totals.builderCostUsd, pricing) : null;
+  const perRunWon = data ? perRunCost(data.totals, pricing) : null;
 
   return (
     <main className="min-h-screen bg-slate-50 pt-6 pb-14 px-4 sm:px-8">
@@ -242,7 +238,7 @@ export default function UsagePage() {
               사용자별·앱별·모델별 LLM 사용량과 원가. 요금제 기준을 잡는 데 씁니다.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={days}
               onChange={(e) => setDays(parseInt(e.target.value, 10))}
@@ -263,7 +259,7 @@ export default function UsagePage() {
                   : "border-amber-300 bg-amber-50 text-amber-800 font-semibold hover:bg-amber-100")
               }
             >
-              {priced ? "⚙ 단가" : "⚠ 단가 설정 필요"}
+              계산 기준
             </button>
             <button
               onClick={() => void load()}
@@ -282,7 +278,7 @@ export default function UsagePage() {
           </div>
         </div>
 
-        {(priceOpen || (!priced && !!data && !empty)) && (
+        {priceOpen && (
           <PricingPanel
             pricing={pricing}
             monthlyFee={monthlyFee}
@@ -292,6 +288,7 @@ export default function UsagePage() {
           />
         )}
 
+        {data?.byModel.some(m => m.costUsd === null) && <p role="status" className="mb-4 text-sm text-amber-800">단가가 등록되지 않은 모델이 있어 해당 원가와 합계는 —로 표시합니다: {data.byModel.filter(m => m.costUsd === null).map(m => m.model).join(", ")}</p>}
         {err && (
           <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{err}</div>
         )}
@@ -315,9 +312,9 @@ export default function UsagePage() {
           <>
             <div className="mb-3 grid grid-cols-2 md:grid-cols-4 gap-3">
               <Card
-                label="총 원가"
+                label="총 예상 원가"
                 value={priced ? won(totalWon) : n(data.totals.totalTokens)}
-                sub={priced ? `${n(data.totals.totalTokens)} 토큰` : "단가 미설정 — 토큰 수"}
+                sub={`${n(data.totals.totalTokens)} 토큰 · 기준 환율 ${n(pricing.fx)}원`}
                 tone={priced ? undefined : "warn"}
                 big
               />
@@ -371,12 +368,12 @@ export default function UsagePage() {
 
               <div className="mt-3 pt-3 border-t border-blue-200/70">
                 <div className="flex items-center gap-2 flex-wrap text-xs text-blue-900">
-                  <span className="font-semibold">월 구독료를 넣어 보세요</span>
+                  <span className="font-semibold">비교할 월 구독료</span>
                   <input
                     type="number"
                     value={monthlyFee || ""}
                     onChange={(e) => savePricing(pricing, parseFloat(e.target.value) || 0)}
-                    placeholder="예: 49000"
+                    aria-label="비교할 월 구독료"
                     className="w-28 rounded border border-blue-200 px-2 py-1 text-right tabular-nums"
                   />
                   <span>원 / 월</span>
@@ -394,7 +391,7 @@ export default function UsagePage() {
                     </span>
                   )}
                   {priced && monthlyFee > 0 && (!sim || sim.costs.length === 0) && (
-                    <span className="ml-2 text-blue-700/70">실사용자 데이터가 아직 없어 계산할 수 없습니다</span>
+                    <span className="ml-2 text-blue-700/70">{data.endUserTokens.some(u => u.costUsd === null) ? "미등록 모델의 단가 확인 후 계산할 수 있습니다" : "실사용자 데이터가 아직 없어 계산할 수 없습니다"}</span>
                   )}
                 </div>
                 <p className="mt-2 text-[11px] text-blue-900/70 leading-relaxed">
@@ -453,84 +450,34 @@ export default function UsagePage() {
   );
 }
 
-// ── 단가 설정 패널 ─────────────────────────────────────────
-function PricingPanel({
-  pricing, monthlyFee, onSave, onClose, models,
-}: {
+// ── 계산 기준 ─────────────────────────────────────────
+function PricingPanel({ pricing, monthlyFee, onSave, onClose, models }: {
   pricing: Pricing; monthlyFee: number;
   onSave: (p: Pricing, fee: number) => void; onClose: () => void; models: string[];
 }) {
-  const [inUsd, setIn] = useState(String(pricing.inUsd || ""));
-  const [outUsd, setOut] = useState(String(pricing.outUsd || ""));
-  const [fx, setFx] = useState(String(pricing.fx || ""));
-  useEffect(() => {
-    setIn(String(pricing.inUsd || ""));
-    setOut(String(pricing.outUsd || ""));
-    setFx(String(pricing.fx || ""));
-  }, [pricing]);
-
-  return (
-    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <div className="text-[11px] font-bold tracking-wider text-amber-900 mb-1">모델 단가 설정</div>
-          <p className="text-[11px] text-amber-900/80 leading-relaxed max-w-2xl">
-            Google 공식 가격표의 <b>USD / 100만 토큰</b> 값을 그대로 넣으세요.
-            {models.length > 0 && (
-              <> 지금 쓰이는 모델: <span className="font-mono font-semibold">{models.join(", ")}</span></>
-            )}
-            <br />
-            <span className="text-amber-800/70">
-              모델이 둘 이상이면 이 단가가 전부에 똑같이 적용됩니다 — 모델별 단가 분리가 필요해지면 알려 주세요.
-            </span>
-          </p>
-        </div>
-        <button onClick={onClose} className="text-xs text-amber-800 hover:underline">닫기</button>
-      </div>
-      <div className="mt-3 flex items-end gap-3 flex-wrap">
-        <Field label="입력 단가" suffix="USD / 1M" value={inUsd} onChange={setIn} placeholder="0.30" />
-        <Field label="출력 단가" suffix="USD / 1M" value={outUsd} onChange={setOut} placeholder="2.50" />
-        <Field label="환율" suffix="원 / USD" value={fx} onChange={setFx} placeholder="1400" />
-        <button
-          onClick={() => onSave({ inUsd: +inUsd || 0, outUsd: +outUsd || 0, fx: +fx || 0 }, monthlyFee)}
-          className="rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-700"
-        >
-          저장
-        </button>
-        {hasPricing(pricing) && (
-          <span className="text-[11px] text-amber-900/70">
-            현재 적용: 입력 ${pricing.inUsd} · 출력 ${pricing.outUsd} · 환율 {pricing.fx.toLocaleString("ko-KR")}원
-          </span>
-        )}
-      </div>
-      <p className="mt-2 text-[10px] text-amber-800/70">
-        placeholder 는 형식 예시일 뿐 실제 단가가 아닙니다 — 반드시 Google 가격표에서 확인해 입력하세요.
-        이 값은 브라우저에만 저장됩니다(다른 기기에서는 다시 입력).
-      </p>
+  const [fx, setFx] = useState(String(pricing.fx));
+  const valid = fx.trim() !== "" && Number.isFinite(Number(fx)) && Number(fx) > 0;
+  const shownModels = models.length ? models : Object.keys(MODEL_PRICES);
+  return <section aria-label="원가 계산 기준" className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+    <div className="flex items-center justify-between gap-3">
+      <h2 className="text-sm font-semibold text-slate-900">원가 계산 기준</h2>
+      <button onClick={onClose} className="text-xs text-slate-500 hover:underline">닫기</button>
     </div>
-  );
-}
-
-function Field({ label, suffix, value, onChange, placeholder }: {
-  label: string; suffix: string; value: string;
-  onChange: (v: string) => void; placeholder: string;
-}) {
-  return (
-    <label className="block">
-      <div className="text-[10px] text-amber-900/80 mb-1">{label}</div>
-      <div className="flex items-center gap-1">
-        <input
-          type="number"
-          step="any"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="w-24 rounded border border-amber-300 bg-white px-2 py-1.5 text-xs text-right tabular-nums"
-        />
-        <span className="text-[10px] text-amber-800/70 whitespace-nowrap">{suffix}</span>
-      </div>
-    </label>
-  );
+    <p className="mt-2 text-xs leading-5 text-slate-600">모델별 공식 단가를 자동 적용합니다. 입력할 필요 없이 바로 계산됩니다.</p>
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full text-left text-xs whitespace-nowrap">
+        <thead className="text-slate-500"><tr><th className="py-2 pr-4">모델</th><th className="pr-4">입력</th><th className="pr-4">출력</th><th>캐시 입력</th></tr></thead>
+        <tbody>{shownModels.map(model => { const rate = modelPrice(model); return <tr key={model} className="border-t border-slate-100"><td className="py-2 pr-4 font-medium">{model}</td><td className="pr-4">{rate ? `$${rate.input.toFixed(2)}` : "미등록"}</td><td className="pr-4">{rate ? `$${rate.output.toFixed(2)}` : "—"}</td><td>{rate ? `$${rate.cached.toFixed(2)}` : "—"}</td></tr>; })}</tbody>
+      </table>
+    </div>
+    <p className="mt-2 text-[11px] text-slate-500">100만 토큰당 USD · 유료 Standard 기준 · {PRICING_CHECKED_AT} 확인 · <a href={PRICING_SOURCE} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google 공식 가격표</a></p>
+    <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={e => { e.preventDefault(); if (valid) { onSave({ fx: Number(fx) }, monthlyFee); onClose(); } }}>
+      <label className="text-xs text-slate-600">계산용 환율 (원 / USD)<input type="number" min="0.01" step="any" required value={fx} onChange={e => setFx(e.target.value)} className="mt-1 block w-36 rounded-lg border border-slate-300 px-3 py-2 text-right text-sm" /></label>
+      <button type="submit" disabled={!valid} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">적용</button>
+      <button type="button" onClick={() => { setFx(String(DEFAULT_USAGE_FX)); onSave(defaultPricing, monthlyFee); }} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600">기본 환율로 복원</button>
+    </form>
+    <p className="mt-3 text-[11px] leading-5 text-slate-500">기본 환율은 {n(DEFAULT_USAGE_FX)}원이며 실시간 환율이 아닙니다. 변경한 환율은 이 브라우저에 저장됩니다. 기록된 토큰 기준 예상 비용으로, 무료 할당량·세금·별도 도구 비용은 반영하지 않습니다.</p>
+  </section>;
 }
 
 function Card({ label, value, sub, tone, big }: {
@@ -601,7 +548,7 @@ function CrossRows({ rows, label, pricing, priced, cols }: {
                 {x.builderTokens > 0 ? n(x.builderTokens) + " 관리자" : <span className="text-gray-300">—</span>}
               </span>
               <span className="tabular-nums font-semibold text-gray-900 w-16 text-right shrink-0">
-                {priced ? won(wonOf(x.promptTokens, x.outputTokens, pricing)) : "—"}
+                {priced ? won(wonOf(x.costUsd, pricing)) : "—"}
               </span>
               <span className="tabular-nums text-gray-400 w-20 text-right shrink-0">
                 {x.lastUsedAt?.slice(5, 10) ?? "—"}
@@ -675,7 +622,7 @@ function UserTable({ rows, cross, pricing, priced }: {
               <td className={NUM + " text-violet-700"}>{u.builderTokens > 0 ? n(u.builderTokens) : <span className="text-gray-300">—</span>}</td>
               <td className={NUM}>{n(u.totalTokens)}</td>
               <td className={NUM + " font-semibold text-gray-900"}>
-                {priced ? won(wonOf(u.promptTokens, u.outputTokens, pricing)) : <span className="text-gray-300">—</span>}
+                {priced ? won(wonOf(u.costUsd, pricing)) : <span className="text-gray-300">—</span>}
               </td>
               <td className={TD + " text-gray-400"}>{u.lastUsedAt?.slice(0, 16).replace("T", " ") || "—"}</td>
             </tr>
@@ -753,12 +700,12 @@ function AppTable({ rows, cross, pricing, priced }: {
                   ) : <span className="text-gray-300">—</span>}
                 </td>
                 <td className={NUM + " font-semibold text-gray-900"}>
-                  {priced ? won(wonOf(a.promptTokens, a.outputTokens, pricing)) : <span className="text-gray-300">—</span>}
+                  {priced ? won(wonOf(a.costUsd, pricing)) : <span className="text-gray-300">—</span>}
                 </td>
                 <td className={NUM}>{n(a.tokensPerRun)}</td>
                 <td className={NUM + " font-semibold text-blue-700"}>
                   {priced && a.promptPerRun != null
-                    ? won(wonOf(a.promptPerRun, a.outputPerRun || 0, pricing))
+                    ? won(perRunCost(a, pricing))
                     : <span className="text-gray-300">—</span>}
                 </td>
               </tr>
@@ -811,7 +758,7 @@ function MonthTable({ rows, pricing, priced }: { rows: MonthRow[]; pricing: Pric
               <td className={NUM + " text-blue-700"}>{m.appTokens > 0 ? n(m.appTokens) : <span className="text-gray-300">—</span>}</td>
               <td className={NUM + " text-violet-700"}>{m.builderTokens > 0 ? n(m.builderTokens) : <span className="text-gray-300">—</span>}</td>
               <td className={NUM + " font-semibold text-gray-900"}>
-                {priced ? won(wonOf(m.promptTokens, m.outputTokens, pricing)) : <span className="text-gray-300">—</span>}
+                {priced ? won(wonOf(m.costUsd, pricing)) : <span className="text-gray-300">—</span>}
               </td>
               <td className={TD}>
                 <div className="h-2 rounded-full bg-gray-100 overflow-hidden" style={{ width: "100%" }}>
@@ -860,7 +807,7 @@ function ModelTable({ rows, pricing, priced }: { rows: ModelRow[]; pricing: Pric
               <td className={NUM}>{n(m.outputTokens)}</td>
               <td className={NUM}>{n(m.totalTokens)}</td>
               <td className={NUM + " font-semibold text-gray-900"}>
-                {priced ? won(wonOf(m.promptTokens, m.outputTokens, pricing)) : <span className="text-gray-300">—</span>}
+                {priced ? won(wonOf(m.costUsd, pricing)) : <span className="text-gray-300">—</span>}
               </td>
               <td className={NUM + " text-gray-500"}>{m.avgDurationMs ? `${n(m.avgDurationMs)}ms` : "—"}</td>
             </tr>
@@ -889,7 +836,7 @@ function SurfaceTable({ surfaces, ops, pricing, priced }: {
               <div className="text-[11px] text-gray-400">{total > 0 ? Math.round((s.totalTokens / total) * 100) : 0}%</div>
             </div>
             <div className="text-2xl font-bold text-gray-900 tabular-nums">
-              {priced ? won(wonOf(s.promptTokens, s.outputTokens, pricing)) : n(s.totalTokens)}
+              {priced ? won(wonOf(s.costUsd, pricing)) : n(s.totalTokens)}
             </div>
             <div className="text-[11px] text-gray-500 mt-1">
               {n(s.totalTokens)} 토큰 · 호출 {n(s.calls)} · 사용자 {n(s.users)}명
@@ -926,7 +873,7 @@ function SurfaceTable({ surfaces, ops, pricing, priced }: {
               <td className={NUM}>{o.calls > 0 ? n(o.totalTokens / o.calls) : "—"}</td>
               <td className={NUM + " font-semibold text-gray-900"}>
                 {priced && o.calls > 0
-                  ? won((wonOf(o.promptTokens, o.outputTokens, pricing) || 0) / o.calls)
+                  ? won(o.costUsd === null ? null : wonOf(o.costUsd, pricing)! / o.calls)
                   : <span className="text-gray-300">—</span>}
               </td>
             </tr>
