@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { usageCostUsd } from "@/lib/usage-pricing";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,9 +17,7 @@ export const maxDuration = 60;
 //   현실적인 볼륨(월 수천 행)에서는 Node 집계가 충분히 빠르고 배포가 단순하다.
 //   ROW_CAP 을 넘어서면 truncated=true 로 알리고, 그때 SQL 뷰로 옮기면 된다.
 //
-// 원가(₩) 환산은 여기서 하지 않는다 — 모델 단가는 화면에서 관리자가 입력한다.
-// 대신 입력/출력 토큰을 surface(app/builder) 별로 나눠서 내려, 화면이 정확히 곱할 수 있게 한다.
-// (입력·출력 단가가 다르고, 관리자 구축분과 사용자 사용분은 성격이 달라 섞으면 안 된다)
+// 호출별 모델 단가로 USD를 합산하고 화면에서 기준 환율로 환산한다.
 
 const ROW_CAP = 100_000;
 const PAGE = 1000;
@@ -70,9 +69,11 @@ async function fetchAll<T>(
 const num = (v: unknown) => (typeof v === "number" && isFinite(v) ? v : 0);
 
 /** 입력·출력 토큰을 함께 담는 누적기 — 원가는 입력/출력 단가가 달라 반드시 분리해야 한다 */
-type Acc = { calls: number; prompt: number; output: number; total: number };
-const acc = (): Acc => ({ calls: 0, prompt: 0, output: 0, total: 0 });
+type Acc = { costUsd: number | null; calls: number; prompt: number; output: number; total: number };
+const acc = (): Acc => ({ costUsd: 0, calls: 0, prompt: 0, output: 0, total: 0 });
 function add(a: Acc, r: UsageRow) {
+  const cost = usageCostUsd(r);
+  a.costUsd = a.costUsd === null || cost === null ? null : a.costUsd + cost;
   a.calls++;
   a.prompt += num(r.prompt_tokens);
   a.output += num(r.output_tokens);
@@ -86,6 +87,9 @@ function addSplit(s: Split, r: UsageRow) {
   add(r.surface === "builder" ? s.builder : s.app, r);
 }
 const flat = (s: Split) => ({
+  costUsd: s.all.costUsd,
+  appCostUsd: s.app.costUsd,
+  builderCostUsd: s.builder.costUsd,
   calls: s.all.calls,
   promptTokens: s.all.prompt,
   outputTokens: s.all.output,
@@ -367,7 +371,7 @@ export async function GET(req: NextRequest) {
       const a = acc();
       for (const r of rows) add(a, r);
       return {
-        surface: s, calls: a.calls,
+        surface: s, costUsd: a.costUsd, calls: a.calls,
         promptTokens: a.prompt, outputTokens: a.output, totalTokens: a.total,
         users: new Set(rows.map((r) => r.user_id).filter(Boolean)).size,
       };
@@ -381,7 +385,7 @@ export async function GET(req: NextRequest) {
     }
     const byOperation = [...ops.values()]
       .map((o) => ({
-        surface: o.surface, operation: o.operation, calls: o.a.calls,
+        surface: o.surface, operation: o.operation, costUsd: o.a.costUsd, calls: o.a.calls,
         promptTokens: o.a.prompt, outputTokens: o.a.output, totalTokens: o.a.total,
       }))
       .sort((a, b) => b.totalTokens - a.totalTokens);
@@ -444,7 +448,7 @@ export async function GET(req: NextRequest) {
       totals, derived, byUser, byApp, byUserApp, byModel, bySurface, byOperation, byMonth,
       // 요금제 시뮬레이터가 쓸, 사용자별 '사용자 사용분' 토큰 (관리자 제외)
       endUserTokens: endUsers.map((u) => ({
-        email: u.email, prompt: u.appPromptTokens, output: u.appOutputTokens, total: u.appTokens,
+        email: u.email, costUsd: u.appCostUsd, prompt: u.appPromptTokens, output: u.appOutputTokens, total: u.appTokens,
       })),
       truncated: usage.truncated || runs.truncated,
     });
