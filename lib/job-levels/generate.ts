@@ -8,25 +8,67 @@
 //   직무 하나에 문장이 200개를 넘는다. 한 번에 만들면 Vercel 요청당 60초 제한에 걸리고 품질도 떨어지므로,
 //   앱 빌더의 단계별 분석(/api/spec-stage)처럼 영역마다 별도 요청으로 만든다.
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType, type ResponseSchema } from "@google/generative-ai";
 import { trackedGenerate } from "@/lib/llm-usage";
 import { LEVELS, MAX_LEVEL, type JobArea, type LevelSentence } from "./levels";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const THINKING_BUDGET = Number(process.env.GEMINI_THINKING_BUDGET ?? 0);
 
-function jsonModel(temperature: number) {
+// 응답 모양을 스키마로 고정한다.
+// 스키마 없이 JSON 만 요구했을 때, 같은 입력에서도 가끔 키 이름이 바뀌어 영역을 하나도 읽지 못한 적이 있다(2026-11-13 로컬 테스트).
+const str = { type: SchemaType.STRING } as const;
+const int = { type: SchemaType.INTEGER } as const;
+const AREAS_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    areas: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: { name: str, target: str, ceiling: int, ceilingReason: str, onetKeyword: str },
+        required: ["name", "target", "ceiling", "ceilingReason", "onetKeyword"],
+      },
+    },
+  },
+  required: ["areas"],
+};
+const LEVELS_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    levels: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: { level: int, means: str, outcome: str },
+        required: ["level", "means", "outcome"],
+      },
+    },
+  },
+  required: ["levels"],
+};
+
+function jsonModel(temperature: number, schema: ResponseSchema) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY 누락");
   return new GoogleGenerativeAI(key).getGenerativeModel({
     model: MODEL,
     generationConfig: {
       responseMimeType: "application/json",
+      responseSchema: schema,
       maxOutputTokens: 16384,
       temperature,
       thinkingConfig: { thinkingBudget: THINKING_BUDGET },
     } as any,
   });
+}
+
+// 스키마가 지켜지지 않은 경우를 대비해, 정해진 키가 없으면 응답 안의 첫 배열을 쓴다.
+function listOf(out: any, key: string): any[] {
+  if (Array.isArray(out)) return out;
+  if (Array.isArray(out?.[key])) return out[key];
+  const first = out && typeof out === "object" ? Object.values(out).find(Array.isArray) : undefined;
+  return Array.isArray(first) ? first : [];
 }
 
 function parseJson(text: string): any {
@@ -38,11 +80,11 @@ function parseJson(text: string): any {
 // 실제 테스트에서 영역 12개 생성 중 503 이 한 번 났다. 요청당 60초 안에 들어오도록 두 번까지만 다시 시도한다.
 const TRANSIENT = /\b(429|500|503)\b|overloaded|unavailable|RESOURCE_EXHAUSTED/i;
 
-async function askJson(prompt: string, temperature: number): Promise<any> {
+async function askJson(prompt: string, temperature: number, schema: ResponseSchema): Promise<any> {
   const waits = [1500, 4000];
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await trackedGenerate(jsonModel(temperature), {
+      const res = await trackedGenerate(jsonModel(temperature, schema), {
         contents: [{ role: "user", parts: [{ text: prompt }] }],
       });
       return parseJson(res.response.text());
@@ -100,20 +142,25 @@ ${LEVEL_TABLE}
 ## 출력 JSON
 {"areas":[{"name":"","target":"","ceiling":12,"ceilingReason":"","onetKeyword":""}]}`;
 
-  const out = await askJson(prompt, 0.3);
-  const raw: any[] = Array.isArray(out?.areas) ? out.areas : [];
-  const areas = raw
-    .map((a, i) => ({
-      id: `a${i + 1}`,
-      name: clean(a?.name, 40),
-      target: clean(a?.target, 160),
-      ceiling: Math.min(MAX_LEVEL, Math.max(1, Math.round(Number(a?.ceiling) || 12))),
-      ceilingReason: clean(a?.ceilingReason, 200),
-      onetKeyword: clean(a?.onetKeyword, 60).replace(/[^A-Za-z0-9 ,&/-]/g, ""),
-    }))
-    .filter((a) => a.name)
-    .slice(0, 20);
-  if (!areas.length) throw new Error("성과영역을 만들지 못했습니다. 직무명이나 KRA를 조금 더 구체적으로 적어 주세요.");
+  const toAreas = (out: any) =>
+    listOf(out, "areas")
+      .map((a, i) => ({
+        id: `a${i + 1}`,
+        name: clean(a?.name, 40),
+        target: clean(a?.target, 160),
+        ceiling: Math.min(MAX_LEVEL, Math.max(1, Math.round(Number(a?.ceiling) || 12))),
+        ceilingReason: clean(a?.ceilingReason, 200),
+        onetKeyword: clean(a?.onetKeyword, 60).replace(/[^A-Za-z0-9 ,&/-]/g, ""),
+      }))
+      .filter((a) => a.name)
+      .slice(0, 20);
+
+  // 영역 구성은 표 전체의 뼈대라 같은 입력이면 최대한 같게 나오도록 무작위성을 0으로 둔다
+  // (0.3에서 같은 입력 5회 시 영역 수 8~10개, 상한 최대 3단계 차이).
+  // 영역이 하나도 안 나오면 입력 문제보다 응답 형식 문제인 경우가 많아 한 번 더 요청한다.
+  let areas = toAreas(await askJson(prompt, 0, AREAS_SCHEMA));
+  if (!areas.length) areas = toAreas(await askJson(prompt, 0.2, AREAS_SCHEMA));
+  if (!areas.length) throw new Error("성과영역을 만들지 못했습니다. 잠시 후 다시 시도하거나, 직무명이나 KRA를 조금 더 구체적으로 적어 주세요.");
 
   // 같은 키워드는 한 번만 조회한다. 키가 없거나 조회가 실패해도 표 작성에는 영향이 없다.
   const keywords = Array.from(new Set(areas.map((a) => a.onetKeyword).filter(Boolean)));
@@ -172,7 +219,7 @@ function checkSentences(list: LevelSentence[], ceiling: number): string[] {
 }
 
 function normalize(raw: any, ceiling: number): LevelSentence[] {
-  const arr: any[] = Array.isArray(raw?.levels) ? raw.levels : [];
+  const arr: any[] = listOf(raw, "levels");
   const byLevel = new Map<number, LevelSentence>();
   for (const x of arr) {
     const level = Math.round(Number(x?.level));
@@ -220,7 +267,7 @@ ${rows}
 ## 출력 JSON
 {"levels":[{"level":1,"means":"","outcome":""}]}`;
 
-  let sentences = normalize(await askJson(basePrompt, 0.4), ceiling);
+  let sentences = normalize(await askJson(basePrompt, 0.4, LEVELS_SCHEMA), ceiling);
   let issues = checkSentences(sentences, ceiling);
 
   // 빠진 레벨이나 형식 위반이 있으면 한 번만 다시 쓰게 한다. 두 번째 결과가 더 나쁘면 첫 결과를 유지한다.
@@ -230,7 +277,7 @@ ${rows}
 ## 직전 결과의 문제 (반드시 고쳐서 L1~L${ceiling} 전체를 다시 출력)
 ${issues.map((s) => `- ${s}`).join("\n")}`;
     try {
-      const again = normalize(await askJson(retry, 0.3), ceiling);
+      const again = normalize(await askJson(retry, 0.3, LEVELS_SCHEMA), ceiling);
       const againIssues = checkSentences(again, ceiling);
       if (againIssues.length <= issues.length) {
         sentences = again;
