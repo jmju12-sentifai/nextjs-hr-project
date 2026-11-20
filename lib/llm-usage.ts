@@ -23,7 +23,9 @@ export type UsageOperation =
   | "generate_spec"
   | "spec_stage"
   | "spec_preview"
-  | "parse_spec";
+  | "parse_spec"
+  | "job_levels_areas"
+  | "job_levels_sentences";
 
 export type UsageCtx = {
   trace?: { requestId: string; stage: string; attempt: number; timeoutMs: number };

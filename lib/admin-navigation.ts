@@ -2,6 +2,7 @@
 export const ADMIN_NAV = [
   { label: "앱 목록", href: "/admin/applist" },
   { label: "앱 빌더", href: "/admin/builder" },
+  { label: "직무 성과책임", href: "/admin/job-levels" },
   { label: "사용량 집계", href: "/admin/usage" },
   { label: "회원·구독 관리", href: "/admin/members" },
   { label: "리포트 설정", href: "/admin/report-guide" },

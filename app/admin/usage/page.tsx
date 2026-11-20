@@ -86,6 +86,7 @@ const OP_LABEL: Record<string, string> = {
   llm_summary: "안내문 생성", parse_document: "개인정보 파싱",
   generate_spec: "기획서 생성", spec_stage: "기획서 단계 분석",
   spec_preview: "탭별 프리뷰", parse_spec: "기획서 파싱",
+  job_levels_areas: "직무 성과영역 제안", job_levels_sentences: "18레벨 문장 생성",
   unattributed: "⚠ 미분류",
 };
 const SURFACE_LABEL: Record<string, string> = { app: "사용자 앱", builder: "관리자 빌더" };
