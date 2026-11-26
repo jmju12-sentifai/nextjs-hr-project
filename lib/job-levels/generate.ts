@@ -48,7 +48,7 @@ const LEVELS_SCHEMA: ResponseSchema = {
   required: ["levels"],
 };
 
-function jsonModel(temperature: number, schema: ResponseSchema) {
+function jsonModel(temperature: number, schema: ResponseSchema, thinkingBudget = THINKING_BUDGET) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY 누락");
   return new GoogleGenerativeAI(key).getGenerativeModel({
@@ -58,7 +58,7 @@ function jsonModel(temperature: number, schema: ResponseSchema) {
       responseSchema: schema,
       maxOutputTokens: 16384,
       temperature,
-      thinkingConfig: { thinkingBudget: THINKING_BUDGET },
+      thinkingConfig: { thinkingBudget },
     } as any,
   });
 }
@@ -80,11 +80,11 @@ function parseJson(text: string): any {
 // 실제 테스트에서 영역 12개 생성 중 503 이 한 번 났다. 요청당 60초 안에 들어오도록 두 번까지만 다시 시도한다.
 const TRANSIENT = /\b(429|500|503)\b|overloaded|unavailable|RESOURCE_EXHAUSTED/i;
 
-async function askJson(prompt: string, temperature: number, schema: ResponseSchema): Promise<any> {
+async function askJson(prompt: string, temperature: number, schema: ResponseSchema, thinkingBudget?: number): Promise<any> {
   const waits = [1500, 4000];
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await trackedGenerate(jsonModel(temperature, schema), {
+      const res = await trackedGenerate(jsonModel(temperature, schema, thinkingBudget), {
         contents: [{ role: "user", parts: [{ text: prompt }] }],
       });
       return parseJson(res.response.text());
@@ -210,8 +210,21 @@ const ACTIVITY_END = /(관리|확인|처리|해결|운영|검토|작성|수행|�
 // 여러 술어를 잇는 복문 (예: '~을 분석하고 ~을 제고한다')
 const COMPOUND = /(하고|하며|하여|하면서|시키고|시키며)\s/;
 const GENERIC = /(해당\s?업무|업무의 적정수행률|적정 수행률)/;
+const LEVELS_THINKING = Number(process.env.JOB_LEVELS_THINKING_BUDGET ?? THINKING_BUDGET);
 const MAX_BODY = 80;
 const MAX_MEANING = 60;
+// 아래 규칙은 고객 기획서 기준으로 독립 검수(2026-11-26, 생성 문장 143개)에서 반복 지적된 문제들이다.
+// '~를 통한 ~을 감소시킨다' 같은 비문
+const TONGHAN = /통한\s/;
+// 결과 대신 내가 한 행위의 실행 정도를 성과로 쓴 경우
+// ('승인된 인력계획의 적기 이행률'처럼 계획·합의의 이행률은 기획서 예시에도 있는 결과 지표라 허용한다)
+const ACTION_RATE = /(표준화\s?이행률|절차\s?이행률|개선율|개선도|확립률|정립률|수립률|실행률|추진율|도입률|표준화\s?수준|관리\s?효율)/;
+// 성과 목적어를 '및'으로 두 개 이은 경우 (예: '일정 준수율 및 평가 완료율을')
+const TWO_RESULTS = /(률|율|도|성)\s*및\s+[^\s]+/;
+// 수단을 '및'으로 두 개 이은 경우 (예: '이견 조정 및 기준 정립으로')
+const TWO_MEANS = /(조정|조율|분석|개선|정립|수립|확립|표준화|재설계|혁신)\s*및\s+[^.]*?(조정|조율|분석|개선|정립|수립|확립|표준화|재설계|혁신)(으로|로)\s/;
+// '단축한다'는 시간·기간에만 쓴다
+const TIME_WORD = /(시간|기간|기일|일수|리드타임|주기|소요|일정|지연|회전일)/;
 
 // 의미가 본문을 거의 그대로 되풀이하는지: 의미 글자쌍의 70% 이상이 본문에 있으면 되풀이로 본다.
 function repeatsBody(body: string, meaning: string): boolean {
@@ -238,13 +251,24 @@ export function checkSentences(list: LevelSentence[], ceiling: number): string[]
     if (!s.meaning) issues.push(`L${L} '의미'가 빠졌습니다`);
     if (ACTIVITY_END.test(body)) issues.push(`L${L} 성과책임이 업무행위('~관리한다' 등)로 끝납니다`);
     else if (!DIRECTION_END.test(body)) issues.push(`L${L} 성과책임이 권장 술어(${DIRECTION_ENDINGS.join("·")})로 끝나지 않습니다`);
-    if (/[()]/.test(body)) issues.push(`L${L} 성과책임에 괄호가 있습니다(수단·의미는 본문에 넣지 않음)`);
+    // '(TO)'·'(KPI)'처럼 짧은 영문 약어를 단 괄호는 수단이 아니므로 허용한다.
+    if (/[()]/.test(body.replace(/\([A-Za-z0-9&\s]{1,8}\)/g, ""))) issues.push(`L${L} 성과책임에 괄호가 있습니다(수단·의미는 본문에 넣지 않음)`);
     if (COMPOUND.test(body) || (body.match(/다\./g) || []).length > 1) issues.push(`L${L} 성과책임이 한 문장·한 핵심성과가 아닙니다(복문)`);
     if (body.length > MAX_BODY) issues.push(`L${L} 성과책임이 ${MAX_BODY}자를 넘습니다`);
     if (GENERIC.test(body)) issues.push(`L${L} 성과책임에 '해당업무' 같은 일반 표현이 있습니다`);
     // 의미 길이는 기준(60자)보다 여유를 두고 확인한다. 조금 긴 것까지 다시 쓰게 하면 요청 시간만 늘어난다.
     if (s.meaning.length > MAX_MEANING + 30) issues.push(`L${L} '의미'가 너무 깁니다`);
     if (s.meaning && repeatsBody(body, s.meaning)) issues.push(`L${L} '의미'가 성과책임 본문을 되풀이합니다`);
+    if (TONGHAN.test(body)) issues.push(`L${L} '~를 통한 ~을' 비문입니다. '~으로'로 고쳐 쓰십시오`);
+    if (ACTION_RATE.test(body)) issues.push(`L${L} 성과가 결과가 아니라 행위의 실행 정도(개선율·확립률 등)입니다`);
+    const object = body.split(/(?:으로|로)\s/).pop() || body;
+    if (TWO_RESULTS.test(object)) issues.push(`L${L} 성과 목적어가 두 개입니다('A 및 B를')`);
+    if (TWO_MEANS.test(body)) issues.push(`L${L} 수단이 두 개입니다('A 및 B로')`);
+    if (/단축한다\.$/.test(body) && !TIME_WORD.test(object)) issues.push(`L${L} '단축한다'는 시간·기간에만 씁니다`);
+    if (L <= 7 && /전사/.test(body)) issues.push(`L${L} 담당 범위 레벨에 '전사'를 썼습니다`);
+    if (L === 1 && /(정확|오류|누락)/.test(s.meaning)) issues.push(`L1 의미에 정확성(L2의 책임)이 섞였습니다`);
+    if (L === 11 && /(조정|조율|합의)/.test(body + s.meaning)) issues.push(`L11에 L8의 '조정·조율'을 썼습니다. 서로 다른 기능의 '통합 결정'으로 쓰십시오`);
+    if (L >= 9 && /(근본적으로|전면|완전히|원점)/.test(s.meaning)) issues.push(`L${L} 의미가 구체적이지 않습니다('근본적으로·전면' 대신 무엇을 어떻게 바꾸는지)`);
     const key = body.replace(/\s/g, "");
     const stem = key.replace(DIRECTION_END, "");
     if (seen.has(key)) issues.push(`L${L} 성과책임이 L${seen.get(key)}와 같습니다`);
@@ -307,19 +331,71 @@ ${examples}
 
 ## 작성 규칙
 1. accountability(성과책임)는 '[필요 시 전제·레벨별 차별요인] + [구체적 성과 목적어] + [방향성 술어]'로 된 한 문장이다. 하나의 핵심성과만 쓴다.
-2. accountability는 다음 술어 중 하나로 끝낸다: ${DIRECTION_ENDINGS.join(", ")}.
+   - 성과 목적어는 하나만 쓴다. 'A률 및 B률을'처럼 둘을 잇지 않는다.
+   - 성과 목적어는 업무 대상의 결과 상태(불량률, 정확도, 재발률, 예측 정확도, 손실 비용 등)로 쓴다.
+     '표준화 이행률·개선율·확립률·표준화 수준·관리 효율'처럼 내가 한 행위를 얼마나 했는지를 목적어로 쓰지 않는다.
+   - 차별요인(수단)은 '~으로' 한 번만 쓴다. 'A 조정 및 B 정립으로'처럼 둘을 잇지 않고, '~를 통한'·'~를 통해' 대신 '~으로'를 쓴다.
+2. accountability는 다음 술어 중 하나로 끝내고, 목적어와 호응하게 쓴다: ${DIRECTION_ENDINGS.join(", ")}.
+   단축한다는 시간·기간에만, 감소시킨다·절감한다는 줄여야 할 것(불량률·비용·위험)에, 제고한다·향상한다·상향한다는 높여야 할 것에,
+   증대한다·확대한다는 양·규모·범위에 쓴다.
 3. '관리한다·확인한다·처리한다·해결한다·운영한다·검토한다' 같은 업무행위로 끝내지 않는다.
    '~하고·~하며·~하여'로 술어를 잇는 복문, 업무 나열, 불필요한 수식어, 괄호를 쓰지 않는다. 예시처럼 ${MAX_BODY}자 이내로 간결하게 쓴다.
 4. meaning(의미)에는 실제로 무엇을 달성하는 상황인지와 책임이 어디까지인지를 쉬운 말 한 문장으로 쓴다.
    본문을 되풀이하지 않고, 바로 아래 레벨과 무엇이 다른지가 드러나게 쓴다. 예시처럼 ${MAX_MEANING}자 이내로 짧게 쓰고, '의미:'나 괄호는 붙이지 않는다.
+   L1의 의미는 정해진 작업을 기한까지 끝내는 것까지만 쓴다('정확히·오류 없이'는 L2의 책임이다).
+   L9 이상의 의미는 '근본적으로·전면·완전히'처럼 기준표를 되풀이하는 말 대신, 이 영역에서 무엇을 어떻게 바꾸는지 구체적으로 쓴다.
 5. 레벨이 올라갈수록 통제 범위·판단권·성과의 크기가 분명히 커져야 한다. 각 레벨은 그 레벨의 핵심 판정 질문에 '예'가 되는 책임을 쓴다.
    업무명만 바꾼 공통문장, 술어만 바꾼 문장, 인접 레벨과 같은 성과지표의 반복을 쓰지 않는다.
+   L1~L7은 담당 범위의 책임이므로 '전사'를 쓰지 않는다.
+   L11은 서로 다른 기능의 상충 목표·자원을 '통합 결정'하여 공동 최종결과를 책임지는 수준이다. '조정·조율·합의'는 L8의 말이므로 L11에 쓰지 않고, 의미에 '기여한다'처럼 책임을 흐리는 말을 쓰지 않는다.
 6. 근거 없는 권한·목표·실적을 확정하지 않는다. 정부·외부기관의 결정 권한을 담당자의 결과로 쓰지 않는다.
    품질·안전·법규·승인 요건은 모든 레벨의 전제로 유지한다(필요하면 '~를 전제로').
 7. 숫자 목표치나 점수는 쓰지 않는다. 목표치는 별도로 합의한다.
+8. 사전에 없는 말·오타·비문 없이 바른 한국어로 쓴다. 입력에 없는 전제(예: 해외 사업, 글로벌)를 지어내지 않는다.
 
 ## 출력 JSON
 {"levels":[{"level":1,"accountability":"","meaning":""}]}`;
+}
+
+// ── 교정 ──
+// 독립 검수에서 비단어·오타·비문이 생성 문장의 약 9%였다(예: '대손실충금', '~를 통한 ~을 감소시킨다', 영어 단어 섞임).
+// 같은 모델이라도 '고치기만 하는' 좁은 요청에서는 이런 오류를 잘 잡으므로, 다 쓴 뒤 한 번 교정한다.
+// 교정이 점검 규칙을 새로 어기는 문장은 교정 전 문장을 그대로 둔다.
+export function proofreadPrompt(list: LevelSentence[], context: string): string {
+  const rows = list.map((s) => `L${s.level} | ${s.accountability} | ${s.meaning}`).join("\n");
+  return `당신은 한국어 인사(HR) 문서 교정자입니다. 아래는 '${context}'의 레벨별 성과책임 문장입니다 (L | 성과책임 | 의미).
+내용·레벨·문장 구조는 바꾸지 말고, 다음 오류만 고치세요. 오류가 없는 문장은 글자 하나 바꾸지 말고 그대로 돌려주세요.
+1. 오타, 사전에 없는 말, 업무 문서에 쓰지 않는 어색한 낱말, 같은 단어의 반복
+   (예: '대손실충금'→'대손충당금', '납기관측'→'납기 추적', '분석 분석'→'분석')
+2. 조사·어미가 맞지 않는 비문(예: '원인 제거를 통한 재발률을 감소시킨다'→'원인 제거로 재발률을 감소시킨다', '입력 작업을 기한 내 완료율을'→'입력의 기한 내 완료율을')
+3. 목적어와 술어가 호응하지 않는 경우(단축한다는 시간·기간에만, 감소시킨다·절감한다는 줄여야 할 것에, 제고한다·향상한다·상향한다는 높여야 할 것에)
+4. 영문 알파벳으로 쓴 일반 단어(예: regulatory)는 한국어로 바꾼다.
+   데이터·시스템·모델 같은 외래어와 RA·R&D·KPI 같은 업계 약어는 오류가 아니므로 그대로 둔다.
+성과책임은 반드시 ${DIRECTION_ENDINGS.join(", ")} 중 하나로 끝나야 하고, 괄호를 쓰지 않습니다. 의미에는 '의미:'나 괄호를 붙이지 않습니다.
+
+${rows}
+
+## 출력 JSON (입력과 같은 레벨 전부)
+{"levels":[{"level":1,"accountability":"","meaning":""}]}`;
+}
+
+export async function proofread(list: LevelSentence[], ceiling: number, context: string): Promise<LevelSentence[]> {
+  if (!list.length) return list;
+  let fixed: LevelSentence[];
+  try {
+    fixed = normalize(await askJson(proofreadPrompt(list, context), 0, LEVELS_SCHEMA), ceiling);
+  } catch {
+    return list; // 교정 실패는 교정 전 문장으로 진행한다.
+  }
+  const issuesAt = (l: LevelSentence[], L: number) => checkSentences(l, ceiling).filter((x) => x.startsWith(`L${L} `)).length;
+  let out = list;
+  for (const f of fixed) {
+    const i = out.findIndex((s) => s.level === f.level);
+    if (i < 0 || !f.accountability || !f.meaning) continue;
+    const trial = out.map((s, k) => (k === i ? f : s));
+    if (issuesAt(trial, f.level) <= issuesAt(out, f.level)) out = trial;
+  }
+  return out;
 }
 
 export async function generateAreaLevels(
@@ -328,7 +404,7 @@ export async function generateAreaLevels(
   const ceiling = input.area.ceiling;
   const basePrompt = levelsPrompt(input);
 
-  let sentences = normalize(await askJson(basePrompt, 0.4, LEVELS_SCHEMA), ceiling);
+  let sentences = normalize(await askJson(basePrompt, 0.4, LEVELS_SCHEMA, LEVELS_THINKING), ceiling);
   let issues = checkSentences(sentences, ceiling);
 
   // 빠진 레벨이나 형식 위반이 있으면 한 번만 다시 쓰게 한다. 두 번째 결과가 더 나쁘면 첫 결과를 유지한다.
@@ -338,7 +414,7 @@ export async function generateAreaLevels(
 ## 직전 결과의 문제 (반드시 고쳐서 L1~L${ceiling} 전체를 다시 출력)
 ${issues.map((s) => `- ${s}`).join("\n")}`;
     try {
-      const again = normalize(await askJson(retry, 0.3, LEVELS_SCHEMA), ceiling);
+      const again = normalize(await askJson(retry, 0.3, LEVELS_SCHEMA, LEVELS_THINKING), ceiling);
       const againIssues = checkSentences(again, ceiling);
       if (againIssues.length <= issues.length) {
         sentences = again;
@@ -348,5 +424,6 @@ ${issues.map((s) => `- ${s}`).join("\n")}`;
       // 재시도 실패는 첫 결과로 진행한다.
     }
   }
-  return { sentences, warnings: issues };
+  sentences = await proofread(sentences, ceiling, `${input.jobName} / ${input.area.name}`);
+  return { sentences, warnings: checkSentences(sentences, ceiling) };
 }
