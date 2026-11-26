@@ -6,6 +6,8 @@ export const DEFAULT_USAGE_FX = 1400; // 원가 비교용 기준값이며 실시
 export const MODEL_PRICES: Record<string, { input: number; output: number; cached: number }> = {
   "gemini-2.5-flash": { input: 0.30, output: 2.50, cached: 0.03 },
   "gemini-3.5-flash": { input: 1.50, output: 9.00, cached: 0.15 },
+  // 성과책임 12레벨 문장 생성용. 200k 토큰 이하 요금(2026-11-26 확인). 출력 단가에 생각 토큰이 포함된다.
+  "gemini-3.1-pro-preview": { input: 2.00, output: 12.00, cached: 0.20 },
 };
 
 export function modelPrice(model: string) {

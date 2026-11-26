@@ -48,17 +48,18 @@ const LEVELS_SCHEMA: ResponseSchema = {
   required: ["levels"],
 };
 
-function jsonModel(temperature: number, schema: ResponseSchema) {
+function jsonModel(temperature: number, schema: ResponseSchema, model = MODEL) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY 누락");
   return new GoogleGenerativeAI(key).getGenerativeModel({
-    model: MODEL,
+    model,
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema: schema,
       maxOutputTokens: 16384,
       temperature,
-      thinkingConfig: { thinkingBudget: THINKING_BUDGET },
+      // Pro 모델은 생각 단계를 끌 수 없어(0이면 오류) 최소한으로 준다.
+      thinkingConfig: { thinkingBudget: /pro/.test(model) ? Math.max(THINKING_BUDGET, 1024) : THINKING_BUDGET },
     } as any,
   });
 }
@@ -80,11 +81,11 @@ function parseJson(text: string): any {
 // 실제 테스트에서 영역 12개 생성 중 503 이 한 번 났다. 요청당 60초 안에 들어오도록 두 번까지만 다시 시도한다.
 const TRANSIENT = /\b(429|500|503)\b|overloaded|unavailable|RESOURCE_EXHAUSTED/i;
 
-async function askJson(prompt: string, temperature: number, schema: ResponseSchema): Promise<any> {
+async function askJson(prompt: string, temperature: number, schema: ResponseSchema, model?: string): Promise<any> {
   const waits = [1500, 4000];
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await trackedGenerate(jsonModel(temperature, schema), {
+      const res = await trackedGenerate(jsonModel(temperature, schema, model), {
         contents: [{ role: "user", parts: [{ text: prompt }] }],
       });
       return parseJson(res.response.text());
@@ -210,6 +211,17 @@ const ACTIVITY_END = /(관리|확인|처리|해결|운영|검토|작성|수행|�
 // 여러 술어를 잇는 복문 (예: '~을 분석하고 ~을 제고한다')
 const COMPOUND = /(하고|하며|하여|하면서|시키고|시키며)\s/;
 const GENERIC = /(해당\s?업무|업무의 적정수행률|적정 수행률)/;
+// 레벨 문장에 쓰는 모델.
+// 2026-11-26 같은 5개 영역(60문장) 비교: gemini-3.5-flash 는 교정 단계를 거쳐도 비단어·비문이 약 20%('작수한', '직불 임금',
+// '대손실충금' 등)였고, gemini-3.1-pro-preview 는 교정 없이 0건이었다. 고객이 HR 전문가라 문장 품질을 우선해 Pro 를 쓴다.
+// 환경변수로 바꿀 수 있다(예: 단가·속도 때문에 Flash 로 되돌릴 때).
+const LEVELS_MODEL = process.env.JOB_LEVELS_MODEL || "gemini-3.1-pro-preview";
+// Flash 계열일 때만 교정 단계를 쓴다.
+const NEEDS_PROOFREAD = !/pro/.test(LEVELS_MODEL);
+// 영역 하나가 요청 하나이고 요청당 60초 제한이 있다. Pro 는 한 번 작성에 20~45초라,
+// 시간이 이만큼 지났으면 재작성·교정을 건너뛰고 남은 문제는 화면에 '확인 필요'로 보여 준다.
+const RETRY_IF_UNDER_MS = 25_000;
+const PROOFREAD_IF_UNDER_MS = 35_000;
 const MAX_BODY = 80;
 const MAX_MEANING = 60;
 // 아래 규칙은 고객 기획서 기준으로 독립 검수(2026-11-26, 생성 문장 143개)에서 반복 지적된 문제들이다.
@@ -382,7 +394,7 @@ export async function proofread(list: LevelSentence[], ceiling: number, context:
   if (!list.length) return list;
   let fixed: LevelSentence[];
   try {
-    fixed = normalize(await askJson(proofreadPrompt(list, context), 0, LEVELS_SCHEMA), ceiling);
+    fixed = normalize(await askJson(proofreadPrompt(list, context), 0, LEVELS_SCHEMA, LEVELS_MODEL), ceiling);
   } catch {
     return list; // 교정 실패는 교정 전 문장으로 진행한다.
   }
@@ -402,18 +414,20 @@ export async function generateAreaLevels(
 ): Promise<{ sentences: LevelSentence[]; warnings: string[] }> {
   const ceiling = input.area.ceiling;
   const basePrompt = levelsPrompt(input);
+  const started = Date.now();
+  const elapsed = () => Date.now() - started;
 
-  let sentences = normalize(await askJson(basePrompt, 0.4, LEVELS_SCHEMA), ceiling);
+  let sentences = normalize(await askJson(basePrompt, 0.4, LEVELS_SCHEMA, LEVELS_MODEL), ceiling);
   let issues = checkSentences(sentences, ceiling);
 
   // 빠진 레벨이나 형식 위반이 있으면 한 번만 다시 쓰게 한다. 두 번째 결과가 더 나쁘면 첫 결과를 유지한다.
-  if (issues.length) {
+  if (issues.length && elapsed() < RETRY_IF_UNDER_MS) {
     const retry = `${basePrompt}
 
 ## 직전 결과의 문제 (반드시 고쳐서 L1~L${ceiling} 전체를 다시 출력)
 ${issues.map((s) => `- ${s}`).join("\n")}`;
     try {
-      const again = normalize(await askJson(retry, 0.3, LEVELS_SCHEMA), ceiling);
+      const again = normalize(await askJson(retry, 0.3, LEVELS_SCHEMA, LEVELS_MODEL), ceiling);
       const againIssues = checkSentences(again, ceiling);
       if (againIssues.length <= issues.length) {
         sentences = again;
@@ -423,6 +437,8 @@ ${issues.map((s) => `- ${s}`).join("\n")}`;
       // 재시도 실패는 첫 결과로 진행한다.
     }
   }
-  sentences = await proofread(sentences, ceiling, `${input.jobName} / ${input.area.name}`);
+  if (NEEDS_PROOFREAD && elapsed() < PROOFREAD_IF_UNDER_MS) {
+    sentences = await proofread(sentences, ceiling, `${input.jobName} / ${input.area.name}`);
+  }
   return { sentences, warnings: checkSentences(sentences, ceiling) };
 }
