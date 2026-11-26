@@ -48,7 +48,7 @@ const LEVELS_SCHEMA: ResponseSchema = {
   required: ["levels"],
 };
 
-function jsonModel(temperature: number, schema: ResponseSchema, thinkingBudget = THINKING_BUDGET) {
+function jsonModel(temperature: number, schema: ResponseSchema) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY 누락");
   return new GoogleGenerativeAI(key).getGenerativeModel({
@@ -58,7 +58,7 @@ function jsonModel(temperature: number, schema: ResponseSchema, thinkingBudget =
       responseSchema: schema,
       maxOutputTokens: 16384,
       temperature,
-      thinkingConfig: { thinkingBudget },
+      thinkingConfig: { thinkingBudget: THINKING_BUDGET },
     } as any,
   });
 }
@@ -80,11 +80,11 @@ function parseJson(text: string): any {
 // 실제 테스트에서 영역 12개 생성 중 503 이 한 번 났다. 요청당 60초 안에 들어오도록 두 번까지만 다시 시도한다.
 const TRANSIENT = /\b(429|500|503)\b|overloaded|unavailable|RESOURCE_EXHAUSTED/i;
 
-async function askJson(prompt: string, temperature: number, schema: ResponseSchema, thinkingBudget?: number): Promise<any> {
+async function askJson(prompt: string, temperature: number, schema: ResponseSchema): Promise<any> {
   const waits = [1500, 4000];
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await trackedGenerate(jsonModel(temperature, schema, thinkingBudget), {
+      const res = await trackedGenerate(jsonModel(temperature, schema), {
         contents: [{ role: "user", parts: [{ text: prompt }] }],
       });
       return parseJson(res.response.text());
@@ -210,7 +210,6 @@ const ACTIVITY_END = /(관리|확인|처리|해결|운영|검토|작성|수행|�
 // 여러 술어를 잇는 복문 (예: '~을 분석하고 ~을 제고한다')
 const COMPOUND = /(하고|하며|하여|하면서|시키고|시키며)\s/;
 const GENERIC = /(해당\s?업무|업무의 적정수행률|적정 수행률)/;
-const LEVELS_THINKING = Number(process.env.JOB_LEVELS_THINKING_BUDGET ?? THINKING_BUDGET);
 const MAX_BODY = 80;
 const MAX_MEANING = 60;
 // 아래 규칙은 고객 기획서 기준으로 독립 검수(2026-11-26, 생성 문장 143개)에서 반복 지적된 문제들이다.
@@ -404,7 +403,7 @@ export async function generateAreaLevels(
   const ceiling = input.area.ceiling;
   const basePrompt = levelsPrompt(input);
 
-  let sentences = normalize(await askJson(basePrompt, 0.4, LEVELS_SCHEMA, LEVELS_THINKING), ceiling);
+  let sentences = normalize(await askJson(basePrompt, 0.4, LEVELS_SCHEMA), ceiling);
   let issues = checkSentences(sentences, ceiling);
 
   // 빠진 레벨이나 형식 위반이 있으면 한 번만 다시 쓰게 한다. 두 번째 결과가 더 나쁘면 첫 결과를 유지한다.
@@ -414,7 +413,7 @@ export async function generateAreaLevels(
 ## 직전 결과의 문제 (반드시 고쳐서 L1~L${ceiling} 전체를 다시 출력)
 ${issues.map((s) => `- ${s}`).join("\n")}`;
     try {
-      const again = normalize(await askJson(retry, 0.3, LEVELS_SCHEMA, LEVELS_THINKING), ceiling);
+      const again = normalize(await askJson(retry, 0.3, LEVELS_SCHEMA), ceiling);
       const againIssues = checkSentences(again, ceiling);
       if (againIssues.length <= issues.length) {
         sentences = again;
