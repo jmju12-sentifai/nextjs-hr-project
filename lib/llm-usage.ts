@@ -155,7 +155,8 @@ export async function trackedGenerate(model: any, req: any): Promise<any> {
       ...base,
       app_name: await resolveAppName(base.app_id),
       prompt_tokens: u?.promptTokenCount ?? 0,
-      output_tokens: u?.candidatesTokenCount ?? 0,
+      // 생각(thinking) 토큰도 출력 단가로 청구되므로 출력에 더한다. 생각 단계를 끈 호출은 0이라 기존 값과 같다.
+      output_tokens: (u?.candidatesTokenCount ?? 0) + (u?.thoughtsTokenCount ?? 0),
       cached_tokens: u?.cachedContentTokenCount ?? 0,
       total_tokens: u?.totalTokenCount ?? 0,
       duration_ms: Date.now() - t0,

@@ -1,12 +1,11 @@
-// 18레벨 표 엑셀 내보내기 (브라우저에서 생성).
+// 12레벨 표 엑셀 내보내기 (브라우저에서 생성).
 //
-// 고객 샘플의 첫 시트('국내렌즈RA_18레벨_성과책임')와 같은 배치를 따른다:
-//   1~3행 제목·요약·주의문, 4행 머리글, 그 아래 L18→L1. 상한을 넘는 칸은 비워 둔다.
+// 배치는 기존 18레벨 엑셀과 같다: 1~3행 제목·요약·주의문, 4행 머리글, 5행 O*NET, 그 아래 L12→L1.
+//   상한을 넘는 칸은 비워 둔다. 칸 안 문장은 고객 기획서 예시처럼 '성과책임' 줄 아래에 '(의미: …)'를 둔다.
 // exceljs 는 1MB가 넘어 처음 화면 번들에 넣지 않고, 내려받기를 누를 때만 불러온다.
 // 서식은 문서 규칙대로 검은 글씨와 회색 음영만 쓴다.
 
-import { LEVELS, sentenceText, type JobArea, type LevelSentence } from "@/lib/job-levels/levels";
-import { mockScore, scoreLabel } from "@/lib/job-levels/score";
+import { LEVELS, meaningText, type JobArea, type LevelSentence } from "@/lib/job-levels/levels";
 
 export type ExportData = {
   jobName: string;
@@ -25,7 +24,9 @@ const GRAY = { type: "pattern" as const, pattern: "solid" as const, fgColor: { a
 // 한글은 열 너비 1당 약 0.5자라 너비 40 칸에 20자 안팎이 한 줄에 들어간다.
 function rowHeight(texts: string[], colWidth: number): number {
   const perLine = Math.max(8, Math.floor(colWidth / 1.9));
-  const lines = Math.max(1, ...texts.map((t) => Math.ceil((t || "").length / perLine)));
+  const linesOf = (t: string) =>
+    (t || "").split("\n").reduce((n, part) => n + Math.max(1, Math.ceil(part.length / perLine)), 0);
+  const lines = Math.max(1, ...texts.map(linesOf));
   return Math.max(30, lines * 14 + 8);
 }
 
@@ -48,8 +49,8 @@ export async function downloadLevelTable(d: ExportData) {
   const maxCeiling = Math.max(...areas.map((a) => a.ceiling));
   const minCeiling = Math.min(...areas.map((a) => a.ceiling));
 
-  // ── 시트 1: 18레벨 성과책임 ──
-  const ws = wb.addWorksheet("18레벨_성과책임", {
+  // ── 시트 1: 12레벨 성과책임 ──
+  const ws = wb.addWorksheet("12레벨_성과책임", {
     views: [{ state: "frozen", xSplit: 3, ySplit: 5 }],
   });
   ws.columns = [
@@ -64,20 +65,20 @@ export async function downloadLevelTable(d: ExportData) {
     c.font = { ...FONT, size, bold };
     c.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
   };
-  banner(1, `${d.jobName} | 18레벨 성과책임·모의 직무가치`, true, 13);
+  banner(1, `${d.jobName} | 12레벨 성과책임`, true, 13);
   banner(
     2,
-    `${d.industry ? `${d.industry} • ` : ""}${areas.length}개 성과영역 / ${count}개 레벨별 문장 • (수단) 성과상태 (모의 점수)`,
+    `${d.industry ? `${d.industry} • ` : ""}${areas.length}개 성과영역 / ${count}개 레벨별 문장 • 성과책임. (의미: …)`,
   );
   banner(
     3,
-    `상한 L${minCeiling === maxCeiling ? maxCeiling : `${minCeiling}~L${maxCeiling}`}, 상한을 넘는 레벨은 공란 / 점수는 O*NET 실측값이 아닌 레벨별 기준값을 적용한 모의평가이며 문장을 고쳐도 바뀌지 않습니다.`,
+    `상한 L${minCeiling === maxCeiling ? maxCeiling : `${minCeiling}~L${maxCeiling}`}, 상한을 넘는 레벨은 공란 / 레벨별 문장은 책임 수준을 비교하기 위한 후보입니다.`,
   );
   ws.getRow(1).height = 24;
   ws.getRow(3).height = 30;
 
   const head = ws.getRow(4);
-  ["책임 레벨군", "판단·권한 책임 크기", "L", ...areas.map((a) => a.name)].forEach((t, i) => {
+  ["책임 레벨군", "판단·권한 기준", "L", ...areas.map((a) => a.name)].forEach((t, i) => {
     const c = head.getCell(i + 1);
     c.value = t;
     c.font = { ...FONT, bold: true };
@@ -89,7 +90,7 @@ export async function downloadLevelTable(d: ExportData) {
 
   const onetRow = ws.getRow(5);
   ws.mergeCells(5, 1, 5, 3);
-  onetRow.getCell(1).value = "O*NET 참고 직업 (점수 미반영)";
+  onetRow.getCell(1).value = "O*NET 참고 직업";
   areas.forEach((a, i) => {
     onetRow.getCell(4 + i).value = a.onet ? `${a.onet.code} ${a.onet.title}` : "";
   });
@@ -110,7 +111,7 @@ export async function downloadLevelTable(d: ExportData) {
     row.getCell(3).value = lv.level;
     areas.forEach((a, i) => {
       const s = lv.level <= a.ceiling ? (d.sentences[a.id] || []).find((x) => x.level === lv.level) : undefined;
-      const text = s ? `${sentenceText(s.means, s.outcome)} ${scoreLabel(lv.level)}` : "";
+      const text = s ? [s.accountability, meaningText(s.meaning)].filter(Boolean).join("\n") : "";
       row.getCell(4 + i).value = text;
       texts.push(text);
     });
@@ -133,7 +134,6 @@ export async function downloadLevelTable(d: ExportData) {
     { header: "상한", width: 7 },
     { header: "상한 근거", width: 48 },
     { header: "O*NET 참고 직업", width: 36 },
-    { header: "상한 레벨 모의점수", width: 12 },
   ];
   areas.forEach((a, i) =>
     wa.addRow([
@@ -143,7 +143,6 @@ export async function downloadLevelTable(d: ExportData) {
       `L${a.ceiling}`,
       a.ceilingReason || "",
       a.onet ? `${a.onet.code} ${a.onet.title}` : "",
-      mockScore(a.ceiling).V,
     ]),
   );
   wa.eachRow((row, n) => {
@@ -177,7 +176,7 @@ export async function downloadLevelTable(d: ExportData) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${safeFileName(d.jobName)}_18레벨_성과책임.xlsx`;
+  a.download = `${safeFileName(d.jobName)}_12레벨_성과책임.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();

@@ -1,14 +1,13 @@
 "use client";
-// 직무 성과책임 18레벨 표 (관리자 전용)
+// 직무 성과책임 12레벨 표 (관리자 전용)
 //
 // 흐름: ① 직무명·KRA 입력 → ② AI가 제안한 성과영역·상한을 확인·수정 → ③ 영역별로 문장 생성 → 표 확인·수정 → 엑셀.
 // 문장은 영역마다 별도 요청으로 받아 완성되는 대로 표에 채운다(요청당 60초 제한 회피, 실패한 영역만 다시 만들기).
-// 점수는 서버가 아니라 lib/job-levels/score.ts 의 고정 계산으로 화면에서 붙인다.
+// 문장 형식은 '성과책임. (의미: …)'이다(고객 기획서 v1.1). 기존 18레벨의 모의 점수는 새 기획서에 없어 뺐다.
 // 작업 내용은 이 브라우저에만 임시 저장한다 — 보관은 엑셀 내려받기로 한다(1차 범위).
 
 import { useEffect, useMemo, useState } from "react";
-import { LEVELS, MAX_LEVEL, sentenceText, type JobArea, type LevelSentence } from "@/lib/job-levels/levels";
-import { scoreLabel } from "@/lib/job-levels/score";
+import { LEVELS, MAX_LEVEL, meaningText, type JobArea, type LevelSentence } from "@/lib/job-levels/levels";
 import { downloadLevelTable } from "./excel";
 
 type AreaState = { status: "running" | "done" | "error"; error?: string; warnings?: string[] };
@@ -19,9 +18,10 @@ type Draft = {
   areas: JobArea[];
   sentences: Record<string, LevelSentence[]>;
 };
-type Editing = { areaId: string; level: number; means: string; outcome: string };
+type Editing = { areaId: string; level: number; accountability: string; meaning: string };
 
-const STORE_KEY = "hrcoach.jobLevels.draft.v1";
+// v1 은 18레벨·'(수단) 성과상태' 형식이라 읽지 않는다. 12레벨로 자동 변환할 수 없어 새로 만들어야 한다.
+const STORE_KEY = "hrcoach.jobLevels.draft.v2";
 const CONCURRENCY = 3;
 
 async function postJson(url: string, body: unknown) {
@@ -73,7 +73,7 @@ export default function JobLevelsPage() {
         setJobName(d.jobName || "");
         setIndustry(d.industry || "");
         setKraText(d.kraText || "");
-        setAreas(Array.isArray(d.areas) ? d.areas : []);
+        setAreas(Array.isArray(d.areas) ? d.areas.map((a) => ({ ...a, ceiling: Math.min(MAX_LEVEL, a.ceiling) })) : []);
         setSentences(d.sentences || {});
       }
     } catch {
@@ -183,10 +183,14 @@ export default function JobLevelsPage() {
 
   function saveEdit() {
     if (!editing) return;
-    const { areaId, level, means, outcome } = editing;
+    const { areaId, level, accountability, meaning } = editing;
     setSentences((prev) => {
       const list = (prev[areaId] || []).filter((s) => s.level !== level);
-      list.push({ level, means: means.trim().replace(/^\(|\)$/g, ""), outcome: outcome.trim() });
+      list.push({
+        level,
+        accountability: accountability.trim(),
+        meaning: meaning.trim().replace(/^\(?\s*의미\s*[:：]\s*/, "").replace(/\)\s*$/, ""),
+      });
       list.sort((a, b) => a.level - b.level);
       return { ...prev, [areaId]: list };
     });
@@ -226,10 +230,10 @@ export default function JobLevelsPage() {
       <div className="mx-auto max-w-7xl">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">직무 성과책임 18레벨 표</h1>
+            <h1 className="text-2xl font-bold text-slate-900">직무 성과책임 12레벨 표</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
               직무명과 주요 성과영역(KRA)을 입력하면, 성과영역마다 L1부터 상한 레벨까지 성과책임 문장을 만들고 엑셀로 내려받을 수 있습니다.
-              점수는 레벨별 기준값을 적용한 모의 점수이며, 문장을 고쳐도 바뀌지 않습니다.
+              문장은 '성과책임. (의미: …)' 형식입니다.
             </p>
           </div>
           <button type="button" onClick={resetAll} disabled={busy} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50">
@@ -304,7 +308,7 @@ export default function JobLevelsPage() {
                 + 영역 추가
               </button>
               <button type="button" onClick={() => generate(false)} disabled={busy} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
-                {generating ? `문장 만드는 중… (${doneCount}/${areas.length})` : doneCount ? "전체 문장 다시 만들기" : "18레벨 문장 만들기"}
+                {generating ? `문장 만드는 중… (${doneCount}/${areas.length})` : doneCount ? "전체 문장 다시 만들기" : "12레벨 문장 만들기"}
               </button>
               {doneCount > 0 && doneCount < areas.length && !generating && (
                 <button type="button" onClick={() => generate(true)} className="rounded-lg border border-blue-700 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50">
@@ -315,14 +319,14 @@ export default function JobLevelsPage() {
           </section>
         )}
 
-        {/* ③ 18레벨 표 */}
+        {/* ③ 12레벨 표 */}
         {areas.length > 0 && (doneCount > 0 || runningCount > 0) && (
           <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-bold text-slate-900">3. 18레벨 성과책임 표</h2>
+                <h2 className="text-base font-bold text-slate-900">3. 12레벨 성과책임 표</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  {areas.length}개 성과영역 · 문장 {sentenceCount}개 · 문장을 누르면 고칠 수 있습니다. (수단) 성과상태 (모의 점수)
+                  {areas.length}개 성과영역 · 문장 {sentenceCount}개 · 문장을 누르면 고칠 수 있습니다.
                 </p>
               </div>
               <button type="button" onClick={exportExcel} disabled={exporting || generating || sentenceCount === 0} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
@@ -372,10 +376,10 @@ export default function JobLevelsPage() {
                         if (isEditing) {
                           return (
                             <td key={a.id} className="border-b border-r border-slate-200 bg-blue-50 p-2">
-                              <label className="block text-[11px] font-semibold text-slate-600" htmlFor="jl-edit-means">수단(괄호 안)</label>
-                              <textarea id="jl-edit-means" value={editing.means} onChange={(e) => setEditing({ ...editing, means: e.target.value })} rows={3} className="mt-1 w-full rounded border border-slate-300 p-1.5 text-xs leading-5" />
-                              <label className="mt-1.5 block text-[11px] font-semibold text-slate-600" htmlFor="jl-edit-outcome">성과상태</label>
-                              <textarea id="jl-edit-outcome" value={editing.outcome} onChange={(e) => setEditing({ ...editing, outcome: e.target.value })} rows={3} className="mt-1 w-full rounded border border-slate-300 p-1.5 text-xs leading-5" />
+                              <label className="block text-[11px] font-semibold text-slate-600" htmlFor="jl-edit-acc">성과책임</label>
+                              <textarea id="jl-edit-acc" value={editing.accountability} onChange={(e) => setEditing({ ...editing, accountability: e.target.value })} rows={3} className="mt-1 w-full rounded border border-slate-300 p-1.5 text-xs leading-5" />
+                              <label className="mt-1.5 block text-[11px] font-semibold text-slate-600" htmlFor="jl-edit-meaning">의미</label>
+                              <textarea id="jl-edit-meaning" value={editing.meaning} onChange={(e) => setEditing({ ...editing, meaning: e.target.value })} rows={3} className="mt-1 w-full rounded border border-slate-300 p-1.5 text-xs leading-5" />
                               <div className="mt-1.5 flex gap-2">
                                 <button type="button" onClick={saveEdit} className="rounded bg-blue-700 px-2.5 py-1 text-xs font-semibold text-white">저장</button>
                                 <button type="button" onClick={() => setEditing(null)} className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs">취소</button>
@@ -389,10 +393,11 @@ export default function JobLevelsPage() {
                               <button
                                 type="button"
                                 disabled={generating}
-                                onClick={() => setEditing({ areaId: a.id, level: lv.level, means: s.means, outcome: s.outcome })}
+                                onClick={() => setEditing({ areaId: a.id, level: lv.level, accountability: s.accountability, meaning: s.meaning })}
                                 className="block w-full p-2 text-left leading-5 text-slate-800 hover:bg-blue-50 disabled:hover:bg-transparent"
                               >
-                                {sentenceText(s.means, s.outcome)} <span className="whitespace-nowrap text-slate-500">{scoreLabel(lv.level)}</span>
+                                {s.accountability}
+                                {s.meaning && <span className="mt-1 block text-slate-500">{meaningText(s.meaning)}</span>}
                               </button>
                             ) : (
                               <div className="p-2 text-slate-400">{running ? <span className="animate-pulse">작성 중…</span> : "—"}</div>
@@ -406,7 +411,7 @@ export default function JobLevelsPage() {
               </table>
             </div>
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              회색 칸은 상한을 넘는 레벨이라 비워 둡니다. 점수는 O*NET 실측값이 아닌 레벨별 기준값을 적용한 모의평가입니다.
+              회색 칸은 상한을 넘는 레벨이라 비워 둡니다. 레벨별 문장은 책임 수준을 비교하기 위한 후보입니다.
               작업 내용은 이 브라우저에만 임시로 저장되니, 보관이 필요하면 엑셀로 내려받아 주세요.
             </p>
           </section>
